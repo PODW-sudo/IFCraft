@@ -67,7 +67,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState('gemini');
-  const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [config, setConfig] = useState<CopilotConfig>(loadCopilotConfig());
 
@@ -216,9 +216,17 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   const currentProvider = providers.find((p) => p.id === selectedProviderId);
+
+  const hasActiveKey = React.useMemo(() => {
+    if (!currentProvider) return false;
+    if (!currentProvider.requires_api_key) return true;
+    if (currentProvider.has_server_key) return true;
+    if (selectedProviderId === 'gemini' && config.geminiKey.trim()) return true;
+    if (selectedProviderId === 'claude' && config.claudeKey.trim()) return true;
+    if (selectedProviderId === 'openai' && config.openaiKey.trim()) return true;
+    return false;
+  }, [currentProvider, selectedProviderId, config]);
 
   return (
     <>
@@ -240,9 +248,23 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             </div>
             <div>
               <h2 className="text-xs font-semibold text-white tracking-wide uppercase">AI BIM Copilot</h2>
-              <div className="flex items-center space-x-1.5 text-[10px] text-slate-400">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Ready</span>
+              <div className="flex items-center space-x-1.5 text-[10px]">
+                {selectedProviderId === 'local' ? (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    <span className="text-cyan-300 font-mono">Offline CAD Engine</span>
+                  </>
+                ) : hasActiveKey ? (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-400 font-medium">Connected</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span className="text-amber-300 font-medium">Key Needed</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -308,6 +330,19 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <Box className="w-3 h-3 text-cyan-400" />
               <span>Target Element:</span>
               <span className="font-mono font-medium text-cyan-200">#{selectedExpressId}</span>
+            </div>
+          )}
+
+          {/* Missing API Key Warning Callout */}
+          {!hasActiveKey && currentProvider?.requires_api_key && (
+            <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-200">
+              <span className="truncate mr-2">API key needed for {currentProvider.name}</span>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="shrink-0 text-[10px] font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 px-2 py-0.5 rounded transition-colors"
+              >
+                Set Key
+              </button>
             </div>
           )}
         </div>
@@ -451,6 +486,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={handleConfigSaved}
+        serverProviders={providers}
       />
     </>
   );

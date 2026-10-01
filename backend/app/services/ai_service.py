@@ -116,23 +116,26 @@ class AIService:
             {
                 "id": "gemini",
                 "name": "Google Gemini",
-                "models": ["gemini-3.8-flash", "gemini-3.8-pro", "gemini-3.5-pro"],
-                "default_model": "gemini-3.8-flash",
-                "requires_api_key": True
+                "models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+                "default_model": "gemini-2.5-flash",
+                "requires_api_key": True,
+                "has_server_key": bool(settings.GEMINI_API_KEY)
             },
             {
                 "id": "claude",
                 "name": "Anthropic Claude",
                 "models": ["claude-3-7-sonnet", "claude-3-5-sonnet"],
                 "default_model": "claude-3-7-sonnet",
-                "requires_api_key": True
+                "requires_api_key": True,
+                "has_server_key": bool(settings.ANTHROPIC_API_KEY)
             },
             {
                 "id": "openai",
                 "name": "OpenAI",
                 "models": ["gpt-4.5", "gpt-4o", "o3-mini"],
                 "default_model": "gpt-4o",
-                "requires_api_key": True
+                "requires_api_key": True,
+                "has_server_key": bool(settings.OPENAI_API_KEY)
             },
             {
                 "id": "ollama",
@@ -140,14 +143,16 @@ class AIService:
                 "models": ["llama3.1", "qwen2.5-coder", "mistral"],
                 "default_model": "llama3.1",
                 "default_base_url": "http://localhost:11434/v1",
-                "requires_api_key": False
+                "requires_api_key": False,
+                "has_server_key": True
             },
             {
                 "id": "local",
                 "name": "Built-in Assistant (Zero Key / Offline)",
                 "models": ["deterministic-engine"],
                 "default_model": "deterministic-engine",
-                "requires_api_key": False
+                "requires_api_key": False,
+                "has_server_key": True
             }
         ]
 
@@ -533,14 +538,71 @@ class AIService:
     # Multi-Provider Dispatcher
     # -----------------------------------------------------------------------
 
+    @staticmethod
+    def _convert_schema_to_gemini(schema: Any) -> Any:
+        """Recursively convert JSON Schema types to Gemini uppercase Type enums."""
+        if not isinstance(schema, dict):
+            return schema
+        new_schema = {}
+        type_mapping = {
+            "string": "STRING",
+            "number": "NUMBER",
+            "integer": "INTEGER",
+            "boolean": "BOOLEAN",
+            "array": "ARRAY",
+            "object": "OBJECT"
+        }
+        for k, v in schema.items():
+            if k == "type" and isinstance(v, str):
+                new_schema["type"] = type_mapping.get(v.lower(), v.upper())
+            elif k == "properties" and isinstance(v, dict):
+                new_schema["properties"] = {
+                    pk: AIService._convert_schema_to_gemini(pv)
+                    for pk, pv in v.items()
+                }
+            elif k == "items" and isinstance(v, dict):
+                new_schema["items"] = AIService._convert_schema_to_gemini(v)
+            else:
+                new_schema[k] = v
+        return new_schema
+
     @classmethod
     async def chat(cls, request: CopilotChatRequest) -> CopilotChatResponse:
         provider = request.provider.lower()
         api_key = request.api_key or ""
+        
+        # Fallback to server-side .env keys if client did not supply a key
+        if not api_key:
+            if provider == "gemini":
+                api_key = settings.GEMINI_API_KEY
+            elif provider == "openai":
+                api_key = settings.OPENAI_API_KEY
+            elif provider == "claude":
+                api_key = settings.ANTHROPIC_API_KEY
+
         model = request.model or ""
         messages = request.messages
         project_id = request.project_id
         selected_id = request.selected_express_id
+
+        # If an external cloud provider was selected but no key is present, provide structured guidance
+        if provider in ("gemini", "claude", "openai") and not api_key:
+            provider_names = {"gemini": "Google Gemini", "claude": "Anthropic Claude", "openai": "OpenAI"}
+            disp_name = provider_names.get(provider, provider.title())
+            return CopilotChatResponse(
+                message=ChatMessage(
+                    role="assistant",
+                    content=(
+                        f"**API Key Required for {disp_name}**\n\n"
+                        f"No API key was detected for **{disp_name}**. To enable real AI assistance:\n\n"
+                        f"1. Click the **Settings (gear icon)** at the top-right of this panel to paste your API key, or\n"
+                        f"2. Add `{provider.upper()}_API_KEY=your_key_here` to your backend `.env` file.\n\n"
+                        f"*Tip: You can switch the provider to **Built-in Assistant (Zero Key)** in the dropdown to generate buildings, transform elements, and query models completely offline.*"
+                    )
+                ),
+                tool_calls=[],
+                project_updated=False
+            )
 
         tool_calls: list[ToolCall] = []
         assistant_content = ""
@@ -548,7 +610,7 @@ class AIService:
 
         # Route to provider or deterministic fallback
         if provider == "gemini" and api_key:
-            assistant_content, raw_calls = await cls._call_gemini(api_key, model or "gemini-3.8-flash", messages, selected_id)
+            assistant_content, raw_calls = await cls._call_gemini(api_key, model or "gemini-2.5-flash", messages, selected_id)
         elif provider == "claude" and api_key:
             assistant_content, raw_calls = await cls._call_anthropic(api_key, model or "claude-3-7-sonnet", messages, selected_id)
         elif provider == "openai" and api_key:
@@ -603,13 +665,13 @@ class AIService:
         if selected_id and contents:
             contents[-1]["parts"].append({"text": f"\n[Context: The user currently has element express_id={selected_id} selected in the 3D viewport.]"})
 
-        # Gemini function declarations
+        # Gemini function declarations with uppercase types for Gemini v1beta REST API
         gemini_tools = [{
-            "functionDeclarations": [
+            "function_declarations": [
                 {
                     "name": t["function"]["name"],
                     "description": t["function"]["description"],
-                    "parameters": t["function"]["parameters"]
+                    "parameters": cls._convert_schema_to_gemini(t["function"]["parameters"])
                 }
                 for t in OPENAI_TOOLS
             ]
@@ -635,8 +697,8 @@ class AIService:
                 for part in parts:
                     if "text" in part:
                         text += part["text"]
-                    if "functionCall" in part:
-                        fc = part["functionCall"]
+                    fc = part.get("functionCall") or part.get("function_call")
+                    if fc:
                         calls.append({
                             "id": f"call_{uuid.uuid4().hex[:8]}",
                             "name": fc["name"],
