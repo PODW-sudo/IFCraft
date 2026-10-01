@@ -15,7 +15,7 @@
   - Implement spatial hierarchy tree (`IfcProject` -> `IfcSite` -> `IfcBuilding` -> `IfcBuildingStorey` -> Elements) with selection raycasting and highlight material.
   - **Quality Gate:** `pnpm exec tsc --noEmit` and `pnpm run build` succeed; test model renders in 3D with functional spatial tree selection.
 
-- [ ] **Phase 3: Spatial Transformations & Property Editor**
+- [x] **Phase 3: Spatial Transformations & Property Editor**
   - Attach Three.js `TransformControls` (Translate, Rotate, Scale with grid snapping) to selected IFC elements.
   - Build Property Inspector panel displaying attributes, Property Sets (`IfcPropertySet`), and quantities (`IfcElementQuantity`).
   - Wire frontend transform matrix changes to backend FastAPI endpoint using `ifcopenshell` to recalculate `IfcLocalPlacement` and `IfcAxis2Placement3D`.

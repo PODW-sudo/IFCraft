@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ThreeViewport } from './components/viewer/ThreeViewport';
+import { ThreeViewport, type TransformMode } from './components/viewer/ThreeViewport';
 import { SpatialTree } from './components/tree/SpatialTree';
+import { PropertyInspector } from './components/properties/PropertyInspector';
 import { TopToolbar } from './components/toolbar/TopToolbar';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
@@ -16,17 +17,17 @@ export const App: React.FC = () => {
   const [isolatedExpressID, setIsolatedExpressID] = useState<number | null>(null);
   const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
 
-  const toggleCategoryVisibility = useCallback((category: string) => {
-    setHiddenCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
-    });
-  }, []);
+  // 3D Transform & Property State
+  const [transformMode, setTransformMode] = useState<TransformMode>('select');
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [transformInfo, setTransformInfo] = useState<{
+    position: [number, number, number];
+    rotation: [number, number, number];
+  } | null>(null);
 
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(true);
+  const [isPropertyOpen, setIsPropertyOpen] = useState(true);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -65,6 +66,15 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  const toggleCategoryVisibility = useCallback((category: string) => {
+    setHiddenCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }, []);
+
   // Parse ArrayBuffer with dedicated Web Worker
   const parseBufferInWorker = useCallback((buffer: ArrayBuffer, fileName: string) => {
     if (!workerRef.current) return;
@@ -87,6 +97,7 @@ export const App: React.FC = () => {
     setCurrentProject(project);
     setSelectedExpressID(null);
     setIsolatedExpressID(null);
+    setTransformInfo(null);
 
     try {
       setIsLoading(true);
@@ -127,6 +138,54 @@ export const App: React.FC = () => {
     }
     initApp();
   }, [loadProject]);
+
+  // Handle Element Selection
+  const handleSelectElement = useCallback((expressID: number | null) => {
+    setSelectedExpressID(expressID);
+    if (expressID !== null) {
+      setIsPropertyOpen(true);
+      if (transformMode === 'select') {
+        setTransformMode('translate'); // Default to translate gizmo on selection
+      }
+    } else {
+      setTransformInfo(null);
+      setTransformMode('select');
+    }
+  }, [transformMode]);
+
+  // Handle Transform End: Persist to backend IfcOpenShell engine
+  const handleTransformEnd = useCallback(
+    async (expressID: number, matrix: number[]) => {
+      if (!currentProject) return;
+      try {
+        const res = await fetch(
+          `/api/projects/${currentProject.id}/elements/${expressID}/placement`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ matrix })
+          }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          console.error('Failed to persist transform to backend:', err.detail);
+        } else {
+          console.log(`Successfully persisted 3D transform for #${expressID} to IFC model.`);
+        }
+      } catch (err) {
+        console.error('Network error persisting transform:', err);
+      }
+    },
+    [currentProject]
+  );
+
+  // Handle Live Transform Coordinate Updates
+  const handleTransformChange = useCallback(
+    (_expressID: number, pos: [number, number, number], rot: [number, number, number]) => {
+      setTransformInfo({ position: pos, rotation: rot });
+    },
+    []
+  );
 
   // Handle User File Upload
   const handleFileSelected = async (file: File) => {
@@ -193,29 +252,36 @@ export const App: React.FC = () => {
         onToggleCategory={toggleCategoryVisibility}
       />
 
-      {/* Main Content: Spatial Tree + 3D Viewport */}
+      {/* Main Workspace Layout */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Left: Spatial Tree */}
         <SpatialTree
           tree={spatialTree}
           selectedExpressID={selectedExpressID}
-          onSelectElement={setSelectedExpressID}
+          onSelectElement={handleSelectElement}
           isolatedExpressID={isolatedExpressID}
           onToggleIsolate={setIsolatedExpressID}
           isOpen={isTreeOpen}
           onToggleOpen={() => setIsTreeOpen(false)}
         />
 
-        {/* 3D Viewport */}
+        {/* Center: 3D Viewport with TransformControls */}
         <main className="flex-1 h-full relative">
           <ThreeViewport
             geometries={geometries}
             selectedExpressID={selectedExpressID}
-            onSelectElement={setSelectedExpressID}
+            onSelectElement={handleSelectElement}
             hiddenCategories={hiddenCategories}
             isolatedExpressID={isolatedExpressID}
+            transformMode={transformMode}
+            onSetTransformMode={setTransformMode}
+            snapEnabled={snapEnabled}
+            onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+            onTransformEnd={handleTransformEnd}
+            onTransformChange={handleTransformChange}
           />
 
-          {/* Floating Empty State Hint */}
+          {/* Empty State Hint */}
           {geometries.length === 0 && !isLoading && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="p-6 rounded-lg bg-[#16191f]/90 border border-[#262a33] text-center max-w-sm pointer-events-auto backdrop-blur-md shadow-2xl">
@@ -233,6 +299,17 @@ export const App: React.FC = () => {
             </div>
           )}
         </main>
+
+        {/* Right: Property Inspector Panel */}
+        {selectedExpressID !== null && (
+          <PropertyInspector
+            projectId={currentProject?.id || null}
+            expressId={selectedExpressID}
+            isOpen={isPropertyOpen}
+            onClose={() => setIsPropertyOpen(false)}
+            transformInfo={transformInfo}
+          />
+        )}
       </div>
 
       {/* Modals */}

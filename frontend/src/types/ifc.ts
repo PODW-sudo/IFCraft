@@ -53,3 +53,23 @@ export interface ProjectMetadata {
   created_at: string;
   updated_at: string;
 }
+
+export interface PropertySingle {
+  name: string;
+  value: unknown;
+  value_type: string;
+}
+
+export interface PropertySetData {
+  name: string;
+  properties: PropertySingle[];
+}
+
+export interface ElementDetails {
+  express_id: number;
+  global_id: string;
+  name: string;
+  type: string;
+  psets: PropertySetData[];
+  quantities: Record<string, unknown>;
+}

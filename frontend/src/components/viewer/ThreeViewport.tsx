@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { Move, RotateCw, Maximize2, MousePointer, Magnet } from 'lucide-react';
 import type { GeometryData } from '../../types/ifc';
+
+export type TransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 
 interface ThreeViewportProps {
   geometries: GeometryData[];
@@ -9,6 +13,12 @@ interface ThreeViewportProps {
   onSelectElement: (expressID: number | null) => void;
   hiddenCategories: Set<string>;
   isolatedExpressID: number | null;
+  transformMode: TransformMode;
+  onSetTransformMode: (mode: TransformMode) => void;
+  snapEnabled: boolean;
+  onToggleSnap: () => void;
+  onTransformEnd: (expressID: number, matrix: number[]) => void;
+  onTransformChange?: (expressID: number, pos: [number, number, number], rot: [number, number, number]) => void;
 }
 
 // Architectural Category Materials Palette (Obsidian Minimalist Theme)
@@ -33,18 +43,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   selectedExpressID,
   onSelectElement,
   hiddenCategories,
-  isolatedExpressID
+  isolatedExpressID,
+  transformMode,
+  onSetTransformMode,
+  snapEnabled,
+  onToggleSnap,
+  onTransformEnd,
+  onTransformChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const transformControlsRef = useRef<TransformControls | null>(null);
   const meshesGroupRef = useRef<THREE.Group | null>(null);
   const meshMapRef = useRef<Map<number, THREE.Mesh[]>>(new Map());
-  const highlightMeshRef = useRef<THREE.Mesh | null>(null);
   const bboxHelperRef = useRef<THREE.BoxHelper | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
+  const isDraggingGizmoRef = useRef(false);
 
   // Initialize Three.js Viewport
   useEffect(() => {
@@ -86,7 +103,38 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
-    // 5. Lighting
+    // 5. TransformControls (3D Gizmo)
+    const tControls = new TransformControls(camera, renderer.domElement);
+    tControls.size = 0.75;
+    scene.add(tControls.getHelper());
+    transformControlsRef.current = tControls;
+
+    // Disable OrbitControls while dragging gizmo
+    tControls.addEventListener('dragging-changed', (event) => {
+      const isDragging = Boolean(event.value);
+      isDraggingGizmoRef.current = isDragging;
+      controls.enabled = !isDragging;
+
+      if (!isDragging && tControls.object) {
+        const mesh = tControls.object as THREE.Mesh;
+        const expressID = mesh.userData.expressID as number;
+        mesh.updateMatrixWorld();
+        const matrixArray = mesh.matrixWorld.toArray();
+        onTransformEnd(expressID, matrixArray);
+      }
+    });
+
+    tControls.addEventListener('objectChange', () => {
+      if (tControls.object && onTransformChange) {
+        const mesh = tControls.object as THREE.Mesh;
+        const expressID = mesh.userData.expressID as number;
+        const pos = mesh.position.toArray() as [number, number, number];
+        const rot = [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z] as [number, number, number];
+        onTransformChange(expressID, pos, rot);
+      }
+    });
+
+    // 6. Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
 
@@ -104,12 +152,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     dirLight2.position.set(-20, -10, -20);
     scene.add(dirLight2);
 
-    // 6. Grid Helper
+    // 7. Grid Helper
     const gridHelper = new THREE.GridHelper(50, 50, 0x38bdf8, 0x262a33);
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
-    // 7. Group for IFC Meshes
+    // 8. Group for IFC Meshes
     const meshesGroup = new THREE.Group();
     scene.add(meshesGroup);
     meshesGroupRef.current = meshesGroup;
@@ -134,19 +182,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     return () => {
       window.removeEventListener('resize', handleResize);
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      tControls.dispose();
       controls.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, []);
+  }, [onTransformEnd, onTransformChange]);
 
   // Update Geometry Meshes when geometries prop changes
   useEffect(() => {
     const scene = sceneRef.current;
     const group = meshesGroupRef.current;
+    const tControls = transformControlsRef.current;
     if (!scene || !group) return;
+
+    if (tControls) tControls.detach();
 
     // Explicit cleanup of previous meshes to avoid WebGL memory leaks
     while (group.children.length > 0) {
@@ -161,10 +213,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     meshMapRef.current.clear();
 
-    if (highlightMeshRef.current) {
-      scene.remove(highlightMeshRef.current);
-      highlightMeshRef.current = null;
-    }
     if (bboxHelperRef.current) {
       scene.remove(bboxHelperRef.current);
       bboxHelperRef.current = null;
@@ -259,30 +307,86 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     });
   }, [hiddenCategories, isolatedExpressID]);
 
-  // Handle Selection Highlight
+  // Handle Selection & TransformControls Attachment
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
+    const tControls = transformControlsRef.current;
+    if (!scene || !tControls) return;
 
     if (bboxHelperRef.current) {
       scene.remove(bboxHelperRef.current);
       bboxHelperRef.current = null;
     }
 
-    if (selectedExpressID === null) return;
+    if (selectedExpressID === null) {
+      tControls.detach();
+      return;
+    }
 
     const meshes = meshMapRef.current.get(selectedExpressID);
-    if (!meshes || meshes.length === 0) return;
+    if (!meshes || meshes.length === 0) {
+      tControls.detach();
+      return;
+    }
 
     const primaryMesh = meshes[0];
+
+    // Bounding box helper
     const bbox = new THREE.BoxHelper(primaryMesh, 0x38bdf8);
     scene.add(bbox);
     bboxHelperRef.current = bbox;
-  }, [selectedExpressID]);
+
+    // Attach TransformControls if transformMode !== 'select'
+    if (transformMode === 'select') {
+      tControls.detach();
+    } else {
+      tControls.attach(primaryMesh);
+      tControls.setMode(transformMode);
+      tControls.setTranslationSnap(snapEnabled ? 0.5 : null);
+      tControls.setRotationSnap(snapEnabled ? Math.PI / 12 : null);
+      tControls.setScaleSnap(snapEnabled ? 0.25 : null);
+
+      if (onTransformChange) {
+        const pos = primaryMesh.position.toArray() as [number, number, number];
+        const rot = [primaryMesh.rotation.x, primaryMesh.rotation.y, primaryMesh.rotation.z] as [number, number, number];
+        onTransformChange(selectedExpressID, pos, rot);
+      }
+    }
+  }, [selectedExpressID, transformMode, snapEnabled, onTransformChange]);
+
+  // Keyboard shortcuts (Q = select, W = translate, E = rotate, R = scale, X = snap)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key.toLowerCase()) {
+        case 'q':
+          onSetTransformMode('select');
+          break;
+        case 'w':
+          onSetTransformMode('translate');
+          break;
+        case 'e':
+          onSetTransformMode('rotate');
+          break;
+        case 'r':
+          onSetTransformMode('scale');
+          break;
+        case 'x':
+          onToggleSnap();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onSetTransformMode, onToggleSnap]);
 
   // Click Raycasting for Selection
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if (isDraggingGizmoRef.current) return;
+
       const container = containerRef.current;
       const camera = cameraRef.current;
       const group = meshesGroupRef.current;
@@ -312,10 +416,92 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   );
 
   return (
-    <div
-      ref={containerRef}
-      onClick={handleClick}
-      className="relative w-full h-full cursor-crosshair overflow-hidden select-none outline-none"
-    />
+    <div className="relative w-full h-full overflow-hidden select-none outline-none">
+      {/* 3D Canvas */}
+      <div
+        ref={containerRef}
+        onClick={handleClick}
+        className="w-full h-full cursor-crosshair"
+      />
+
+      {/* Floating Viewport Pill: Transform Gizmo Controls */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-[#16191f]/90 backdrop-blur-md p-1 rounded-lg border border-[#262a33] shadow-xl">
+        <button
+          onClick={() => onSetTransformMode('select')}
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
+            transformMode === 'select'
+              ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Select Mode (Q)"
+        >
+          <MousePointer className="w-3.5 h-3.5" />
+          <span>Select</span>
+        </button>
+
+        <button
+          onClick={() => onSetTransformMode('translate')}
+          disabled={selectedExpressID === null}
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
+            transformMode === 'translate'
+              ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
+              : selectedExpressID === null
+              ? 'text-slate-600 cursor-not-allowed'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Translate Gizmo (W)"
+        >
+          <Move className="w-3.5 h-3.5" />
+          <span>Translate</span>
+        </button>
+
+        <button
+          onClick={() => onSetTransformMode('rotate')}
+          disabled={selectedExpressID === null}
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
+            transformMode === 'rotate'
+              ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
+              : selectedExpressID === null
+              ? 'text-slate-600 cursor-not-allowed'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Rotate Gizmo (E)"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+          <span>Rotate</span>
+        </button>
+
+        <button
+          onClick={() => onSetTransformMode('scale')}
+          disabled={selectedExpressID === null}
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
+            transformMode === 'scale'
+              ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
+              : selectedExpressID === null
+              ? 'text-slate-600 cursor-not-allowed'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Scale Gizmo (R)"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+          <span>Scale</span>
+        </button>
+
+        <div className="w-[1px] h-4 bg-[#262a33] mx-1" />
+
+        <button
+          onClick={onToggleSnap}
+          className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs transition-colors ${
+            snapEnabled
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium'
+              : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+          }`}
+          title="Toggle Snap Grid (0.5m / 15°) (X)"
+        >
+          <Magnet className="w-3.5 h-3.5" />
+          <span>Snap</span>
+        </button>
+      </div>
+    </div>
   );
 };
