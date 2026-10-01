@@ -11,6 +11,8 @@ import {
   Search
 } from 'lucide-react';
 import type { SpatialNode } from '../../types/ifc';
+import { useResizable } from '../../hooks/useResizable';
+import { ResizeHandle } from '../common/ResizeHandle';
 
 interface SpatialTreeProps {
   tree: SpatialNode | null;
@@ -33,6 +35,14 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set([0]));
+
+  const { width, isDragging, startResizing, resetWidth } = useResizable({
+    initialWidth: 288,
+    minWidth: 220,
+    maxWidth: 600,
+    storageKey: 'ifc_editor_spatial_tree_width',
+    direction: 'right'
+  });
 
   const toggleExpand = (expressID: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -142,7 +152,16 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="w-72 h-[calc(100vh-4rem)] flex flex-col bg-[#16191f]/90 backdrop-blur-md border-r border-[#262a33] text-slate-200">
+    <div
+      style={{ width: `${width}px` }}
+      className="relative flex-shrink-0 h-[calc(100vh-3.5rem)] flex flex-col bg-[#16191f]/90 backdrop-blur-md border-r border-[#262a33] text-slate-200 transition-none"
+    >
+      <ResizeHandle
+        position="right"
+        onMouseDown={startResizing}
+        onDoubleClick={resetWidth}
+        isDragging={isDragging}
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#262a33]">
         <div className="flex items-center gap-2">

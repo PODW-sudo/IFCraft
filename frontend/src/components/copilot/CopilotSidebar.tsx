@@ -18,6 +18,8 @@ import {
 import type { ChatMessage, AIProvider } from '../../types/ifc';
 import { sendCopilotChat, fetchCopilotProviders } from '../../services/api';
 import { CopilotSettingsModal, loadCopilotConfig, type CopilotConfig } from './CopilotSettingsModal';
+import { useResizable } from '../../hooks/useResizable';
+import { ResizeHandle } from '../common/ResizeHandle';
 
 interface CopilotSidebarProps {
   isOpen: boolean;
@@ -68,6 +70,14 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [config, setConfig] = useState<CopilotConfig>(loadCopilotConfig());
+
+  const { width, isDragging, startResizing, resetWidth } = useResizable({
+    initialWidth: 384,
+    minWidth: 300,
+    maxWidth: 750,
+    storageKey: 'ifc_editor_copilot_sidebar_width',
+    direction: 'left'
+  });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -212,7 +222,16 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
   return (
     <>
-      <div className="fixed top-12 right-0 bottom-0 w-96 bg-[#0d0f12]/95 backdrop-blur-md border-l border-[#262a33] flex flex-col z-30 shadow-2xl transition-all animate-in slide-in-from-right duration-200">
+      <div
+        style={{ width: `${width}px` }}
+        className="fixed top-14 right-0 bottom-0 bg-[#0d0f12]/95 backdrop-blur-md border-l border-[#262a33] flex flex-col z-30 shadow-2xl transition-none"
+      >
+        <ResizeHandle
+          position="left"
+          onMouseDown={startResizing}
+          onDoubleClick={resetWidth}
+          isDragging={isDragging}
+        />
         {/* Top Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#262a33] bg-[#12151b]/80">
           <div className="flex items-center space-x-2">
