@@ -23,6 +23,7 @@ import {
   type Collaborator,
   type ElementLock
 } from './services/collaboration';
+import IfcWorker from './workers/ifcWorker?worker';
 
 export const App: React.FC = () => {
   // Application State
@@ -80,9 +81,7 @@ export const App: React.FC = () => {
 
   // Initialize Web Worker
   useEffect(() => {
-    const worker = new Worker(new URL('./workers/ifcWorker.ts', import.meta.url), {
-      type: 'module'
-    });
+    const worker = new IfcWorker();
     workerRef.current = worker;
 
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {

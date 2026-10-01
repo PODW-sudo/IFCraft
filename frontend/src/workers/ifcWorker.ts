@@ -2,14 +2,26 @@ import * as WebIFC from 'web-ifc';
 import type { GeometryData, SpatialNode, WorkerParseRequest } from '../types/ifc';
 
 const ifcApi = new WebIFC.IfcAPI();
-let isInitialized = false;
+let initPromise: Promise<void> | null = null;
 
 async function ensureInitialized() {
-  if (!isInitialized) {
-    ifcApi.SetWasmPath('/');
-    await ifcApi.Init();
-    isInitialized = true;
+  if (!initPromise) {
+    initPromise = (async () => {
+      const origin = (typeof self !== 'undefined' && self.location && self.location.origin)
+        ? self.location.origin
+        : '';
+      const wasmBase = origin ? `${origin}/` : '/';
+      ifcApi.SetWasmPath(wasmBase, true);
+      await ifcApi.Init((path: string) => {
+        if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('blob:')) {
+          return path;
+        }
+        const cleanPath = path.replace(/^\/+/, '');
+        return origin ? `${origin}/${cleanPath}` : `/${cleanPath}`;
+      });
+    })();
   }
+  return initPromise;
 }
 
 self.onmessage = async (event: MessageEvent<WorkerParseRequest>) => {
