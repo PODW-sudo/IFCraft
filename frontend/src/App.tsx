@@ -21,6 +21,7 @@ import {
   type Collaborator,
   type ElementLock
 } from './services/collaboration';
+import { Lock, X } from 'lucide-react';
 import IfcWorker from './workers/ifcWorker?worker';
 
 export const App: React.FC = () => {
@@ -64,6 +65,19 @@ export const App: React.FC = () => {
     matrix: number[];
   } | null>(null);
   const collabClientRef = useRef<CollaborationClient | null>(null);
+  const [lockNotification, setLockNotification] = useState<{
+    expressID: number;
+    userName: string;
+    userColor?: string;
+  } | null>(null);
+
+  // Auto-dismiss soft lock concurrency alert
+  useEffect(() => {
+    if (lockNotification) {
+      const timer = setTimeout(() => setLockNotification(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [lockNotification]);
 
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(true);
@@ -136,8 +150,15 @@ export const App: React.FC = () => {
         });
       },
       onLockRejected: (expressId, heldBy) => {
-        alert(`Element #${expressId} is currently being edited by ${heldBy?.user_name || 'another user'}.`);
-        setSelectedExpressID(null);
+        const myUserId = collabClientRef.current?.profile.userId || localStorage.getItem('ifc_editor_user_id');
+        if (heldBy && heldBy.user_id !== myUserId) {
+          setLockNotification({
+            expressID: expressId,
+            userName: heldBy.user_name || 'another user',
+            userColor: heldBy.user_color
+          });
+          setSelectedExpressID(null);
+        }
       },
       onRemoteTransformStream: (expressId, matrix) => {
         setRemoteTransform({ expressID: expressId, matrix });
@@ -249,11 +270,20 @@ export const App: React.FC = () => {
       }
 
       if (expressID !== null) {
-        // Check if locked by another user
+        // Check if locked by another user (NOT ourselves, and only if other user is actively connected)
         const existingLock = elementLocks[expressID];
-        if (existingLock) {
-          alert(`Element #${expressID} is currently locked by ${existingLock.user_name}.`);
-          return;
+        const myUserId = collabClientRef.current?.profile.userId || localStorage.getItem('ifc_editor_user_id');
+
+        if (existingLock && existingLock.user_id !== myUserId) {
+          const isHolderConnected = collaborators.some((u) => u.user_id === existingLock.user_id);
+          if (isHolderConnected) {
+            setLockNotification({
+              expressID,
+              userName: existingLock.user_name || 'another user',
+              userColor: existingLock.user_color
+            });
+            return;
+          }
         }
 
         setSelectedExpressID(expressID);
@@ -270,7 +300,7 @@ export const App: React.FC = () => {
         setTransformMode('select');
       }
     },
-    [selectedExpressID, elementLocks, transformMode]
+    [selectedExpressID, elementLocks, transformMode, collaborators]
   );
 
   const handleToggleCopilot = useCallback(() => {
@@ -573,6 +603,24 @@ export const App: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Non-blocking Soft Lock Alert Notification */}
+      {lockNotification && (
+        <div className="fixed top-16 right-6 z-50 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--dock-bg)] border border-amber-500/40 text-amber-200 text-xs shadow-[var(--shadow-hud)] backdrop-blur-md animate-in fade-in-50 slide-in-from-top-2 select-none">
+          <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>
+            Element <strong className="font-mono text-cyan-300">#{lockNotification.expressID}</strong> is being edited by{' '}
+            <span className="font-semibold text-amber-300">{lockNotification.userName}</span>
+          </span>
+          <button
+            onClick={() => setLockNotification(null)}
+            className="ml-1 text-slate-400 hover:text-slate-200 p-0.5 rounded cursor-pointer transition-colors"
+            title="Dismiss notification"
+          >
+            <X className="w-3 h-3" />
+          </button>
         </div>
       )}
 

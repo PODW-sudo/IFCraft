@@ -78,6 +78,10 @@ export class CollaborationClient {
     return this.isConnected;
   }
 
+  public get profile(): { userId: string; userName: string; userColor: string } {
+    return this.userProfile;
+  }
+
   public connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
