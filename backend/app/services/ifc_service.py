@@ -281,6 +281,47 @@ class IFCService:
         return True
 
     @staticmethod
+    def get_element_placement_matrix(file_path: Path, express_id: int) -> list[float]:
+        """Get column-major 4x4 transformation matrix for an element."""
+        identity = [1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0]
+        if not file_path.exists():
+            return identity
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity or not hasattr(entity, "ObjectPlacement") or not entity.ObjectPlacement:
+            return identity
+        
+        rel = getattr(entity.ObjectPlacement, "RelativePlacement", None)
+        if not rel or not hasattr(rel, "Location"):
+            return identity
+        
+        coords = rel.Location.Coordinates
+        tx = float(coords[0]) if len(coords) > 0 else 0.0
+        ty = float(coords[1]) if len(coords) > 1 else 0.0
+        tz = float(coords[2]) if len(coords) > 2 else 0.0
+        
+        zx, zy, zz = 0.0, 0.0, 1.0
+        if hasattr(rel, "Axis") and rel.Axis and hasattr(rel.Axis, "DirectionRatios"):
+            dr = rel.Axis.DirectionRatios
+            zx, zy, zz = float(dr[0]), float(dr[1]), float(dr[2])
+            
+        xx, xy, xz = 1.0, 0.0, 0.0
+        if hasattr(rel, "RefDirection") and rel.RefDirection and hasattr(rel.RefDirection, "DirectionRatios"):
+            dr = rel.RefDirection.DirectionRatios
+            xx, xy, xz = float(dr[0]), float(dr[1]), float(dr[2])
+            
+        yx = zy * xz - zz * xy
+        yy = zz * xx - zx * xz
+        yz = zx * xy - zy * xx
+        
+        return [
+            xx, xy, xz, 0.0,
+            yx, yy, yz, 0.0,
+            zx, zy, zz, 0.0,
+            tx, ty, tz, 1.0
+        ]
+
+    @staticmethod
     def update_element_property(
         file_path: Path,
         express_id: int,

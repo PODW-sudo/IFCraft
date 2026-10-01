@@ -73,3 +73,44 @@ export interface ElementDetails {
   psets: PropertySetData[];
   quantities: Record<string, unknown>;
 }
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}
+
+export interface CopilotChatRequest {
+  project_id: string;
+  messages: { role: string; content: string }[];
+  provider: string;
+  model?: string;
+  api_key?: string;
+  base_url?: string;
+  selected_express_id?: number | null;
+}
+
+export interface CopilotChatResponse {
+  message: { role: string; content: string };
+  tool_calls: ToolCall[];
+  project_updated: boolean;
+}
+
+export interface AIProvider {
+  id: string;
+  name: string;
+  models: string[];
+  default_model: string;
+  default_base_url?: string;
+  requires_api_key: boolean;
+}
+

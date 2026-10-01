@@ -84,3 +84,28 @@ class HealthStatus(BaseModel):
     database_ok: bool
     project_count: int
     timestamp: str
+
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="'user', 'assistant', or 'system'")
+    content: str = Field(..., description="Message text content")
+
+class ToolCall(BaseModel):
+    id: str
+    name: str
+    arguments: dict[str, Any]
+    result: Optional[dict[str, Any]] = None
+
+class CopilotChatRequest(BaseModel):
+    project_id: str
+    messages: list[ChatMessage]
+    provider: str = Field("gemini", description="'gemini', 'claude', 'openai', 'ollama', or 'local'")
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    selected_express_id: Optional[int] = None
+
+class CopilotChatResponse(BaseModel):
+    message: ChatMessage
+    tool_calls: list[ToolCall] = []
+    project_updated: bool = False
+

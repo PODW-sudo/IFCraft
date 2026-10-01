@@ -15,6 +15,7 @@ import {
 } from './components/tools/BimToolsToolbar';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
+import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse } from './types/ifc';
 import * as api from './services/api';
 import {
@@ -67,6 +68,7 @@ export const App: React.FC = () => {
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(true);
   const [isPropertyOpen, setIsPropertyOpen] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -356,6 +358,13 @@ export const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  // Handle AI Copilot Model Modification Refresh
+  const handleModelModifiedByCopilot = useCallback(() => {
+    if (currentProject) {
+      loadProject(currentProject);
+    }
+  }, [currentProject, loadProject]);
+
   return (
     <div className="flex flex-col w-screen h-screen bg-[#0d0f12] text-slate-100 overflow-hidden font-sans">
       {/* Top Navigation & Action Bar */}
@@ -371,6 +380,8 @@ export const App: React.FC = () => {
         hiddenCategories={hiddenCategories}
         onToggleCategory={toggleCategoryVisibility}
         collaborators={collaborators}
+        isCopilotOpen={isCopilotOpen}
+        onToggleCopilot={() => setIsCopilotOpen((prev) => !prev)}
       />
 
       {/* Main Workspace Layout */}
@@ -452,6 +463,15 @@ export const App: React.FC = () => {
             transformInfo={transformInfo}
           />
         )}
+
+        {/* Right: AI Copilot Sidebar Drawer */}
+        <CopilotSidebar
+          isOpen={isCopilotOpen}
+          onClose={() => setIsCopilotOpen(false)}
+          projectId={currentProject?.id || ''}
+          selectedExpressId={selectedExpressID}
+          onModelModified={handleModelModifiedByCopilot}
+        />
       </div>
 
       {/* Modals */}

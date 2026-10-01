@@ -4,7 +4,8 @@ import {
   Download,
   FolderTree,
   PlusCircle,
-  Box
+  Box,
+  Sparkles
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
@@ -21,6 +22,8 @@ interface TopToolbarProps {
   hiddenCategories?: Set<string>;
   onToggleCategory?: (category: string) => void;
   collaborators?: Collaborator[];
+  isCopilotOpen?: boolean;
+  onToggleCopilot?: () => void;
 }
 
 const CATEGORY_FILTERS = [
@@ -42,7 +45,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   selectedExpressID,
   hiddenCategories = new Set(),
   onToggleCategory,
-  collaborators = []
+  collaborators = [],
+  isCopilotOpen = false,
+  onToggleCopilot
 }) => {
   return (
     <header className="h-14 w-full bg-[#16191f]/95 backdrop-blur-md border-b border-[#262a33] flex items-center justify-between px-4 z-20">
@@ -127,6 +132,21 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <FolderTree className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Hierarchy</span>
         </button>
+
+        {onToggleCopilot && (
+          <button
+            onClick={onToggleCopilot}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-all border ${
+              isCopilotOpen
+                ? 'bg-gradient-to-r from-sky-600/30 to-indigo-600/30 text-sky-300 border-sky-500/50 shadow-sm shadow-sky-500/20'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border-slate-700/60'
+            }`}
+            title="Toggle AI Copilot"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Copilot</span>
+          </button>
+        )}
 
         <button
           onClick={onOpenNewProjectModal}

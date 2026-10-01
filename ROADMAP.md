@@ -35,7 +35,7 @@
   - Stream transform matrix updates over WebSocket with low-latency lerp interpolation.
   - **Quality Gate:** Two simultaneous client sessions correctly broadcast presence, lock elements, and synchronize transforms.
 
-- [ ] **Phase 6: Multi-Provider AI Copilot**
+- [x] **Phase 6: Multi-Provider AI Copilot**
   - Build sidebar AI chat UI with provider selector (OpenAI, Anthropic, Google Gemini, Ollama) and client-side API key modal.
   - Implement backend agent router with tool-calling capabilities:
     - `generate_building(specs)`

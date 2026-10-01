@@ -52,3 +52,25 @@ export async function fetchSpatialTree(projectId: string): Promise<SpatialNode> 
 export function getDownloadUrl(projectId: string): string {
   return `${BASE_URL}/projects/${projectId}/download`;
 }
+
+export async function fetchCopilotProviders(): Promise<import('../types/ifc').AIProvider[]> {
+  const res = await fetch(`${BASE_URL}/copilot/providers`);
+  if (!res.ok) throw new Error(`Failed to fetch AI providers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function sendCopilotChat(
+  request: import('../types/ifc').CopilotChatRequest
+): Promise<import('../types/ifc').CopilotChatResponse> {
+  const res = await fetch(`${BASE_URL}/copilot/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'AI Copilot chat failed');
+  }
+  return res.json();
+}
+
