@@ -22,7 +22,7 @@
   - Enable inline editing of property values with backend persistence.
   - **Quality Gate:** Element transformation via 3D gizmo updates backend placement; properties edit cleanly; build passes.
 
-- [ ] **Phase 4: Advanced BIM Suite (Sectioning & Measurement)**
+- [x] **Phase 4: Advanced BIM Suite (Sectioning & Measurement)**
   - Implement orthogonal clipping/section planes (X, Y, Z planes) with interactive slider controls.
   - Implement point-to-point 3D measurement ruler with vertex snapping and real-time distance readouts.
   - Implement camera orientation presets (Top, Front, Side, Perspective) and visibility toggles (Hide, Isolate, Wireframe).

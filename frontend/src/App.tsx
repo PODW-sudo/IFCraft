@@ -1,8 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ThreeViewport, type TransformMode } from './components/viewer/ThreeViewport';
+import {
+  ThreeViewport,
+  type TransformMode,
+  type MeasurementRecord
+} from './components/viewer/ThreeViewport';
 import { SpatialTree } from './components/tree/SpatialTree';
 import { PropertyInspector } from './components/properties/PropertyInspector';
 import { TopToolbar } from './components/toolbar/TopToolbar';
+import {
+  BimToolsToolbar,
+  type SectionPlaneConfig,
+  type CameraPreset,
+  type RenderStyle
+} from './components/tools/BimToolsToolbar';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse } from './types/ifc';
@@ -24,6 +34,21 @@ export const App: React.FC = () => {
     position: [number, number, number];
     rotation: [number, number, number];
   } | null>(null);
+
+  // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
+  const [isMeasureActive, setIsMeasureActive] = useState(false);
+  const [measurements, setMeasurements] = useState<MeasurementRecord[]>([]);
+  const [sectionConfig, setSectionConfig] = useState<SectionPlaneConfig>({
+    enabled: false,
+    axis: 'y',
+    position: 4.0,
+    inverted: false
+  });
+  const [cameraPresetTrigger, setCameraPresetTrigger] = useState<{
+    preset: CameraPreset;
+    timestamp: number;
+  } | null>(null);
+  const [renderStyle, setRenderStyle] = useState<RenderStyle>('shaded');
 
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(true);
@@ -98,6 +123,7 @@ export const App: React.FC = () => {
     setSelectedExpressID(null);
     setIsolatedExpressID(null);
     setTransformInfo(null);
+    setMeasurements([]);
 
     try {
       setIsLoading(true);
@@ -145,7 +171,7 @@ export const App: React.FC = () => {
     if (expressID !== null) {
       setIsPropertyOpen(true);
       if (transformMode === 'select') {
-        setTransformMode('translate'); // Default to translate gizmo on selection
+        setTransformMode('translate');
       }
     } else {
       setTransformInfo(null);
@@ -187,6 +213,20 @@ export const App: React.FC = () => {
     []
   );
 
+  // Measurement Handlers
+  const handleAddMeasurement = useCallback((record: MeasurementRecord) => {
+    setMeasurements((prev) => [...prev, record]);
+  }, []);
+
+  const handleClearMeasurements = useCallback(() => {
+    setMeasurements([]);
+  }, []);
+
+  // Camera Preset Handler
+  const handleCameraPreset = useCallback((preset: CameraPreset) => {
+    setCameraPresetTrigger({ preset, timestamp: Date.now() });
+  }, []);
+
   // Handle User File Upload
   const handleFileSelected = async (file: File) => {
     try {
@@ -194,13 +234,11 @@ export const App: React.FC = () => {
       setLoadingStage('Uploading file to backend...');
       setLoadingPercent(10);
 
-      // Upload to backend storage and register in SQLite
       const project = await api.uploadIFCFile(file);
       setCurrentProject(project);
       setSelectedExpressID(null);
       setIsolatedExpressID(null);
 
-      // Read buffer locally for instant worker parsing
       const arrayBuffer = await file.arrayBuffer();
       parseBufferInWorker(arrayBuffer, file.name);
     } catch (err: unknown) {
@@ -265,7 +303,7 @@ export const App: React.FC = () => {
           onToggleOpen={() => setIsTreeOpen(false)}
         />
 
-        {/* Center: 3D Viewport with TransformControls */}
+        {/* Center: 3D Viewport with TransformControls, Sectioning, Measurements */}
         <main className="flex-1 h-full relative">
           <ThreeViewport
             geometries={geometries}
@@ -279,6 +317,25 @@ export const App: React.FC = () => {
             onToggleSnap={() => setSnapEnabled((prev) => !prev)}
             onTransformEnd={handleTransformEnd}
             onTransformChange={handleTransformChange}
+            isMeasureActive={isMeasureActive}
+            measurements={measurements}
+            onAddMeasurement={handleAddMeasurement}
+            sectionConfig={sectionConfig}
+            cameraPresetTrigger={cameraPresetTrigger}
+            renderStyle={renderStyle}
+          />
+
+          {/* Floating BIM Inspection Toolbar (Measurements, Section, Views) */}
+          <BimToolsToolbar
+            isMeasureActive={isMeasureActive}
+            onToggleMeasure={() => setIsMeasureActive((p) => !p)}
+            measurementCount={measurements.length}
+            onClearMeasurements={handleClearMeasurements}
+            sectionConfig={sectionConfig}
+            onUpdateSection={setSectionConfig}
+            onCameraPreset={handleCameraPreset}
+            renderStyle={renderStyle}
+            onSetRenderStyle={setRenderStyle}
           />
 
           {/* Empty State Hint */}
