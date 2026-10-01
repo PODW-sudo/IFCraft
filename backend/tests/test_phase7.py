@@ -144,5 +144,42 @@ def test_phase7_e2e_samples_and_export():
             client.delete(f"/api/projects/{pid}")
         print("[PASS] All test projects cleaned up successfully.")
 
+def test_external_sample_models_from_modelsfortests():
+    with TestClient(app) as client:
+        # 1. Test loading IFC2X3 Duplex Architecture
+        res_duplex = client.post("/api/projects/samples/ifc2x3_duplex_architecture/load")
+        assert res_duplex.status_code == 201
+        duplex_data = res_duplex.json()
+        assert duplex_data["schema_version"] == "IFC2X3"
+        assert duplex_data["element_count"] == 295
+        duplex_id = duplex_data["id"]
+
+        # Verify spatial tree
+        tree_res = client.get(f"/api/projects/{duplex_id}/spatial-tree")
+        assert tree_res.status_code == 200
+        tree = tree_res.json()
+        assert tree["type"] == "IfcProject"
+        assert len(tree["children"]) > 0
+
+        # 2. Test loading Building Architecture (IFC4X3)
+        res_bld = client.post("/api/projects/samples/building_architecture/load")
+        assert res_bld.status_code == 201
+        bld_data = res_bld.json()
+        assert bld_data["schema_version"] == "IFC4X3"
+        assert bld_data["element_count"] == 20
+        bld_id = bld_data["id"]
+
+        # Verify spatial tree
+        tree_bld_res = client.get(f"/api/projects/{bld_id}/spatial-tree")
+        assert tree_bld_res.status_code == 200
+        tree_bld = tree_bld_res.json()
+        assert tree_bld["type"] == "IfcProject"
+
+        # Clean up
+        client.delete(f"/api/projects/{duplex_id}")
+        client.delete(f"/api/projects/{bld_id}")
+        print("\n[PASS] Verified modelsfortests sample models (IFC2X3 & IFC4X3).")
+
 if __name__ == "__main__":
     test_phase7_e2e_samples_and_export()
+    test_external_sample_models_from_modelsfortests()
