@@ -35,19 +35,32 @@ export function useResizable({
   const [isDragging, setIsDragging] = useState(false);
   const dragStartXRef = useRef(0);
   const startWidthRef = useRef(width);
+  const currentWidthRef = useRef(width);
+  currentWidthRef.current = width;
 
-  const startResizing = useCallback((e: React.MouseEvent) => {
+  const startResizing = useCallback((e: React.PointerEvent | React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // If PointerEvent, capture pointer to element
+    if ('setPointerCapture' in e.currentTarget && 'pointerId' in e) {
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture((e as React.PointerEvent).pointerId);
+      } catch {
+        // ignore if not supported
+      }
+    }
+
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
-    startWidthRef.current = width;
+    startWidthRef.current = currentWidthRef.current;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [width]);
+  }, []);
 
   const resetWidth = useCallback(() => {
     setWidth(initialWidth);
+    currentWidthRef.current = initialWidth;
     if (storageKey) {
       try {
         localStorage.setItem(storageKey, String(initialWidth));
@@ -57,10 +70,11 @@ export function useResizable({
     }
   }, [initialWidth, storageKey]);
 
+  // Window event listeners for seamless drag anywhere on screen
   useEffect(() => {
     if (!isDragging) return;
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: MouseEvent | PointerEvent) => {
       const deltaX = e.clientX - dragStartXRef.current;
       let newWidth: number;
       if (direction === 'left') {
@@ -72,42 +86,44 @@ export function useResizable({
       }
 
       const clamped = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      currentWidthRef.current = clamped;
       setWidth(clamped);
     };
 
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       setIsDragging(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       if (storageKey) {
         try {
-          localStorage.setItem(storageKey, String(width));
+          localStorage.setItem(storageKey, String(currentWidthRef.current));
         } catch {
           // ignore
         }
       }
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('mousemove', onPointerMove, { passive: true });
+    window.addEventListener('mouseup', onPointerUp);
 
     return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      window.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isDragging, direction, minWidth, maxWidth, storageKey, width]);
+  }, [isDragging, direction, minWidth, maxWidth, storageKey]);
 
-  useEffect(() => {
-    if (storageKey && !isDragging) {
-      try {
-        localStorage.setItem(storageKey, String(width));
-      } catch {
-        // ignore
-      }
-    }
-  }, [width, storageKey, isDragging]);
-
-  return { width, isDragging, startResizing, resetWidth };
+  return {
+    width,
+    isDragging,
+    startResizing,
+    resetWidth
+  };
 }
