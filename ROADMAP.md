@@ -7,7 +7,7 @@
   - Create unified `start.ps1` PowerShell runner for local execution.
   - **Quality Gate:** Backend starts cleanly with Uvicorn; `/health` and project endpoints return valid responses.
 
-- [ ] **Phase 2: Frontend Foundation & 3D IFC Viewer**
+- [x] **Phase 2: Frontend Foundation & 3D IFC Viewer**
   - Scaffold React 19 + Vite + TypeScript application using `pnpm` and configure Tailwind CSS.
   - Mount Three.js viewport with perspective camera, `OrbitControls`, directional lights, and grid.
   - Integrate `web-ifc` WebAssembly running in a dedicated Web Worker.
