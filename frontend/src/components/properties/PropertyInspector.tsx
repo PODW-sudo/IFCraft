@@ -22,6 +22,7 @@ interface PropertyInspectorProps {
   onClose: () => void;
   onPropertyUpdated?: () => void;
   transformInfo?: { position: [number, number, number]; rotation: [number, number, number] } | null;
+  onWidthChange?: (width: number) => void;
 }
 
 export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
@@ -30,7 +31,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   isOpen,
   onClose,
   onPropertyUpdated,
-  transformInfo
+  transformInfo,
+  onWidthChange
 }) => {
   const [details, setDetails] = useState<ElementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +47,12 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
     storageKey: 'ifc_editor_property_inspector_width',
     direction: 'left'
   });
+
+  useEffect(() => {
+    if (onWidthChange && isOpen && expressId !== null) {
+      onWidthChange(width);
+    }
+  }, [width, isOpen, expressId, onWidthChange]);
 
   // New property form state
   const [showAddProp, setShowAddProp] = useState(false);
@@ -194,7 +202,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   return (
     <aside
       style={{ width: `${width}px` }}
-      className="fixed right-4 top-16 bottom-6 z-20 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
+      className="fixed right-4 top-16 bottom-6 z-30 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
     >
       <ResizeHandle
         position="left"

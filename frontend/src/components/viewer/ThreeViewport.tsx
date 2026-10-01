@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { Compass } from 'lucide-react';
 import type { GeometryData } from '../../types/ifc';
 import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/BimToolsToolbar';
 
@@ -162,8 +163,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   renderStyle,
   elementLocks = {},
   remoteTransform,
-  isRightDrawerOpen = false,
-  rightDrawerWidth = 320
+  isRightDrawerOpen: _isRightDrawerOpen = false,
+  rightDrawerWidth: _rightDrawerWidth = 320
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -980,42 +981,41 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       {/* 3D Viewport Orientation Triad / Quick-View Gizmo (Top-Right) */}
       <div
-        style={{ right: isRightDrawerOpen ? `${rightDrawerWidth + 24}px` : '1rem' }}
-        className="absolute top-4 z-10 flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none transition-[right] duration-200"
+        className="fixed top-3 right-4 z-30 flex items-center gap-1 p-1 rounded-xl bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none text-[10px] font-mono"
       >
-        <div className="flex items-center gap-1 text-[10px] font-mono text-slate-400 px-1 font-semibold uppercase tracking-wider">
-          <span>Views</span>
+        <div className="flex items-center gap-1 text-slate-400 px-1.5 font-semibold uppercase tracking-wider text-[9px]">
+          <Compass className="w-3 h-3 text-cyan-400" />
+          <span className="hidden sm:inline">Views</span>
         </div>
-        <div className="grid grid-cols-2 gap-1 w-24 text-[10px] font-mono">
-          <button
-            onClick={() => onCameraPreset && onCameraPreset('iso')}
-            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
-            title="Isometric 3D"
-          >
-            ISO
-          </button>
-          <button
-            onClick={() => onCameraPreset && onCameraPreset('top')}
-            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-cyan-300 border border-[var(--border-subtle)] transition-colors text-center font-bold"
-            title="Top Floor Plan View"
-          >
-            TOP
-          </button>
-          <button
-            onClick={() => onCameraPreset && onCameraPreset('front')}
-            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
-            title="Front Elevation View"
-          >
-            FRONT
-          </button>
-          <button
-            onClick={() => onCameraPreset && onCameraPreset('side')}
-            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
-            title="Side Elevation View"
-          >
-            SIDE
-          </button>
-        </div>
+        <div className="h-3 w-[1px] bg-[var(--border-subtle)]" />
+        <button
+          onClick={() => onCameraPreset && onCameraPreset('iso')}
+          className="px-2 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+          title="Isometric 3D"
+        >
+          ISO
+        </button>
+        <button
+          onClick={() => onCameraPreset && onCameraPreset('top')}
+          className="px-2 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-cyan-300 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+          title="Top Floor Plan View"
+        >
+          TOP
+        </button>
+        <button
+          onClick={() => onCameraPreset && onCameraPreset('front')}
+          className="px-2 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+          title="Front Elevation View"
+        >
+          FRONT
+        </button>
+        <button
+          onClick={() => onCameraPreset && onCameraPreset('side')}
+          className="px-2 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+          title="Side Elevation View"
+        >
+          SIDE
+        </button>
       </div>
 
       {/* Measure Mode Banner */}

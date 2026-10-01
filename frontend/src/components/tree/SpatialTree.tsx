@@ -22,6 +22,7 @@ interface SpatialTreeProps {
   onToggleIsolate: (expressID: number | null) => void;
   isOpen: boolean;
   onToggleOpen: () => void;
+  onWidthChange?: (width: number) => void;
 }
 
 export const SpatialTree: React.FC<SpatialTreeProps> = ({
@@ -31,7 +32,8 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
   isolatedExpressID,
   onToggleIsolate,
   isOpen,
-  onToggleOpen
+  onToggleOpen,
+  onWidthChange
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set([0]));
@@ -56,6 +58,12 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
     storageKey: 'ifc_editor_spatial_tree_width',
     direction: 'right'
   });
+
+  useEffect(() => {
+    if (onWidthChange && isOpen) {
+      onWidthChange(width);
+    }
+  }, [width, isOpen, onWidthChange]);
 
   const toggleExpand = (expressID: number, e: React.MouseEvent) => {
     e.stopPropagation();

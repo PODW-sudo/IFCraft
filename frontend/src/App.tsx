@@ -83,6 +83,9 @@ export const App: React.FC = () => {
   const [isTreeOpen, setIsTreeOpen] = useState(true);
   const [isPropertyOpen, setIsPropertyOpen] = useState(true);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(288);
+  const [propertyWidth, setPropertyWidth] = useState(320);
+  const [copilotWidth, setCopilotWidth] = useState(384);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isOmnibarOpen, setIsOmnibarOpen] = useState(false);
@@ -464,6 +467,9 @@ export const App: React.FC = () => {
     [handleDownloadProject]
   );
 
+  const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
+  const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
+
   return (
     <div className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none">
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
@@ -488,7 +494,8 @@ export const App: React.FC = () => {
           renderStyle={renderStyle}
           elementLocks={elementLocks}
           remoteTransform={remoteTransform}
-          isRightDrawerOpen={Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen)}
+          isRightDrawerOpen={isRightDrawerOpen}
+          rightDrawerWidth={activeRightDrawerWidth}
         />
       </div>
 
@@ -523,6 +530,7 @@ export const App: React.FC = () => {
         onToggleIsolate={setIsolatedExpressID}
         isOpen={isTreeOpen}
         onToggleOpen={() => setIsTreeOpen(false)}
+        onWidthChange={setTreeWidth}
       />
 
       {/* 4. Floating Right Property Inspector Drawer */}
@@ -533,6 +541,7 @@ export const App: React.FC = () => {
           isOpen={isPropertyOpen}
           onClose={() => setIsPropertyOpen(false)}
           transformInfo={transformInfo}
+          onWidthChange={setPropertyWidth}
         />
       )}
 
@@ -543,6 +552,7 @@ export const App: React.FC = () => {
         projectId={currentProject?.id || ''}
         selectedExpressId={selectedExpressID}
         onModelModified={handleModelModifiedByCopilot}
+        onWidthChange={setCopilotWidth}
       />
 
       {/* 6. Contextual Floating Tool Dock (Bottom Center) */}
@@ -568,6 +578,7 @@ export const App: React.FC = () => {
         transformInfo={transformInfo}
         elementCount={geometries.length}
         isTreeOpen={isTreeOpen}
+        treeWidth={treeWidth}
       />
 
       {/* 8. Command Palette / Spatial Omnibar (Ctrl+K) */}
@@ -608,7 +619,9 @@ export const App: React.FC = () => {
 
       {/* Non-blocking Soft Lock Alert Notification */}
       {lockNotification && (
-        <div className="fixed top-16 right-6 z-50 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--dock-bg)] border border-amber-500/40 text-amber-200 text-xs shadow-[var(--shadow-hud)] backdrop-blur-md animate-in fade-in-50 slide-in-from-top-2 select-none">
+        <div className={`fixed left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--dock-bg)] border border-amber-500/40 text-amber-200 text-xs shadow-[var(--shadow-hud)] backdrop-blur-md transition-all duration-200 select-none animate-in fade-in-50 slide-in-from-top-2 ${
+          isMeasureActive ? 'top-28' : 'top-16'
+        }`}>
           <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span>
             Element <strong className="font-mono text-cyan-300">#{lockNotification.expressID}</strong> is being edited by{' '}
