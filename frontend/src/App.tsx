@@ -431,7 +431,7 @@ export const App: React.FC = () => {
         />
 
         {/* Center: 3D Viewport with TransformControls, Sectioning, Measurements, Soft Locks */}
-        <main className="flex-1 h-full relative">
+        <main className="flex-1 min-w-0 h-full relative overflow-hidden">
           <ThreeViewport
             geometries={geometries}
             selectedExpressID={selectedExpressID}
