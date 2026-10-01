@@ -68,7 +68,7 @@ async def init_db() -> None:
 @asynccontextmanager
 async def get_db_connection() -> AsyncGenerator[aiosqlite.Connection, None]:
     """Provide an async context manager for database operations."""
-    async with aiosqlite.connect(str(settings.DATABASE_PATH)) as db:
+    async with aiosqlite.connect(str(settings.DATABASE_PATH), timeout=30.0) as db:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA foreign_keys = ON;")
         yield db

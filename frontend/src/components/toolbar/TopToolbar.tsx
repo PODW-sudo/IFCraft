@@ -7,6 +7,7 @@ import {
   Box
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
+import type { Collaborator } from '../../services/collaboration';
 
 interface TopToolbarProps {
   currentProject: ProjectMetadata | null;
@@ -19,6 +20,7 @@ interface TopToolbarProps {
   selectedExpressID: number | null;
   hiddenCategories?: Set<string>;
   onToggleCategory?: (category: string) => void;
+  collaborators?: Collaborator[];
 }
 
 const CATEGORY_FILTERS = [
@@ -39,7 +41,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   elementCount,
   selectedExpressID,
   hiddenCategories = new Set(),
-  onToggleCategory
+  onToggleCategory,
+  collaborators = []
 }) => {
   return (
     <header className="h-14 w-full bg-[#16191f]/95 backdrop-blur-md border-b border-[#262a33] flex items-center justify-between px-4 z-20">
@@ -142,6 +145,22 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <Upload className="w-3.5 h-3.5 text-sky-400" />
           <span>Upload IFC</span>
         </button>
+
+        {/* Collaborators Avatar Stack */}
+        {collaborators && collaborators.length > 0 && (
+          <div className="flex items-center -space-x-1.5 pl-1 pr-2 border-r border-[#262a33]">
+            {collaborators.map((c) => (
+              <div
+                key={c.user_id}
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow ring-1 ring-[#0d0f12] cursor-default"
+                style={{ backgroundColor: c.user_color }}
+                title={`${c.user_name} ${c.selected_express_id ? `(editing #${c.selected_express_id})` : ''}`}
+              >
+                {c.user_name.substring(0, 1).toUpperCase()}
+              </div>
+            ))}
+          </div>
+        )}
 
         <button
           onClick={onDownloadProject}

@@ -8,6 +8,7 @@ from .core.config import settings
 from .core.database import init_db
 from .api import api_router
 from .api.health import router as health_router
+from .api.websocket import router as ws_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +44,7 @@ app.add_middleware(
 # Mount Routers
 app.include_router(health_router)          # /health
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)  # /api/...
+app.include_router(ws_router)              # /ws/rooms/{project_id}
 
 @app.get("/")
 async def root():

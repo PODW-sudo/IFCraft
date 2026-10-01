@@ -28,7 +28,7 @@
   - Implement camera orientation presets (Top, Front, Side, Perspective) and visibility toggles (Hide, Isolate, Wireframe).
   - **Quality Gate:** Section planes cut geometry without WebGL crashes; measurement tool calculates accurate 3D vector distances; build passes.
 
-- [ ] **Phase 5: Real-Time Collaboration & Concurrency**
+- [x] **Phase 5: Real-Time Collaboration & Concurrency**
   - Build FastAPI WebSocket room manager (`/ws/rooms/{project_id}`) handling multi-client sessions.
   - Implement user presence indicators (avatars, active selections, color-coded borders).
   - Implement interactive soft-locking on `expressID` during selection and transformation.

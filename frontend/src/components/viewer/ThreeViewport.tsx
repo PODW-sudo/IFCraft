@@ -35,6 +35,9 @@ interface ThreeViewportProps {
   sectionConfig: SectionPlaneConfig;
   cameraPresetTrigger?: { preset: CameraPreset; timestamp: number } | null;
   renderStyle: RenderStyle;
+  // Phase 5 Props: Real-time Collaboration & Soft Locks
+  elementLocks?: Record<number, { user_id: string; user_name: string; user_color: string }>;
+  remoteTransform?: { expressID: number; matrix: number[] } | null;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -70,7 +73,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onAddMeasurement,
   sectionConfig,
   cameraPresetTrigger,
-  renderStyle
+  renderStyle,
+  elementLocks = {},
+  remoteTransform
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -484,6 +489,51 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
     }
   }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive]);
+
+  const lockHelpersRef = useRef<Map<number, THREE.BoxHelper>>(new Map());
+
+  // Render Remote Locks with User Color
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    lockHelpersRef.current.forEach((helper) => scene.remove(helper));
+    lockHelpersRef.current.clear();
+
+    Object.entries(elementLocks).forEach(([expIdStr, lock]) => {
+      const expId = Number(expIdStr);
+      // Don't render lock outline for our own selection
+      if (expId === selectedExpressID) return;
+
+      const meshes = meshMapRef.current.get(expId);
+      if (meshes && meshes.length > 0) {
+        const color = new THREE.Color(lock.user_color);
+        const helper = new THREE.BoxHelper(meshes[0], color);
+        scene.add(helper);
+        lockHelpersRef.current.set(expId, helper);
+      }
+    });
+
+    return () => {
+      lockHelpersRef.current.forEach((helper) => scene.remove(helper));
+      lockHelpersRef.current.clear();
+    };
+  }, [elementLocks, selectedExpressID]);
+
+  // Apply Remote Transform Stream
+  useEffect(() => {
+    if (!remoteTransform) return;
+    const meshes = meshMapRef.current.get(remoteTransform.expressID);
+    if (!meshes || meshes.length === 0) return;
+
+    const mat = new THREE.Matrix4().fromArray(remoteTransform.matrix);
+    meshes[0].matrix.copy(mat);
+    meshes[0].matrix.decompose(meshes[0].position, meshes[0].quaternion, meshes[0].scale);
+    meshes[0].updateMatrixWorld(true);
+
+    const lockHelper = lockHelpersRef.current.get(remoteTransform.expressID);
+    if (lockHelper) lockHelper.update();
+  }, [remoteTransform]);
 
   // Click Handler for Raycasting (Selection OR Measurement)
   const handleClick = useCallback(

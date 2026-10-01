@@ -17,6 +17,11 @@ import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse } from './types/ifc';
 import * as api from './services/api';
+import {
+  CollaborationClient,
+  type Collaborator,
+  type ElementLock
+} from './services/collaboration';
 
 export const App: React.FC = () => {
   // Application State
@@ -49,6 +54,15 @@ export const App: React.FC = () => {
     timestamp: number;
   } | null>(null);
   const [renderStyle, setRenderStyle] = useState<RenderStyle>('shaded');
+
+  // Phase 5 State: Real-time Collaboration & Concurrency
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [elementLocks, setElementLocks] = useState<Record<number, ElementLock>>({});
+  const [remoteTransform, setRemoteTransform] = useState<{
+    expressID: number;
+    matrix: number[];
+  } | null>(null);
+  const collabClientRef = useRef<CollaborationClient | null>(null);
 
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(true);
@@ -90,6 +104,55 @@ export const App: React.FC = () => {
       worker.terminate();
     };
   }, []);
+
+  // Initialize WebSocket Collaboration on Project Change
+  useEffect(() => {
+    if (!currentProject) return;
+
+    if (collabClientRef.current) {
+      collabClientRef.current.disconnect();
+    }
+
+    const client = new CollaborationClient(currentProject.id, {
+      onRoomState: (users, locks) => {
+        setCollaborators(users);
+        setElementLocks(locks);
+      },
+      onUserJoined: (user) => {
+        setCollaborators((prev) => [...prev.filter((u) => u.user_id !== user.user_id), user]);
+      },
+      onUserLeft: (userId) => {
+        setCollaborators((prev) => prev.filter((u) => u.user_id !== userId));
+      },
+      onElementLocked: (expressId, lock) => {
+        setElementLocks((prev) => ({ ...prev, [expressId]: lock }));
+      },
+      onElementUnlocked: (expressId) => {
+        setElementLocks((prev) => {
+          const next = { ...prev };
+          delete next[expressId];
+          return next;
+        });
+      },
+      onLockRejected: (expressId, heldBy) => {
+        alert(`Element #${expressId} is currently being edited by ${heldBy?.user_name || 'another user'}.`);
+        setSelectedExpressID(null);
+      },
+      onRemoteTransformStream: (expressId, matrix) => {
+        setRemoteTransform({ expressID: expressId, matrix });
+      },
+      onRemoteTransformCommitted: (expressId, matrix) => {
+        setRemoteTransform({ expressID: expressId, matrix });
+      }
+    });
+
+    client.connect();
+    collabClientRef.current = client;
+
+    return () => {
+      client.disconnect();
+    };
+  }, [currentProject]);
 
   const toggleCategoryVisibility = useCallback((category: string) => {
     setHiddenCategories((prev) => {
@@ -150,7 +213,6 @@ export const App: React.FC = () => {
         if (projects.length > 0) {
           await loadProject(projects[0]);
         } else {
-          // Auto-create initial blank project
           const newProj = await api.createProject(
             'Starter Architectural Villa',
             'Sample building structure generated with IFC Editor',
@@ -165,24 +227,46 @@ export const App: React.FC = () => {
     initApp();
   }, [loadProject]);
 
-  // Handle Element Selection
-  const handleSelectElement = useCallback((expressID: number | null) => {
-    setSelectedExpressID(expressID);
-    if (expressID !== null) {
-      setIsPropertyOpen(true);
-      if (transformMode === 'select') {
-        setTransformMode('translate');
+  // Handle Element Selection with Soft Locking
+  const handleSelectElement = useCallback(
+    (expressID: number | null) => {
+      // Release previous selection lock if held
+      if (selectedExpressID !== null && collabClientRef.current) {
+        collabClientRef.current.deselectElement(selectedExpressID);
       }
-    } else {
-      setTransformInfo(null);
-      setTransformMode('select');
-    }
-  }, [transformMode]);
 
-  // Handle Transform End: Persist to backend IfcOpenShell engine
+      if (expressID !== null) {
+        // Check if locked by another user
+        const existingLock = elementLocks[expressID];
+        if (existingLock) {
+          alert(`Element #${expressID} is currently locked by ${existingLock.user_name}.`);
+          return;
+        }
+
+        setSelectedExpressID(expressID);
+        setIsPropertyOpen(true);
+        if (transformMode === 'select') {
+          setTransformMode('translate');
+        }
+        // Acquire lock via WebSocket
+        collabClientRef.current?.selectElement(expressID);
+      } else {
+        setSelectedExpressID(null);
+        setTransformInfo(null);
+        setTransformMode('select');
+      }
+    },
+    [selectedExpressID, elementLocks, transformMode]
+  );
+
+  // Handle Transform End: Commit via WebSocket and REST persistence
   const handleTransformEnd = useCallback(
     async (expressID: number, matrix: number[]) => {
       if (!currentProject) return;
+
+      // Broadcast commit over WebSocket for multi-user sync
+      collabClientRef.current?.commitTransform(expressID, matrix);
+
       try {
         const res = await fetch(
           `/api/projects/${currentProject.id}/elements/${expressID}/placement`,
@@ -195,8 +279,6 @@ export const App: React.FC = () => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: res.statusText }));
           console.error('Failed to persist transform to backend:', err.detail);
-        } else {
-          console.log(`Successfully persisted 3D transform for #${expressID} to IFC model.`);
         }
       } catch (err) {
         console.error('Network error persisting transform:', err);
@@ -205,7 +287,7 @@ export const App: React.FC = () => {
     [currentProject]
   );
 
-  // Handle Live Transform Coordinate Updates
+  // Handle Live Transform Coordinate Updates & WebSocket Streaming
   const handleTransformChange = useCallback(
     (_expressID: number, pos: [number, number, number], rot: [number, number, number]) => {
       setTransformInfo({ position: pos, rotation: rot });
@@ -288,6 +370,7 @@ export const App: React.FC = () => {
         selectedExpressID={selectedExpressID}
         hiddenCategories={hiddenCategories}
         onToggleCategory={toggleCategoryVisibility}
+        collaborators={collaborators}
       />
 
       {/* Main Workspace Layout */}
@@ -303,7 +386,7 @@ export const App: React.FC = () => {
           onToggleOpen={() => setIsTreeOpen(false)}
         />
 
-        {/* Center: 3D Viewport with TransformControls, Sectioning, Measurements */}
+        {/* Center: 3D Viewport with TransformControls, Sectioning, Measurements, Soft Locks */}
         <main className="flex-1 h-full relative">
           <ThreeViewport
             geometries={geometries}
@@ -323,9 +406,11 @@ export const App: React.FC = () => {
             sectionConfig={sectionConfig}
             cameraPresetTrigger={cameraPresetTrigger}
             renderStyle={renderStyle}
+            elementLocks={elementLocks}
+            remoteTransform={remoteTransform}
           />
 
-          {/* Floating BIM Inspection Toolbar (Measurements, Section, Views) */}
+          {/* Floating BIM Inspection Toolbar */}
           <BimToolsToolbar
             isMeasureActive={isMeasureActive}
             onToggleMeasure={() => setIsMeasureActive((p) => !p)}
