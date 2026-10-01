@@ -7,6 +7,22 @@ import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/Bim
 
 export type TransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 
+export type SnapType = 'vertex' | 'midpoint' | 'surface';
+
+export interface ActiveSnap {
+  point: THREE.Vector3;
+  type: SnapType;
+  screenPos: { x: number; y: number };
+}
+
+export interface PreviewMeasure {
+  distance: number;
+  dx: number;
+  dy: number;
+  dz: number;
+  midpointScreen: { x: number; y: number };
+}
+
 export interface MeasurementRecord {
   id: string;
   start: [number, number, number];
@@ -29,6 +45,7 @@ interface ThreeViewportProps {
   isMeasureActive: boolean;
   measurements: MeasurementRecord[];
   onAddMeasurement: (record: MeasurementRecord) => void;
+  onCancelMeasure?: () => void;
   sectionConfig: SectionPlaneConfig;
   cameraPresetTrigger?: { preset: CameraPreset; timestamp: number } | null;
   onCameraPreset?: (preset: CameraPreset) => void;
@@ -57,6 +74,74 @@ const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metaln
 
 const DEFAULT_MATERIAL_CONFIG = { color: 0x94a3b8, roughness: 0.75, metalness: 0.1 };
 
+/**
+ * Snapping Engine:
+ * Raycasts visible meshes, checks vertex proximity (<= threshold),
+ * edge midpoints (<= threshold), and falls back to exact surface hit.
+ */
+function findSnapPoint(
+  raycaster: THREE.Raycaster,
+  visibleMeshes: THREE.Object3D[],
+  camera: THREE.Camera
+): { point: THREE.Vector3; type: SnapType } | null {
+  const intersects = raycaster.intersectObjects(visibleMeshes, false);
+  if (intersects.length === 0) return null;
+
+  const hit = intersects[0];
+  const mesh = hit.object as THREE.Mesh;
+  const geom = mesh.geometry;
+  const hitPoint = hit.point.clone();
+
+  if (geom instanceof THREE.BufferGeometry && hit.face) {
+    const posAttr = geom.getAttribute('position');
+    if (posAttr) {
+      const vA = new THREE.Vector3().fromBufferAttribute(posAttr, hit.face.a).applyMatrix4(mesh.matrixWorld);
+      const vB = new THREE.Vector3().fromBufferAttribute(posAttr, hit.face.b).applyMatrix4(mesh.matrixWorld);
+      const vC = new THREE.Vector3().fromBufferAttribute(posAttr, hit.face.c).applyMatrix4(mesh.matrixWorld);
+
+      const camDist = camera.position.distanceTo(hitPoint);
+      const vertexThreshold = Math.max(0.12, Math.min(0.65, camDist * 0.025));
+      const midThreshold = Math.max(0.08, Math.min(0.45, camDist * 0.018));
+
+      // 1. Proximity check for vertices (corners / junctions)
+      let closestVertex: THREE.Vector3 | null = null;
+      let minVertexDist = Infinity;
+      for (const v of [vA, vB, vC]) {
+        const d = hitPoint.distanceTo(v);
+        if (d < minVertexDist) {
+          minVertexDist = d;
+          closestVertex = v;
+        }
+      }
+
+      if (closestVertex && minVertexDist <= vertexThreshold) {
+        return { point: closestVertex, type: 'vertex' };
+      }
+
+      // 2. Proximity check for edge midpoints
+      const mAB = vA.clone().add(vB).multiplyScalar(0.5);
+      const mBC = vB.clone().add(vC).multiplyScalar(0.5);
+      const mCA = vC.clone().add(vA).multiplyScalar(0.5);
+      let closestMidpoint: THREE.Vector3 | null = null;
+      let minMidDist = Infinity;
+      for (const m of [mAB, mBC, mCA]) {
+        const d = hitPoint.distanceTo(m);
+        if (d < minMidDist) {
+          minMidDist = d;
+          closestMidpoint = m;
+        }
+      }
+
+      if (closestMidpoint && minMidDist <= midThreshold) {
+        return { point: closestMidpoint, type: 'midpoint' };
+      }
+    }
+  }
+
+  // 3. Fallback to Surface hit point
+  return { point: hitPoint, type: 'surface' };
+}
+
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   geometries,
   selectedExpressID,
@@ -70,6 +155,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   isMeasureActive,
   measurements,
   onAddMeasurement,
+  onCancelMeasure,
   sectionConfig,
   cameraPresetTrigger,
   onCameraPreset,
@@ -101,8 +187,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   // Clipping Plane Ref
   const clipPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, -1, 0), 10));
 
-  // Measurement State
+  // Measurement & Snapping State
   const [pendingStartPoint, setPendingStartPoint] = useState<THREE.Vector3 | null>(null);
+  const [activeSnap, setActiveSnap] = useState<ActiveSnap | null>(null);
+  const [previewMeasure, setPreviewMeasure] = useState<PreviewMeasure | null>(null);
+  const currentSnapPointRef = useRef<THREE.Vector3 | null>(null);
+  const currentSnapTypeRef = useRef<SnapType | null>(null);
+  const snapIndicatorGroupRef = useRef<THREE.Group | null>(null);
+  const measurePreviewGroupRef = useRef<THREE.Group | null>(null);
   const measureGroupRef = useRef<THREE.Group | null>(null);
 
   // 1. Initialize Scene & Renderer
@@ -207,10 +299,95 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(measureGroup);
     measureGroupRef.current = measureGroup;
 
+    // Snap Indicator Gizmo (High renderOrder, depthTest false for obstruction-free snapping)
+    const snapGroup = new THREE.Group();
+    snapGroup.visible = false;
+    snapGroup.renderOrder = 9999;
+
+    const ringGeom = new THREE.RingGeometry(0.06, 0.09, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x22d3ee,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false
+    });
+    const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+    ringMesh.renderOrder = 9999;
+    snapGroup.add(ringMesh);
+
+    const dotGeom = new THREE.CircleGeometry(0.025, 16);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false
+    });
+    const dotMesh = new THREE.Mesh(dotGeom, dotMat);
+    dotMesh.renderOrder = 10000;
+    snapGroup.add(dotMesh);
+
+    scene.add(snapGroup);
+    snapIndicatorGroupRef.current = snapGroup;
+
+    // Dynamic Measure Preview Line & End Spheres
+    const previewGroup = new THREE.Group();
+    previewGroup.visible = false;
+    previewGroup.renderOrder = 9998;
+
+    const previewLineGeom = new THREE.BufferGeometry();
+    const previewLineMat = new THREE.LineDashedMaterial({
+      color: 0x38bdf8,
+      dashSize: 0.2,
+      gapSize: 0.1,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.95
+    });
+    const previewLine = new THREE.Line(previewLineGeom, previewLineMat);
+    previewLine.renderOrder = 9998;
+    previewGroup.add(previewLine);
+
+    const startSphereGeom = new THREE.SphereGeometry(0.06, 16, 16);
+    const startSphereMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      depthTest: false,
+      depthWrite: false
+    });
+    const startSphere = new THREE.Mesh(startSphereGeom, startSphereMat);
+    startSphere.renderOrder = 9999;
+    previewGroup.add(startSphere);
+
+    const endSphereGeom = new THREE.SphereGeometry(0.06, 16, 16);
+    const endSphereMat = new THREE.MeshBasicMaterial({
+      color: 0x22d3ee,
+      depthTest: false,
+      depthWrite: false
+    });
+    const endSphere = new THREE.Mesh(endSphereGeom, endSphereMat);
+    endSphere.renderOrder = 9999;
+    previewGroup.add(endSphere);
+
+    scene.add(previewGroup);
+    measurePreviewGroupRef.current = previewGroup;
+
     // Animate & Dynamic 3D Projection
     const animate = () => {
       animFrameIdRef.current = requestAnimationFrame(animate);
       controls.update();
+
+      // Update snap indicator orientation and camera distance compensation
+      if (snapGroup.visible && camera) {
+        snapGroup.quaternion.copy(camera.quaternion);
+        const dist = camera.position.distanceTo(snapGroup.position);
+        const s = Math.max(0.005, dist * 0.035);
+        snapGroup.scale.set(s, s, s);
+      }
+
       renderer.render(scene, camera);
 
       // Project 3D vector midpoints to 2D screen coordinates
@@ -250,6 +427,21 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       tControls.dispose();
       controls.dispose();
       renderer.dispose();
+
+      ringGeom.dispose();
+      ringMat.dispose();
+      dotGeom.dispose();
+      dotMat.dispose();
+      scene.remove(snapGroup);
+
+      previewLineGeom.dispose();
+      previewLineMat.dispose();
+      startSphereGeom.dispose();
+      startSphereMat.dispose();
+      endSphereGeom.dispose();
+      endSphereMat.dispose();
+      scene.remove(previewGroup);
+
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -567,6 +759,146 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (lockHelper) lockHelper.update();
   }, [remoteTransform]);
 
+  // Reset snap and preview when measure tool is deactivated
+  useEffect(() => {
+    if (!isMeasureActive) {
+      setPendingStartPoint(null);
+      setActiveSnap(null);
+      setPreviewMeasure(null);
+      currentSnapPointRef.current = null;
+      currentSnapTypeRef.current = null;
+      if (snapIndicatorGroupRef.current) snapIndicatorGroupRef.current.visible = false;
+      if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
+    }
+  }, [isMeasureActive]);
+
+  // Handle ESC key to cancel current measurement or exit measure tool
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMeasureActive) {
+        if (pendingStartPoint) {
+          setPendingStartPoint(null);
+          setPreviewMeasure(null);
+          if (measurePreviewGroupRef.current) {
+            measurePreviewGroupRef.current.visible = false;
+          }
+        } else if (onCancelMeasure) {
+          onCancelMeasure();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMeasureActive, pendingStartPoint, onCancelMeasure]);
+
+  // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (isDraggingGizmoRef.current) return;
+      if (!isMeasureActive) return;
+
+      const container = containerRef.current;
+      const camera = cameraRef.current;
+      const group = meshesGroupRef.current;
+      const snapGroup = snapIndicatorGroupRef.current;
+      const previewGroup = measurePreviewGroupRef.current;
+      if (!container || !camera || !group || !snapGroup) return;
+
+      const rect = container.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+
+      const visibleMeshes = group.children.filter((c) => c.visible);
+      const snapResult = findSnapPoint(raycaster, visibleMeshes, camera);
+
+      if (snapResult) {
+        currentSnapPointRef.current = snapResult.point;
+        currentSnapTypeRef.current = snapResult.type;
+
+        // Position & configure snap indicator gizmo
+        snapGroup.position.copy(snapResult.point);
+        snapGroup.quaternion.copy(camera.quaternion);
+        const camDist = camera.position.distanceTo(snapResult.point);
+        const scale = Math.max(0.005, camDist * 0.035);
+        snapGroup.scale.set(scale, scale, scale);
+
+        // Colorize based on snap type: cyan for vertex, amber for midpoint, slate for surface
+        const ringMesh = snapGroup.children[0] as THREE.Mesh;
+        if (ringMesh && ringMesh.material instanceof THREE.MeshBasicMaterial) {
+          if (snapResult.type === 'vertex') ringMesh.material.color.setHex(0x22d3ee);
+          else if (snapResult.type === 'midpoint') ringMesh.material.color.setHex(0xf59e0b);
+          else ringMesh.material.color.setHex(0x94a3b8);
+        }
+        snapGroup.visible = true;
+
+        // Calculate 2D screen coordinates for hover micro-badge
+        const vec = snapResult.point.clone().project(camera);
+        const screenX = (vec.x * 0.5 + 0.5) * rect.width;
+        const screenY = (-(vec.y * 0.5) + 0.5) * rect.height;
+
+        setActiveSnap({
+          point: snapResult.point,
+          type: snapResult.type,
+          screenPos: { x: screenX, y: screenY }
+        });
+
+        // Update dynamic rubber-band measure preview line if pending start point exists
+        if (pendingStartPoint && previewGroup) {
+          const previewLine = previewGroup.children[0] as THREE.Line;
+          const startMarker = previewGroup.children[1] as THREE.Mesh;
+          const endMarker = previewGroup.children[2] as THREE.Mesh;
+
+          if (previewLine && previewLine.geometry) {
+            previewLine.geometry.setFromPoints([pendingStartPoint, snapResult.point]);
+            previewLine.computeLineDistances();
+          }
+          if (startMarker) startMarker.position.copy(pendingStartPoint);
+          if (endMarker) endMarker.position.copy(snapResult.point);
+          previewGroup.visible = true;
+
+          const dist = pendingStartPoint.distanceTo(snapResult.point);
+          const dx = Math.abs(snapResult.point.x - pendingStartPoint.x);
+          const dy = Math.abs(snapResult.point.y - pendingStartPoint.y);
+          const dz = Math.abs(snapResult.point.z - pendingStartPoint.z);
+          const mid = pendingStartPoint.clone().add(snapResult.point).multiplyScalar(0.5);
+
+          const midVec = mid.project(camera);
+          const midScreenX = (midVec.x * 0.5 + 0.5) * rect.width;
+          const midScreenY = (-(midVec.y * 0.5) + 0.5) * rect.height;
+
+          setPreviewMeasure({
+            distance: dist,
+            dx,
+            dy,
+            dz,
+            midpointScreen: { x: midScreenX, y: midScreenY }
+          });
+        }
+      } else {
+        currentSnapPointRef.current = null;
+        currentSnapTypeRef.current = null;
+        snapGroup.visible = false;
+        setActiveSnap(null);
+
+        if (previewGroup) previewGroup.visible = false;
+        setPreviewMeasure(null);
+      }
+    },
+    [isMeasureActive, pendingStartPoint]
+  );
+
+  const handlePointerLeave = useCallback(() => {
+    if (snapIndicatorGroupRef.current) snapIndicatorGroupRef.current.visible = false;
+    if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
+    setActiveSnap(null);
+    setPreviewMeasure(null);
+  }, []);
+
   // Click Handler for Raycasting (Selection OR Measurement)
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -590,10 +922,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const intersects = raycaster.intersectObjects(visibleMeshes, false);
 
       if (isMeasureActive) {
-        if (intersects.length > 0) {
-          const hitPoint = intersects[0].point;
+        // Use active snap point if present, else fallback to raycast intersection
+        let hitPoint: THREE.Vector3 | null = currentSnapPointRef.current;
+        if (!hitPoint && intersects.length > 0) {
+          hitPoint = intersects[0].point;
+        }
+
+        if (hitPoint) {
           if (!pendingStartPoint) {
-            setPendingStartPoint(hitPoint);
+            setPendingStartPoint(hitPoint.clone());
           } else {
             const dist = pendingStartPoint.distanceTo(hitPoint);
             const mid = pendingStartPoint.clone().add(hitPoint).multiplyScalar(0.5);
@@ -605,6 +942,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
               midpoint: [mid.x, mid.y, mid.z]
             });
             setPendingStartPoint(null);
+            setPreviewMeasure(null);
+            if (measurePreviewGroupRef.current) {
+              measurePreviewGroupRef.current.visible = false;
+            }
           }
         }
         return;
@@ -629,7 +970,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none outline-none">
-      <div ref={containerRef} onClick={handleClick} className="w-full h-full cursor-crosshair" />
+      <div
+        ref={containerRef}
+        onClick={handleClick}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
+        className="w-full h-full cursor-crosshair"
+      />
 
       {/* 3D Viewport Orientation Triad / Quick-View Gizmo (Top-Right) */}
       <div
@@ -673,13 +1020,101 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       {/* Measure Mode Banner */}
       {isMeasureActive && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-[var(--dock-translucent)] border border-emerald-500/40 backdrop-blur-xl px-4 py-1.5 rounded-full text-xs text-emerald-300 flex items-center gap-2 shadow-[var(--shadow-hud)]">
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-[var(--dock-translucent)] border border-emerald-500/40 backdrop-blur-xl px-4 py-1.5 rounded-full text-xs text-emerald-300 flex items-center gap-2.5 shadow-[var(--shadow-hud)] select-none">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-          <span>
-            {pendingStartPoint
-              ? 'Click second surface point to finish measurement'
-              : 'Click first surface point to start measurement'}
+          <span className="font-mono font-medium">
+            {pendingStartPoint ? (
+              <>
+                Click second point to finish
+                {previewMeasure && (
+                  <span className="ml-2 px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-500/30">
+                    {previewMeasure.distance.toFixed(3)} m
+                  </span>
+                )}
+              </>
+            ) : (
+              'Hover over vertices or edges to snap • Click to start measurement'
+            )}
           </span>
+          <button
+            onClick={() => {
+              if (pendingStartPoint) {
+                setPendingStartPoint(null);
+                setPreviewMeasure(null);
+                if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
+              } else if (onCancelMeasure) {
+                onCancelMeasure();
+              }
+            }}
+            className="text-[10px] text-slate-400 hover:text-slate-200 font-mono ml-1 px-1.5 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
+            title="Cancel measurement (Esc)"
+          >
+            ESC to cancel
+          </button>
+        </div>
+      )}
+
+      {/* Hover Snap Point Micro-Badge */}
+      {isMeasureActive && activeSnap && (
+        <div
+          className="absolute pointer-events-none z-30 transition-transform duration-75 select-none"
+          style={{
+            left: `${activeSnap.screenPos.x}px`,
+            top: `${activeSnap.screenPos.y - 18}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          <div
+            className={`text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded border shadow-[var(--shadow-hud)] flex items-center gap-1.5 backdrop-blur-sm ${
+              activeSnap.type === 'vertex'
+                ? 'bg-[var(--dock-bg)] text-cyan-300 border-cyan-400/60'
+                : activeSnap.type === 'midpoint'
+                ? 'bg-[var(--dock-bg)] text-amber-300 border-amber-400/60'
+                : 'bg-[var(--dock-bg)] text-slate-300 border-slate-500/40'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                activeSnap.type === 'vertex'
+                  ? 'bg-cyan-400'
+                  : activeSnap.type === 'midpoint'
+                  ? 'bg-amber-400'
+                  : 'bg-slate-400'
+              }`}
+            />
+            <span>
+              {activeSnap.type === 'vertex'
+                ? 'Vertex Snap'
+                : activeSnap.type === 'midpoint'
+                ? 'Midpoint Snap'
+                : 'Surface'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Rubber-Band Measurement HUD Pill (Projected from Line Midpoint) */}
+      {isMeasureActive && pendingStartPoint && previewMeasure && (
+        <div
+          className="absolute pointer-events-none z-30 select-none flex flex-col items-center"
+          style={{
+            left: `${previewMeasure.midpointScreen.x}px`,
+            top: `${previewMeasure.midpointScreen.y}px`,
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
+          <div className="bg-[var(--dock-bg)] text-cyan-200 border border-cyan-400/60 px-2.5 py-1 rounded-md shadow-[var(--shadow-hud)] backdrop-blur-md flex flex-col items-center gap-0.5">
+            <div className="text-xs font-mono font-bold text-cyan-300 tracking-tight">
+              {previewMeasure.distance.toFixed(3)} m
+            </div>
+            <div className="text-[9px] font-mono text-slate-400 flex items-center gap-1.5">
+              <span>X {previewMeasure.dx.toFixed(2)}</span>
+              <span className="text-slate-600">•</span>
+              <span>Y {previewMeasure.dy.toFixed(2)}</span>
+              <span className="text-slate-600">•</span>
+              <span>Z {previewMeasure.dz.toFixed(2)}</span>
+            </div>
+          </div>
         </div>
       )}
 

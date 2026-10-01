@@ -2,6 +2,14 @@ import os
 from pathlib import Path
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+
+# Load .env from project root or backend dir if present
+load_dotenv()
+_backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
+
 class Settings(BaseModel):
     PROJECT_NAME: str = "IFC Editor API"
     VERSION: str = "1.0.0"
@@ -12,6 +20,11 @@ class Settings(BaseModel):
     STORAGE_DIR: Path = BASE_DIR / "storage"
     PROJECTS_DIR: Path = STORAGE_DIR / "projects"
     DATABASE_PATH: Path = STORAGE_DIR / "projects.db"
+    
+    # AI Keys (Loaded from .env or environment)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     
     # CORS
     CORS_ORIGINS: list[str] = [

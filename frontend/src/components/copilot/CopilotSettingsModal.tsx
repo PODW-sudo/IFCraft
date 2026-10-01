@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, Server, ShieldCheck, Check } from 'lucide-react';
 
+import type { AIProvider } from '../../types/ifc';
+
 interface CopilotSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
+  serverProviders?: AIProvider[];
 }
 
 export interface CopilotConfig {
@@ -22,7 +25,11 @@ export function loadCopilotConfig(): CopilotConfig {
   try {
     const raw = localStorage.getItem(COPILOT_CONFIG_STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed.preferredModel === 'gemini-3.8-flash') {
+        parsed.preferredModel = 'gemini-2.5-flash';
+      }
+      return parsed;
     }
   } catch (e) {
     console.error('Failed to load copilot config from localStorage', e);
@@ -33,11 +40,16 @@ export function loadCopilotConfig(): CopilotConfig {
     openaiKey: '',
     ollamaBaseUrl: 'http://localhost:11434/v1',
     preferredProvider: 'gemini',
-    preferredModel: 'gemini-3.8-flash'
+    preferredModel: 'gemini-2.5-flash'
   };
 }
 
-export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({ isOpen, onClose, onSaved }) => {
+export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
+  isOpen,
+  onClose,
+  onSaved,
+  serverProviders = []
+}) => {
   const [config, setConfig] = useState<CopilotConfig>(loadCopilotConfig());
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -85,7 +97,14 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({ isOp
 
           {/* Google Gemini */}
           <div className="space-y-1.5">
-            <label className="block text-slate-300 font-medium">Google Gemini API Key</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-300 font-medium">Google Gemini API Key</label>
+              {serverProviders.find((p) => p.id === 'gemini')?.has_server_key && (
+                <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  Server .env key active
+                </span>
+              )}
+            </div>
             <input
               type="password"
               placeholder="AIzaSy..."
@@ -93,12 +112,19 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({ isOp
               onChange={(e) => setConfig({ ...config, geminiKey: e.target.value })}
               className="w-full bg-[var(--control-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-lg px-3 py-2 text-white outline-none font-mono text-xs"
             />
-            <span className="text-[10px] text-slate-500">Supports gemini-3.8-flash (recommended) and gemini-3.8-pro.</span>
+            <span className="text-[10px] text-slate-500">Supports gemini-2.5-flash (recommended), gemini-2.0-flash, and gemini-1.5-pro.</span>
           </div>
 
           {/* Anthropic Claude */}
           <div className="space-y-1.5">
-            <label className="block text-slate-300 font-medium">Anthropic Claude API Key</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-300 font-medium">Anthropic Claude API Key</label>
+              {serverProviders.find((p) => p.id === 'claude')?.has_server_key && (
+                <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  Server .env key active
+                </span>
+              )}
+            </div>
             <input
               type="password"
               placeholder="sk-ant-api03-..."
@@ -111,7 +137,14 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({ isOp
 
           {/* OpenAI */}
           <div className="space-y-1.5">
-            <label className="block text-slate-300 font-medium">OpenAI API Key</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-300 font-medium">OpenAI API Key</label>
+              {serverProviders.find((p) => p.id === 'openai')?.has_server_key && (
+                <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  Server .env key active
+                </span>
+              )}
+            </div>
             <input
               type="password"
               placeholder="sk-proj-..."

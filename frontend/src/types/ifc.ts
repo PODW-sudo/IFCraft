@@ -112,5 +112,6 @@ export interface AIProvider {
   default_model: string;
   default_base_url?: string;
   requires_api_key: boolean;
+  has_server_key?: boolean;
 }
 

@@ -451,6 +451,7 @@ export const App: React.FC = () => {
           isMeasureActive={isMeasureActive}
           measurements={measurements}
           onAddMeasurement={handleAddMeasurement}
+          onCancelMeasure={() => setIsMeasureActive(false)}
           sectionConfig={sectionConfig}
           cameraPresetTrigger={cameraPresetTrigger}
           onCameraPreset={handleCameraPreset}
