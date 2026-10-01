@@ -164,7 +164,10 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
         <div className="relative flex items-center">
           <Search className="w-3.5 h-3.5 absolute left-2 text-slate-400" />
           <input
+            id="hierarchy-search-input"
+            name="hierarchySearch"
             type="text"
+            aria-label="Search hierarchy"
             placeholder="Search hierarchy..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}

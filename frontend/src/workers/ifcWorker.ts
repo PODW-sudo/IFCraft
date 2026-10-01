@@ -18,7 +18,7 @@ async function ensureInitialized() {
         }
         const cleanPath = path.replace(/^\/+/, '');
         return origin ? `${origin}/${cleanPath}` : `/${cleanPath}`;
-      });
+      }, true);
     })();
   }
   return initPromise;
