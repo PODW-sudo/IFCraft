@@ -28,6 +28,7 @@ import IfcWorker from './workers/ifcWorker?worker';
 export const App: React.FC = () => {
   // Application State
   const [currentProject, setCurrentProject] = useState<ProjectMetadata | null>(null);
+  const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [geometries, setGeometries] = useState<GeometryData[]>([]);
   const [spatialTree, setSpatialTree] = useState<SpatialNode | null>(null);
   const [selectedExpressID, setSelectedExpressID] = useState<number | null>(null);
@@ -206,19 +207,31 @@ export const App: React.FC = () => {
     }
   }, [parseBufferInWorker]);
 
+  const refreshProjects = useCallback(async () => {
+    try {
+      const list = await api.fetchProjects();
+      setProjects(list);
+      return list;
+    } catch (err) {
+      console.error('Failed to fetch projects:', err);
+      return [];
+    }
+  }, []);
+
   // Initial load: check existing projects or create a default project
   useEffect(() => {
     async function initApp() {
       try {
-        const projects = await api.fetchProjects();
-        if (projects.length > 0) {
-          await loadProject(projects[0]);
+        const list = await refreshProjects();
+        if (list.length > 0) {
+          await loadProject(list[0]);
         } else {
           const newProj = await api.createProject(
             'Starter Architectural Villa',
             'Sample building structure generated with IFC Editor',
             'IFC4'
           );
+          await refreshProjects();
           await loadProject(newProj);
         }
       } catch (err) {
@@ -226,7 +239,7 @@ export const App: React.FC = () => {
       }
     }
     initApp();
-  }, [loadProject]);
+  }, [loadProject, refreshProjects]);
 
   // Handle Element Selection with Soft Locking
   const handleSelectElement = useCallback(
@@ -318,6 +331,7 @@ export const App: React.FC = () => {
       setLoadingPercent(10);
 
       const project = await api.uploadIFCFile(file);
+      await refreshProjects();
       setCurrentProject(project);
       setSelectedExpressID(null);
       setIsolatedExpressID(null);
@@ -336,6 +350,7 @@ export const App: React.FC = () => {
     try {
       setIsLoading(true);
       const project = await api.createProject(name, description, schema);
+      await refreshProjects();
       setIsNewProjectModalOpen(false);
       await loadProject(project);
     } catch (err: unknown) {
@@ -364,6 +379,7 @@ export const App: React.FC = () => {
       setLoadingStage('Instantiating architectural sample model...');
       setLoadingPercent(20);
       const project = await api.loadSampleProject(sampleId);
+      await refreshProjects();
       setIsNewProjectModalOpen(false);
       await loadProject(project);
     } catch (err: unknown) {
@@ -385,6 +401,8 @@ export const App: React.FC = () => {
       {/* Top Navigation & Action Bar */}
       <TopToolbar
         currentProject={currentProject}
+        projects={projects}
+        onSelectProject={loadProject}
         onOpenUploadModal={() => setIsUploadModalOpen(true)}
         onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
         onDownloadProject={handleDownloadProject}

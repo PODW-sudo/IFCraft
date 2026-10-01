@@ -19,6 +19,22 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
 
 SAMPLES_METADATA = [
     {
+        "id": "ifc2x3_duplex_architecture",
+        "name": "Duplex Architecture (IFC2X3)",
+        "description": "Full multi-storey duplex villa with 295 architectural elements, detailed walls, doors, windows, stairs, and spaces.",
+        "schema_version": "IFC2X3",
+        "element_count": 295,
+        "file_name": "ifc2x3_duplex_architecture.ifc"
+    },
+    {
+        "id": "building_architecture",
+        "name": "Building Architecture (IFC4X3)",
+        "description": "Clean modern architectural structure utilizing the latest IFC4X3 international standard schema.",
+        "schema_version": "IFC4X3",
+        "element_count": 20,
+        "file_name": "building_architecture.ifc"
+    },
+    {
         "id": "duplex_residential",
         "name": "Duplex Residential Villa",
         "description": "2-storey residential building complete with ground floor, first floor, partition walls, floor slabs, structural columns, and property sets.",
