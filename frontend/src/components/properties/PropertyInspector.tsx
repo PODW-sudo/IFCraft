@@ -12,6 +12,8 @@ import {
   Box
 } from 'lucide-react';
 import type { ElementDetails, PropertySingle } from '../../types/ifc';
+import { useResizable } from '../../hooks/useResizable';
+import { ResizeHandle } from '../common/ResizeHandle';
 
 interface PropertyInspectorProps {
   projectId: string | null;
@@ -35,6 +37,14 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   const [editingKey, setEditingKey] = useState<string | null>(null); // "psetName:propName"
   const [editValue, setEditValue] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+
+  const { width, isDragging, startResizing, resetWidth } = useResizable({
+    initialWidth: 320,
+    minWidth: 260,
+    maxWidth: 680,
+    storageKey: 'ifc_editor_property_inspector_width',
+    direction: 'left'
+  });
 
   // New property form state
   const [showAddProp, setShowAddProp] = useState(false);
@@ -182,7 +192,16 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   if (!isOpen || expressId === null) return null;
 
   return (
-    <aside className="w-80 h-[calc(100vh-4rem)] flex flex-col bg-[#16191f]/95 backdrop-blur-md border-l border-[#262a33] text-slate-200 z-10">
+    <aside
+      style={{ width: `${width}px` }}
+      className="relative flex-shrink-0 h-[calc(100vh-3.5rem)] flex flex-col bg-[#16191f]/95 backdrop-blur-md border-l border-[#262a33] text-slate-200 z-10 transition-none"
+    >
+      <ResizeHandle
+        position="left"
+        onMouseDown={startResizing}
+        onDoubleClick={resetWidth}
+        isDragging={isDragging}
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#262a33]">
         <div className="flex items-center gap-2">

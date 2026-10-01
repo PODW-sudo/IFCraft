@@ -206,13 +206,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const handleResize = () => {
       if (!container || !camera || !renderer) return;
+      if (container.clientWidth === 0 || container.clientHeight === 0) return;
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
     };
     window.addEventListener('resize', handleResize);
 
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(container);
+
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
       tControls.dispose();
