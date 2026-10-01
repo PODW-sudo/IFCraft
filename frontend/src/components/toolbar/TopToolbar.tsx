@@ -57,27 +57,27 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleCopilot
 }) => {
   return (
-    <header className="h-14 w-full bg-[#16191f]/95 backdrop-blur-md border-b border-[#262a33] flex items-center justify-between px-4 z-20">
+    <header className="h-14 w-full bg-[var(--dock-bg)]/95 backdrop-blur-md border-b border-[var(--border-subtle)] flex items-center justify-between px-4 z-20">
       {/* Left: Branding & Project Info */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/10">
+          <div className="w-8 h-8 rounded bg-gradient-to-br from-cyan-400 to-indigo-600 flex items-center justify-center shadow-lg">
             <Box className="w-4 h-4 text-white" />
           </div>
           <div>
             <span className="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-              IFC Editor <span className="text-[10px] font-normal text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">OpenBIM</span>
+              IFC Editor <span className="text-[10px] font-normal text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">OpenBIM</span>
             </span>
           </div>
         </div>
 
-        <div className="h-5 w-[1px] bg-[#262a33]" />
+        <div className="h-5 w-[1px] bg-[var(--border-subtle)]" />
 
         {/* Project Selector Dropdown */}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
-              className="flex items-center gap-2 text-xs bg-[#0d0f12] hover:bg-[#1a1e26] border border-[#262a33] hover:border-slate-600 px-2.5 py-1.5 rounded-lg transition-colors group cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="flex items-center gap-2 text-xs bg-[var(--canvas-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] hover:border-slate-600 px-2.5 py-1.5 rounded-lg transition-colors group cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500"
               title="Click to switch or load projects"
             >
               <span className="text-slate-400 group-hover:text-slate-300">Project:</span>
@@ -102,7 +102,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             <DropdownMenu.Content
               align="start"
               sideOffset={6}
-              className="w-72 bg-[#16191f] border border-[#262a33] rounded-xl shadow-2xl p-1.5 z-50 text-slate-200 text-xs backdrop-blur-xl animate-in fade-in-80"
+              className="w-72 bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-xl shadow-2xl p-1.5 z-50 text-slate-200 text-xs backdrop-blur-xl animate-in fade-in-80"
             >
               <div className="px-2 py-1.5 text-[10px] uppercase font-semibold text-slate-400 tracking-wider">
                 Switch Project
@@ -117,7 +117,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                         onSelect={() => onSelectProject && onSelectProject(p)}
                         className={`flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer transition-colors outline-none ${
                           isCurrent
-                            ? 'bg-sky-500/15 text-sky-300 font-medium'
+                            ? 'bg-cyan-500/15 text-cyan-300 font-medium'
                             : 'hover:bg-slate-800/80 hover:text-white text-slate-300'
                         }`}
                       >
@@ -129,7 +129,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                           <span className="text-[9px] px-1 py-0.5 rounded bg-slate-800 text-slate-400 font-mono border border-slate-700/60">
                             {p.schema_version}
                           </span>
-                          {isCurrent && <Check className="w-3.5 h-3.5 text-sky-400" />}
+                          {isCurrent && <Check className="w-3.5 h-3.5 text-cyan-400" />}
                         </div>
                       </DropdownMenu.Item>
                     );
@@ -139,16 +139,15 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                 )}
               </div>
 
-              <DropdownMenu.Separator className="h-[1px] bg-[#262a33] my-1.5" />
+              <DropdownMenu.Separator className="h-[1px] bg-[var(--border-subtle)] my-1.5" />
 
               <DropdownMenu.Item
                 onSelect={onOpenNewProjectModal}
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-slate-800/80 hover:text-white text-slate-300 outline-none"
               >
-                <PlusCircle className="w-3.5 h-3.5 text-sky-400" />
+                <PlusCircle className="w-3.5 h-3.5 text-cyan-400" />
                 <span>New Project / Sample Models...</span>
               </DropdownMenu.Item>
-
               <DropdownMenu.Item
                 onSelect={onOpenUploadModal}
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-slate-800/80 hover:text-white text-slate-300 outline-none"
@@ -164,7 +163,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Center: Category Filters & Selected Element Indicator */}
       <div className="hidden lg:flex items-center gap-3">
         {onToggleCategory && (
-          <div className="flex items-center gap-1 bg-[#0d0f12] p-1 rounded-md border border-[#262a33]">
+          <div className="flex items-center gap-1 bg-[var(--canvas-bg)] p-1 rounded-md border border-[var(--border-subtle)]">
             {CATEGORY_FILTERS.map((cat) => {
               const isHidden = hiddenCategories.has(cat.key);
               return (
@@ -186,8 +185,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         )}
 
         {selectedExpressID !== null && (
-          <div className="flex items-center gap-2 px-3 py-1 rounded bg-sky-500/10 border border-sky-500/20 text-xs text-sky-300">
-            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+          <div className="flex items-center gap-2 px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/20 text-xs text-cyan-300">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
             <span>Element:</span>
             <span className="font-mono font-bold">#{selectedExpressID}</span>
           </div>
@@ -200,7 +199,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           onClick={onToggleTree}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors border ${
             isTreeOpen
-              ? 'bg-slate-800 text-sky-400 border-sky-500/30'
+              ? 'bg-slate-800 text-cyan-400 border-cyan-500/30'
               : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border-transparent'
           }`}
           title="Toggle Spatial Tree"
@@ -214,12 +213,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             onClick={onToggleCopilot}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-all border ${
               isCopilotOpen
-                ? 'bg-gradient-to-r from-sky-600/30 to-indigo-600/30 text-sky-300 border-sky-500/50 shadow-sm shadow-sky-500/20'
+                ? 'bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border-slate-700/60'
             }`}
             title="Toggle AI Copilot"
           >
-            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden sm:inline">Copilot</span>
           </button>
         )}
@@ -238,17 +237,17 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors shadow-sm"
           title="Upload .ifc file"
         >
-          <Upload className="w-3.5 h-3.5 text-sky-400" />
+          <Upload className="w-3.5 h-3.5 text-cyan-400" />
           <span>Upload IFC</span>
         </button>
 
         {/* Collaborators Avatar Stack */}
         {collaborators && collaborators.length > 0 && (
-          <div className="flex items-center -space-x-1.5 pl-1 pr-2 border-r border-[#262a33]">
+          <div className="flex items-center -space-x-1.5 pl-1 pr-2 border-r border-[var(--border-subtle)]">
             {collaborators.map((c) => (
               <div
                 key={c.user_id}
-                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow ring-1 ring-[#0d0f12] cursor-default"
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow ring-1 ring-[var(--canvas-bg)] cursor-default"
                 style={{ backgroundColor: c.user_color }}
                 title={`${c.user_name} ${c.selected_express_id ? `(editing #${c.selected_express_id})` : ''}`}
               >
@@ -263,7 +262,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           disabled={!currentProject}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors shadow-sm ${
             currentProject
-              ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold'
+              ? 'bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold'
               : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-800'
           }`}
           title="Download updated .ifc file"

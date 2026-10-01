@@ -51,3 +51,11 @@
   - Implement complete IFC export generating valid, compliant IFC files with all geometric transformations and modified properties preserved.
   - Create complete project documentation and verify end-to-end user workflows.
   - **Quality Gate:** End-to-end test passes: modify element, update property, export IFC, reload exported IFC, and verify data persistence.
+
+- [x] **Phase 8: Spatial UI/UX Overhaul & Autonomous Quality Gates (Option C)**
+  - Integrate adversarial design critic skills and DTCG design token discipline (`tokens.json`, `tokens.css`).
+  - Implement 4 automated deterministic quality gates (Zero Emoji, Hex Literal Hardcode Linter, Semantic Intent Linter, WCAG 2.2 AA Contrast Verifier).
+  - Transform legacy 3-pane layout into a 100% immersive spatial canvas with floating frosted HUDs (`SpatialTopPill`, `SpatialBottomDock`, `SpatialTree`, `CoordinateHud`, `SpatialOmnibar`).
+  - Implement dynamic collision avoidance for overlapping panels and 3D View Orientation Triad.
+  - Address adversarial critique directives with complete color unification (purged all `zinc-*` and `sky-*`), shadow acne elimination, true 3D screen-projected measurement tags, and auto-expanding spatial hierarchy.
+  - **Quality Gate:** All 4 gates pass 100%; `pnpm exec tsc --noEmit` and `pnpm run build` pass with 0 errors; Design Critic Verdict: **PASS — GRADE S (93/100)**.

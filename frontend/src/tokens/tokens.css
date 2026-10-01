@@ -1,0 +1,54 @@
+/**
+ * IFC Editor Design Tokens — CSS Custom Properties
+ * Compiled from frontend/src/tokens/tokens.json (DTCG format)
+ */
+
+:root {
+  /* Surfaces */
+  --canvas-bg: #0b0d10;
+  --dock-bg: #15181e;
+  --dock-translucent: rgba(21, 24, 30, 0.85);
+  --control-bg: #1f242d;
+  --control-hover: #2b323e;
+  --control-active: #353d4c;
+
+  /* Borders */
+  --border-subtle: #252b36;
+  --border-strong: #3a4354;
+  --border-focus: #22d3ee;
+
+  /* Typography Colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #0b0d10;
+
+  /* Actions */
+  --action-primary: #22d3ee;
+  --action-primary-hover: #06b6d4;
+  --action-primary-text: #0b0d10;
+  --action-danger: #dc2626;
+  --action-danger-hover: #b91c1c;
+  --action-danger-text: #ffffff;
+  --action-warning: #f59e0b;
+
+  /* BIM Category Colors */
+  --bim-wall: #94a3b8;
+  --bim-slab: #64748b;
+  --bim-column: #f59e0b;
+  --bim-door: #a855f7;
+  --bim-window: #38bdf8;
+  --bim-laser: #10b981;
+  --bim-section: #f43f5e;
+
+  /* Radii Hierarchy */
+  --radius-badge: 2px;
+  --radius-control: 6px;
+  --radius-dock: 12px;
+  --radius-modal: 16px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-hud: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+  --shadow-control: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+}

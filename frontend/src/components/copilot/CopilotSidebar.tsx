@@ -210,9 +210,9 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       case 'update_property':
         return <Tag className="w-3.5 h-3.5 text-emerald-400" />;
       case 'query_model':
-        return <Search className="w-3.5 h-3.5 text-sky-400" />;
+        return <Search className="w-3.5 h-3.5 text-cyan-400" />;
       default:
-        return <Wrench className="w-3.5 h-3.5 text-zinc-400" />;
+        return <Wrench className="w-3.5 h-3.5 text-slate-400" />;
     }
   };
 
@@ -224,7 +224,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     <>
       <div
         style={{ width: `${width}px` }}
-        className="fixed top-14 right-0 bottom-0 bg-[#0d0f12]/95 backdrop-blur-md border-l border-[#262a33] flex flex-col z-30 shadow-2xl transition-none"
+        className="fixed top-16 right-4 bottom-6 bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl flex flex-col z-30 shadow-[var(--shadow-hud)] overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
       >
         <ResizeHandle
           position="left"
@@ -233,16 +233,16 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           isDragging={isDragging}
         />
         {/* Top Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#262a33] bg-[#12151b]/80">
+        <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)]/40">
           <div className="flex items-center space-x-2">
-            <div className="p-1 rounded-md bg-gradient-to-tr from-sky-500 to-indigo-500 text-white shadow-sm">
+            <div className="p-1 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-xs font-semibold text-white tracking-wide uppercase">AI Copilot</h2>
-              <div className="flex items-center space-x-1.5 text-[10px] text-zinc-400">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Active Agent</span>
+              <h2 className="text-xs font-semibold text-white tracking-wide uppercase">AI BIM Copilot</h2>
+              <div className="flex items-center space-x-1.5 text-[10px] text-slate-400">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Ready</span>
               </div>
             </div>
           </div>
@@ -251,21 +251,21 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <button
               onClick={() => setSettingsOpen(true)}
               title="Copilot Settings & API Keys"
-              className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleClearHistory}
               title="Clear Chat History"
-              className="p-1.5 rounded-md text-zinc-400 hover:text-rose-400 hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onClose}
               title="Close Copilot"
-              className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -273,13 +273,13 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         </div>
 
         {/* Model & Target Selector Bar */}
-        <div className="px-4 py-2 bg-[#16191f]/70 border-b border-[#262a33] flex flex-col gap-1.5">
+        <div className="px-3.5 py-2 bg-[var(--control-bg)]/30 border-b border-[var(--border-subtle)] flex flex-col gap-1.5">
           <div className="flex items-center space-x-2">
             {/* Provider Selector */}
             <select
               value={selectedProviderId}
               onChange={(e) => setSelectedProviderId(e.target.value)}
-              className="flex-1 bg-[#1c202a] border border-[#262a33] focus:border-sky-500 rounded-md px-2 py-1 text-[11px] text-zinc-200 outline-none"
+              className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none"
             >
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -292,7 +292,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="flex-1 bg-[#1c202a] border border-[#262a33] focus:border-sky-500 rounded-md px-2 py-1 text-[11px] text-zinc-200 outline-none"
+              className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none"
             >
               {currentProvider?.models.map((m) => (
                 <option key={m} value={m}>
@@ -304,10 +304,10 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
           {/* Active selection badge */}
           {selectedExpressId !== null && (
-            <div className="flex items-center space-x-1.5 px-2 py-1 bg-sky-950/40 border border-sky-800/40 rounded text-[11px] text-sky-300">
-              <Box className="w-3 h-3 text-sky-400" />
+            <div className="flex items-center space-x-1.5 px-2 py-1 bg-cyan-950/40 border border-cyan-800/40 rounded text-[11px] text-cyan-300">
+              <Box className="w-3 h-3 text-cyan-400" />
               <span>Target Element:</span>
-              <span className="font-mono font-medium text-sky-200">#{selectedExpressId}</span>
+              <span className="font-mono font-medium text-cyan-200">#{selectedExpressId}</span>
             </div>
           )}
         </div>
@@ -321,7 +321,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                 key={m.id}
                 className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
               >
-                <div className="flex items-center space-x-1.5 mb-1 px-1 text-[10px] text-zinc-500">
+                <div className="flex items-center space-x-1.5 mb-1 px-1 text-[10px] text-slate-500">
                   <span>{isUser ? 'You' : 'Copilot'}</span>
                   <span>•</span>
                   <span>{m.timestamp}</span>
@@ -330,24 +330,24 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                 <div
                   className={`max-w-[90%] rounded-xl px-3.5 py-2.5 leading-relaxed break-words shadow-sm ${
                     isUser
-                      ? 'bg-sky-600 text-white rounded-tr-none'
-                      : 'bg-[#181c24] text-zinc-200 border border-[#262a33] rounded-tl-none'
+                      ? 'bg-cyan-500 text-slate-950 font-medium rounded-tr-none'
+                      : 'bg-[var(--control-bg)] text-slate-200 border border-[var(--border-subtle)] rounded-tl-none'
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{m.content}</p>
 
                   {/* Render Tool Calls */}
                   {m.toolCalls && m.toolCalls.length > 0 && (
-                    <div className="mt-3 pt-2.5 border-t border-[#262a33] space-y-2">
+                    <div className="mt-3 pt-2.5 border-t border-[var(--border-subtle)] space-y-2">
                       {m.toolCalls.map((tc) => {
                         const isSuccess = tc.result && tc.result.success;
                         return (
                           <div
                             key={tc.id}
-                            className="bg-[#101318] border border-[#262a33] rounded-lg p-2.5 space-y-1.5"
+                            className="bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-lg p-2.5 space-y-1.5"
                           >
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-1.5 font-mono text-[10px] text-zinc-300">
+                              <div className="flex items-center space-x-1.5 font-mono text-[10px] text-slate-300">
                                 {getToolIcon(tc.name)}
                                 <span className="font-semibold text-white">{tc.name}</span>
                               </div>
@@ -367,13 +367,13 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                             </div>
 
                             {/* Arguments Preview */}
-                            <div className="text-[10px] text-zinc-400 bg-black/30 rounded px-2 py-1 font-mono overflow-x-auto">
+                            <div className="text-[10px] text-slate-400 bg-black/30 rounded px-2 py-1 font-mono overflow-x-auto">
                               {JSON.stringify(tc.arguments)}
                             </div>
 
                             {/* Result Summary */}
                             {tc.result && typeof tc.result.summary === 'string' && (
-                              <p className="text-[11px] text-zinc-300 italic pt-0.5">
+                              <p className="text-[11px] text-slate-300 italic pt-0.5">
                                 {tc.result.summary}
                               </p>
                             )}
@@ -388,8 +388,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           })}
 
           {isLoading && (
-            <div className="flex items-center space-x-2 text-zinc-400 text-xs px-2 py-1">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+            <div className="flex items-center space-x-2 text-slate-400 text-xs px-2 py-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
               <span>Analyzing geometry & executing tools...</span>
             </div>
           )}
@@ -398,14 +398,14 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         </div>
 
         {/* Quick Suggestion Chips */}
-        <div className="px-3 py-2 border-t border-[#262a33] bg-[#12151b]/40">
+        <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-[var(--control-bg)]/20">
           <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5">
             {QUICK_PROMPTS.map((prompt, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSend(prompt)}
                 disabled={isLoading}
-                className="shrink-0 px-2.5 py-1 rounded-full bg-[#1c202a] hover:bg-[#252b38] border border-[#262a33] text-[10px] text-zinc-300 hover:text-white transition-colors"
+                className="shrink-0 px-2.5 py-1 rounded-full bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] text-[10px] text-slate-300 hover:text-white transition-colors"
               >
                 {prompt}
               </button>
@@ -414,7 +414,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         </div>
 
         {/* Chat Input Bar */}
-        <div className="p-3 border-t border-[#262a33] bg-[#12151b]">
+        <div className="p-3 border-t border-[var(--border-subtle)] bg-[var(--control-bg)]/40">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -429,12 +429,12 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1 bg-[#181c24] border border-[#262a33] focus:border-sky-500 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none transition-colors"
+              className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
             />
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="p-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:hover:bg-sky-600 text-white transition-colors shadow-sm"
+              className="p-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 disabled:opacity-40 disabled:hover:bg-cyan-400 text-slate-950 font-bold transition-colors shadow-sm"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

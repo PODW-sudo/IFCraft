@@ -46,10 +46,10 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
       {/* Interactive Section Planes Flyout Panel */}
       {showSectionPanel && (
-        <div className="bg-[#16191f]/95 backdrop-blur-md border border-[#262a33] p-4 rounded-xl shadow-2xl w-72 text-xs space-y-3 animate-in fade-in zoom-in-95">
-          <div className="flex items-center justify-between border-b border-[#262a33] pb-2">
+        <div className="bg-[var(--dock-bg)]/95 backdrop-blur-md border border-[var(--border-subtle)] p-4 rounded-xl shadow-2xl w-72 text-xs space-y-3 animate-in fade-in zoom-in-95">
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
             <div className="flex items-center gap-1.5 font-semibold text-slate-200">
-              <Scissors className="w-3.5 h-3.5 text-sky-400" />
+              <Scissors className="w-3.5 h-3.5 text-cyan-400" />
               <span>Section / Clipping Plane</span>
             </div>
             <button
@@ -67,21 +67,21 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
               type="checkbox"
               checked={sectionConfig.enabled}
               onChange={(e) => onUpdateSection({ ...sectionConfig, enabled: e.target.checked })}
-              className="accent-sky-500 w-4 h-4 cursor-pointer"
+              className="accent-cyan-400 w-4 h-4 cursor-pointer"
             />
           </div>
 
           {/* Axis Selector */}
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Cut Plane Axis:</span>
-            <div className="flex items-center gap-1 bg-[#0d0f12] p-1 rounded border border-[#262a33]">
+            <div className="flex items-center gap-1 bg-[var(--canvas-bg)] p-1 rounded border border-[var(--border-subtle)]">
               {(['x', 'y', 'z'] as const).map((ax) => (
                 <button
                   key={ax}
                   onClick={() => onUpdateSection({ ...sectionConfig, axis: ax })}
                   className={`px-2 py-0.5 uppercase font-mono text-[11px] rounded transition-colors ${
                     sectionConfig.axis === ax
-                      ? 'bg-sky-500 text-slate-950 font-bold'
+                      ? 'bg-cyan-400 text-slate-950 font-bold'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -95,7 +95,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
           <div className="space-y-1">
             <div className="flex justify-between text-[11px]">
               <span className="text-slate-400">Plane Offset:</span>
-              <span className="font-mono text-sky-400">{sectionConfig.position.toFixed(1)}m</span>
+              <span className="font-mono text-cyan-400">{sectionConfig.position.toFixed(1)}m</span>
             </div>
             <input
               type="range"
@@ -106,7 +106,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
               onChange={(e) =>
                 onUpdateSection({ ...sectionConfig, position: parseFloat(e.target.value) })
               }
-              className="w-full accent-sky-400 cursor-pointer"
+              className="w-full accent-cyan-400 cursor-pointer"
             />
           </div>
 
@@ -128,13 +128,13 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
       )}
 
       {/* Main Floating Tool Dock */}
-      <div className="flex items-center gap-1.5 bg-[#16191f]/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#262a33] shadow-2xl">
+      <div className="flex items-center gap-1.5 bg-[var(--dock-bg)]/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[var(--border-subtle)] shadow-2xl">
         {/* Measurement Tool Button */}
         <button
           onClick={onToggleMeasure}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors border ${
             isMeasureActive
-              ? 'bg-sky-500 text-slate-950 font-semibold border-sky-400 shadow-sm'
+              ? 'bg-cyan-400 text-slate-950 font-semibold border-cyan-400 shadow-sm'
               : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border-transparent'
           }`}
           title="Point-to-Point 3D Measure Ruler (M)"
@@ -142,7 +142,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
           <Ruler className="w-3.5 h-3.5" />
           <span>Measure</span>
           {measurementCount > 0 && (
-            <span className="text-[10px] bg-slate-900 text-sky-300 px-1.5 py-0.2 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-900 text-cyan-300 px-1.5 py-0.2 rounded-full font-mono">
               {measurementCount}
             </span>
           )}
@@ -158,7 +158,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
           </button>
         )}
 
-        <div className="w-[1px] h-4 bg-[#262a33] mx-0.5" />
+        <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-0.5" />
 
         {/* Section / Cut Plane Toggle */}
         <button
@@ -174,7 +174,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
           <span>Section</span>
         </button>
 
-        <div className="w-[1px] h-4 bg-[#262a33] mx-0.5" />
+        <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-0.5" />
 
         {/* Camera Views Preset Dropdown */}
         <div className="relative">
@@ -183,12 +183,12 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors"
             title="Camera Perspective & Orthographic Presets"
           >
-            <Camera className="w-3.5 h-3.5 text-sky-400" />
+            <Camera className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden sm:inline">Views</span>
           </button>
 
           {showCameraMenu && (
-            <div className="absolute bottom-10 left-0 bg-[#16191f] border border-[#262a33] rounded-lg shadow-xl p-1.5 min-w-[120px] text-xs space-y-1">
+            <div className="absolute bottom-10 left-0 bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-lg shadow-xl p-1.5 min-w-[120px] text-xs space-y-1">
               <button
                 onClick={() => {
                   onCameraPreset('iso');
@@ -229,10 +229,10 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
           )}
         </div>
 
-        <div className="w-[1px] h-4 bg-[#262a33] mx-0.5" />
+        <div className="w-[1px] h-4 bg-[var(--border-subtle)] mx-0.5" />
 
         {/* Render Style Mode: Shaded, Wireframe, Ghost */}
-        <div className="flex items-center gap-0.5 bg-[#0d0f12] p-0.5 rounded-lg border border-[#262a33]">
+        <div className="flex items-center gap-0.5 bg-[var(--canvas-bg)] p-0.5 rounded-lg border border-[var(--border-subtle)]">
           <button
             onClick={() => onSetRenderStyle('shaded')}
             className={`px-2 py-1 rounded text-[11px] transition-colors ${
@@ -248,7 +248,7 @@ export const BimToolsToolbar: React.FC<BimToolsToolbarProps> = ({
             onClick={() => onSetRenderStyle('wireframe')}
             className={`px-2 py-1 rounded text-[11px] transition-colors ${
               renderStyle === 'wireframe'
-                ? 'bg-slate-800 text-sky-400 font-semibold'
+                ? 'bg-slate-800 text-cyan-400 font-semibold'
                 : 'text-slate-500 hover:text-slate-300'
             }`}
             title="Wireframe CAD"

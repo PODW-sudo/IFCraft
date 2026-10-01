@@ -6,13 +6,11 @@ import {
 } from './components/viewer/ThreeViewport';
 import { SpatialTree } from './components/tree/SpatialTree';
 import { PropertyInspector } from './components/properties/PropertyInspector';
-import { TopToolbar } from './components/toolbar/TopToolbar';
-import {
-  BimToolsToolbar,
-  type SectionPlaneConfig,
-  type CameraPreset,
-  type RenderStyle
-} from './components/tools/BimToolsToolbar';
+import { SpatialTopPill } from './components/nav/SpatialTopPill';
+import { SpatialBottomDock } from './components/dock/SpatialBottomDock';
+import { CoordinateHud } from './components/hud/CoordinateHud';
+import { SpatialOmnibar } from './components/omnibar/SpatialOmnibar';
+import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './components/tools/BimToolsToolbar';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
@@ -73,6 +71,7 @@ export const App: React.FC = () => {
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isOmnibarOpen, setIsOmnibarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [loadingPercent, setLoadingPercent] = useState(0);
@@ -259,6 +258,7 @@ export const App: React.FC = () => {
 
         setSelectedExpressID(expressID);
         setIsPropertyOpen(true);
+        setIsCopilotOpen(false);
         if (transformMode === 'select') {
           setTransformMode('translate');
         }
@@ -272,6 +272,22 @@ export const App: React.FC = () => {
     },
     [selectedExpressID, elementLocks, transformMode]
   );
+
+  const handleToggleCopilot = useCallback(() => {
+    setIsCopilotOpen((prev) => {
+      const next = !prev;
+      if (next) setIsPropertyOpen(false);
+      return next;
+    });
+  }, []);
+
+  const handleToggleProperty = useCallback(() => {
+    setIsPropertyOpen((prev) => {
+      const next = !prev;
+      if (next) setIsCopilotOpen(false);
+      return next;
+    });
+  }, []);
 
   // Handle Transform End: Commit via WebSocket and REST persistence
   const handleTransformEnd = useCallback(
@@ -396,10 +412,57 @@ export const App: React.FC = () => {
     }
   }, [currentProject, loadProject]);
 
+  // Handle Omnibar Tool Actions
+  const handleTriggerTool = useCallback(
+    (toolId: string) => {
+      switch (toolId) {
+        case 'measure':
+          setIsMeasureActive((prev) => !prev);
+          break;
+        case 'section':
+          setSectionConfig((prev) => ({ ...prev, enabled: !prev.enabled }));
+          break;
+        case 'copilot':
+          setIsCopilotOpen(true);
+          setIsPropertyOpen(false);
+          break;
+        case 'export':
+          handleDownloadProject();
+          break;
+      }
+    },
+    [handleDownloadProject]
+  );
+
   return (
-    <div className="flex flex-col w-screen h-screen bg-[#0d0f12] text-slate-100 overflow-hidden font-sans">
-      {/* Top Navigation & Action Bar */}
-      <TopToolbar
+    <div className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none">
+      {/* 1. 100% Viewport Canvas (Full window immersion) */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden z-0">
+        <ThreeViewport
+          geometries={geometries}
+          selectedExpressID={selectedExpressID}
+          onSelectElement={handleSelectElement}
+          hiddenCategories={hiddenCategories}
+          isolatedExpressID={isolatedExpressID}
+          transformMode={transformMode}
+          snapEnabled={snapEnabled}
+          onTransformEnd={handleTransformEnd}
+          onTransformChange={handleTransformChange}
+          isMeasureActive={isMeasureActive}
+          measurements={measurements}
+          onAddMeasurement={handleAddMeasurement}
+          sectionConfig={sectionConfig}
+          cameraPresetTrigger={cameraPresetTrigger}
+          onCameraPreset={handleCameraPreset}
+          renderStyle={renderStyle}
+          elementLocks={elementLocks}
+          remoteTransform={remoteTransform}
+          isRightDrawerOpen={Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen)}
+        />
+      </div>
+
+      {/* 2. Floating Top Pill Navigation */}
+      <SpatialTopPill
         currentProject={currentProject}
         projects={projects}
         onSelectProject={loadProject}
@@ -408,112 +471,109 @@ export const App: React.FC = () => {
         onDownloadProject={handleDownloadProject}
         isTreeOpen={isTreeOpen}
         onToggleTree={() => setIsTreeOpen((prev) => !prev)}
-        elementCount={geometries.length}
+        isPropertyOpen={isPropertyOpen}
+        onToggleProperty={handleToggleProperty}
+        isCopilotOpen={isCopilotOpen}
+        onToggleCopilot={handleToggleCopilot}
+        onOpenOmnibar={() => setIsOmnibarOpen(true)}
         selectedExpressID={selectedExpressID}
+        spatialTree={spatialTree}
+        collaborators={collaborators}
         hiddenCategories={hiddenCategories}
         onToggleCategory={toggleCategoryVisibility}
-        collaborators={collaborators}
-        isCopilotOpen={isCopilotOpen}
-        onToggleCopilot={() => setIsCopilotOpen((prev) => !prev)}
       />
 
-      {/* Main Workspace Layout */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left: Spatial Tree */}
-        <SpatialTree
-          tree={spatialTree}
-          selectedExpressID={selectedExpressID}
-          onSelectElement={handleSelectElement}
-          isolatedExpressID={isolatedExpressID}
-          onToggleIsolate={setIsolatedExpressID}
-          isOpen={isTreeOpen}
-          onToggleOpen={() => setIsTreeOpen(false)}
+      {/* 3. Floating Left Hierarchy Drawer */}
+      <SpatialTree
+        tree={spatialTree}
+        selectedExpressID={selectedExpressID}
+        onSelectElement={handleSelectElement}
+        isolatedExpressID={isolatedExpressID}
+        onToggleIsolate={setIsolatedExpressID}
+        isOpen={isTreeOpen}
+        onToggleOpen={() => setIsTreeOpen(false)}
+      />
+
+      {/* 4. Floating Right Property Inspector Drawer */}
+      {selectedExpressID !== null && (
+        <PropertyInspector
+          projectId={currentProject?.id || null}
+          expressId={selectedExpressID}
+          isOpen={isPropertyOpen}
+          onClose={() => setIsPropertyOpen(false)}
+          transformInfo={transformInfo}
         />
+      )}
 
-        {/* Center: 3D Viewport with TransformControls, Sectioning, Measurements, Soft Locks */}
-        <main className="flex-1 min-w-0 h-full relative overflow-hidden">
-          <ThreeViewport
-            geometries={geometries}
-            selectedExpressID={selectedExpressID}
-            onSelectElement={handleSelectElement}
-            hiddenCategories={hiddenCategories}
-            isolatedExpressID={isolatedExpressID}
-            transformMode={transformMode}
-            onSetTransformMode={setTransformMode}
-            snapEnabled={snapEnabled}
-            onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-            onTransformEnd={handleTransformEnd}
-            onTransformChange={handleTransformChange}
-            isMeasureActive={isMeasureActive}
-            measurements={measurements}
-            onAddMeasurement={handleAddMeasurement}
-            sectionConfig={sectionConfig}
-            cameraPresetTrigger={cameraPresetTrigger}
-            renderStyle={renderStyle}
-            elementLocks={elementLocks}
-            remoteTransform={remoteTransform}
-          />
+      {/* 5. Floating AI Copilot Drawer */}
+      <CopilotSidebar
+        isOpen={isCopilotOpen}
+        onClose={() => setIsCopilotOpen(false)}
+        projectId={currentProject?.id || ''}
+        selectedExpressId={selectedExpressID}
+        onModelModified={handleModelModifiedByCopilot}
+      />
 
-          {/* Floating BIM Inspection Toolbar */}
-          <BimToolsToolbar
-            isMeasureActive={isMeasureActive}
-            onToggleMeasure={() => setIsMeasureActive((p) => !p)}
-            measurementCount={measurements.length}
-            onClearMeasurements={handleClearMeasurements}
-            sectionConfig={sectionConfig}
-            onUpdateSection={setSectionConfig}
-            onCameraPreset={handleCameraPreset}
-            renderStyle={renderStyle}
-            onSetRenderStyle={setRenderStyle}
-          />
+      {/* 6. Contextual Floating Tool Dock (Bottom Center) */}
+      <SpatialBottomDock
+        transformMode={transformMode}
+        onSetTransformMode={setTransformMode}
+        snapEnabled={snapEnabled}
+        onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+        isMeasureActive={isMeasureActive}
+        onToggleMeasure={() => setIsMeasureActive((p) => !p)}
+        measurementCount={measurements.length}
+        onClearMeasurements={handleClearMeasurements}
+        sectionConfig={sectionConfig}
+        onUpdateSection={setSectionConfig}
+        onCameraPreset={handleCameraPreset}
+        renderStyle={renderStyle}
+        onSetRenderStyle={setRenderStyle}
+      />
 
-          {/* Empty State Hint */}
-          {geometries.length === 0 && !isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="p-6 rounded-lg bg-[#16191f]/90 border border-[#262a33] text-center max-w-sm pointer-events-auto backdrop-blur-md shadow-2xl">
-                <p className="text-sm font-semibold text-slate-200 mb-1">No 3D Meshes In Active Model</p>
-                <p className="text-xs text-slate-400 mb-4">
-                  This model currently contains spatial hierarchy (Site, Building, Storey). Upload an IFC model or import geometry to view 3D elements.
-                </p>
-                <div className="flex items-center justify-center gap-2">
-                  <button
-                    onClick={() => setIsUploadModalOpen(true)}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 transition-colors shadow-sm"
-                  >
-                    Upload IFC
-                  </button>
-                  <button
-                    onClick={() => setIsNewProjectModalOpen(true)}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#262a33] hover:bg-[#323743] text-white transition-colors border border-zinc-700/60"
-                  >
-                    Sample Models
-                  </button>
-                </div>
-              </div>
+      {/* 7. Bottom-Left Coordinate & Viewport Status HUD */}
+      <CoordinateHud
+        selectedExpressID={selectedExpressID}
+        transformInfo={transformInfo}
+        elementCount={geometries.length}
+        isTreeOpen={isTreeOpen}
+      />
+
+      {/* 8. Command Palette / Spatial Omnibar (Ctrl+K) */}
+      <SpatialOmnibar
+        isOpen={isOmnibarOpen}
+        onClose={() => setIsOmnibarOpen(false)}
+        geometries={geometries}
+        spatialTree={spatialTree}
+        onSelectElement={handleSelectElement}
+        onTriggerTool={handleTriggerTool}
+      />
+
+      {/* Empty State Overlay */}
+      {geometries.length === 0 && !isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <div className="p-6 rounded-2xl bg-[var(--dock-translucent)] border border-[var(--border-subtle)] text-center max-w-sm pointer-events-auto backdrop-blur-2xl shadow-[var(--shadow-hud)]">
+            <p className="text-sm font-semibold text-slate-200 mb-1">Spatial Canvas Ready</p>
+            <p className="text-xs text-slate-400 mb-4">
+              This IFC model currently contains spatial containers. Upload an IFC file or open sample models to explore 3D elements.
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-cyan-400 hover:bg-cyan-300 text-slate-950 transition-colors shadow-sm"
+              >
+                Upload IFC
+              </button>
+              <button
+                onClick={() => setIsNewProjectModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-white transition-colors border border-[var(--border-subtle)]"
+              >
+                Sample Models
+              </button>
             </div>
-          )}
-        </main>
-
-        {/* Right: Property Inspector Panel */}
-        {selectedExpressID !== null && (
-          <PropertyInspector
-            projectId={currentProject?.id || null}
-            expressId={selectedExpressID}
-            isOpen={isPropertyOpen}
-            onClose={() => setIsPropertyOpen(false)}
-            transformInfo={transformInfo}
-          />
-        )}
-
-        {/* Right: AI Copilot Sidebar Drawer */}
-        <CopilotSidebar
-          isOpen={isCopilotOpen}
-          onClose={() => setIsCopilotOpen(false)}
-          projectId={currentProject?.id || ''}
-          selectedExpressId={selectedExpressID}
-          onModelModified={handleModelModifiedByCopilot}
-        />
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <UploadModal
