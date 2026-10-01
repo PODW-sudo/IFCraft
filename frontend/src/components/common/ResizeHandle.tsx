@@ -31,8 +31,8 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       <div
         className={`pointer-events-none w-0.5 h-full transition-all duration-150 ${
           isDragging
-            ? 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]'
-            : 'bg-transparent group-hover:bg-sky-500/70'
+            ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]'
+            : 'bg-transparent group-hover:bg-cyan-500/70'
         }`}
       />
 
@@ -40,7 +40,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       <div
         className={`pointer-events-none absolute top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full transition-all duration-150 ${
           isDragging
-            ? 'bg-sky-400 opacity-100 scale-y-110 shadow-sm'
+            ? 'bg-cyan-400 opacity-100 scale-y-110 shadow-sm'
             : 'bg-slate-500/80 opacity-0 group-hover:opacity-100'
         }`}
       />

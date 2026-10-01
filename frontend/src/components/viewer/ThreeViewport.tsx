@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { Move, RotateCw, Maximize2, MousePointer, Magnet } from 'lucide-react';
 import type { GeometryData } from '../../types/ifc';
 import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/BimToolsToolbar';
 
@@ -23,9 +22,7 @@ interface ThreeViewportProps {
   hiddenCategories: Set<string>;
   isolatedExpressID: number | null;
   transformMode: TransformMode;
-  onSetTransformMode: (mode: TransformMode) => void;
   snapEnabled: boolean;
-  onToggleSnap: () => void;
   onTransformEnd: (expressID: number, matrix: number[]) => void;
   onTransformChange?: (expressID: number, pos: [number, number, number], rot: [number, number, number]) => void;
   // Phase 4 Props
@@ -34,10 +31,14 @@ interface ThreeViewportProps {
   onAddMeasurement: (record: MeasurementRecord) => void;
   sectionConfig: SectionPlaneConfig;
   cameraPresetTrigger?: { preset: CameraPreset; timestamp: number } | null;
+  onCameraPreset?: (preset: CameraPreset) => void;
   renderStyle: RenderStyle;
   // Phase 5 Props: Real-time Collaboration & Soft Locks
   elementLocks?: Record<number, { user_id: string; user_name: string; user_color: string }>;
   remoteTransform?: { expressID: number; matrix: number[] } | null;
+  // Dynamic HUD Collision Avoidance
+  isRightDrawerOpen?: boolean;
+  rightDrawerWidth?: number;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -63,9 +64,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   hiddenCategories,
   isolatedExpressID,
   transformMode,
-  onSetTransformMode,
   snapEnabled,
-  onToggleSnap,
   onTransformEnd,
   onTransformChange,
   isMeasureActive,
@@ -73,9 +72,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onAddMeasurement,
   sectionConfig,
   cameraPresetTrigger,
+  onCameraPreset,
   renderStyle,
   elementLocks = {},
-  remoteTransform
+  remoteTransform,
+  isRightDrawerOpen = false,
+  rightDrawerWidth = 320
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -88,6 +90,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const bboxHelperRef = useRef<THREE.BoxHelper | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
+
+  // Dynamic 3D Screen Projection for Measurements
+  const measurementsRef = useRef(measurements);
+  measurementsRef.current = measurements;
+  const [screenMeasurements, setScreenMeasurements] = useState<
+    { id: string; x: number; y: number; visible: boolean; distance: number }[]
+  >([]);
 
   // Clipping Plane Ref
   const clipPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, -1, 0), 10));
@@ -102,7 +111,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0d0f12);
+    scene.background = new THREE.Color(0x0b0d10);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
@@ -117,7 +126,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true
     });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -176,14 +186,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     dirLight1.castShadow = true;
     dirLight1.shadow.mapSize.width = 2048;
     dirLight1.shadow.mapSize.height = 2048;
+    dirLight1.shadow.bias = -0.0005; // Eliminates shadow acne on co-planar BIM walls
     scene.add(dirLight1);
 
     const dirLight2 = new THREE.DirectionalLight(0x94a3b8, 0.4);
     dirLight2.position.set(-20, -10, -20);
     scene.add(dirLight2);
 
-    // Grid
-    const gridHelper = new THREE.GridHelper(50, 50, 0x38bdf8, 0x262a33);
+    // Grid (DTCG tokens: cyan accent line, subtle dark grid)
+    const gridHelper = new THREE.GridHelper(50, 50, 0x22d3ee, 0x252b36);
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
@@ -196,11 +207,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(measureGroup);
     measureGroupRef.current = measureGroup;
 
-    // Animate
+    // Animate & Dynamic 3D Projection
     const animate = () => {
       animFrameIdRef.current = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
+
+      // Project 3D vector midpoints to 2D screen coordinates
+      if (measurementsRef.current.length > 0 && container) {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        const projected = measurementsRef.current.map((m) => {
+          const vec = new THREE.Vector3(...m.midpoint).project(camera);
+          const x = (vec.x * 0.5 + 0.5) * width;
+          const y = (-(vec.y * 0.5) + 0.5) * height;
+          const visible = vec.z < 1.0 && x >= 0 && x <= width && y >= 0 && y <= height;
+          return { id: m.id, x, y, visible, distance: m.distance };
+        });
+        setScreenMeasurements(projected);
+      }
     };
     animate();
 
@@ -587,105 +612,69 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       // Normal Selection
       if (intersects.length > 0) {
-        const hit = intersects[0].object;
+        const hit = intersects[0].object as THREE.Mesh;
         const expressID = hit.userData.expressID as number;
         onSelectElement(expressID);
+        if (onTransformChange) {
+          const pos = hit.position.toArray() as [number, number, number];
+          const rot = [hit.rotation.x, hit.rotation.y, hit.rotation.z] as [number, number, number];
+          onTransformChange(expressID, pos, rot);
+        }
       } else {
         onSelectElement(null);
       }
     },
-    [isMeasureActive, pendingStartPoint, onAddMeasurement, onSelectElement]
+    [isMeasureActive, pendingStartPoint, onAddMeasurement, onSelectElement, onTransformChange]
   );
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none outline-none">
       <div ref={containerRef} onClick={handleClick} className="w-full h-full cursor-crosshair" />
 
-      {/* Floating Transform Gizmo Controls (Hidden in measure mode) */}
-      {!isMeasureActive && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-[#16191f]/90 backdrop-blur-md p-1 rounded-lg border border-[#262a33] shadow-xl">
+      {/* 3D Viewport Orientation Triad / Quick-View Gizmo (Top-Right) */}
+      <div
+        style={{ right: isRightDrawerOpen ? `${rightDrawerWidth + 24}px` : '1rem' }}
+        className="absolute top-4 z-10 flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none transition-[right] duration-200"
+      >
+        <div className="flex items-center gap-1 text-[10px] font-mono text-slate-400 px-1 font-semibold uppercase tracking-wider">
+          <span>Views</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1 w-24 text-[10px] font-mono">
           <button
-            onClick={() => onSetTransformMode('select')}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
-              transformMode === 'select'
-                ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Select Mode (Q)"
+            onClick={() => onCameraPreset && onCameraPreset('iso')}
+            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+            title="Isometric 3D"
           >
-            <MousePointer className="w-3.5 h-3.5" />
-            <span>Select</span>
+            ISO
           </button>
-
           <button
-            onClick={() => onSetTransformMode('translate')}
-            disabled={selectedExpressID === null}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
-              transformMode === 'translate'
-                ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
-                : selectedExpressID === null
-                ? 'text-slate-600 cursor-not-allowed'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Translate Gizmo (W)"
+            onClick={() => onCameraPreset && onCameraPreset('top')}
+            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-cyan-300 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+            title="Top Floor Plan View"
           >
-            <Move className="w-3.5 h-3.5" />
-            <span>Translate</span>
+            TOP
           </button>
-
           <button
-            onClick={() => onSetTransformMode('rotate')}
-            disabled={selectedExpressID === null}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
-              transformMode === 'rotate'
-                ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
-                : selectedExpressID === null
-                ? 'text-slate-600 cursor-not-allowed'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Rotate Gizmo (E)"
+            onClick={() => onCameraPreset && onCameraPreset('front')}
+            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+            title="Front Elevation View"
           >
-            <RotateCw className="w-3.5 h-3.5" />
-            <span>Rotate</span>
+            FRONT
           </button>
-
           <button
-            onClick={() => onSetTransformMode('scale')}
-            disabled={selectedExpressID === null}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
-              transformMode === 'scale'
-                ? 'bg-sky-500 text-slate-950 font-semibold shadow-sm'
-                : selectedExpressID === null
-                ? 'text-slate-600 cursor-not-allowed'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Scale Gizmo (R)"
+            onClick={() => onCameraPreset && onCameraPreset('side')}
+            className="px-1.5 py-1 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-slate-200 border border-[var(--border-subtle)] transition-colors text-center font-bold"
+            title="Side Elevation View"
           >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>Scale</span>
-          </button>
-
-          <div className="w-[1px] h-4 bg-[#262a33] mx-1" />
-
-          <button
-            onClick={onToggleSnap}
-            className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs transition-colors ${
-              snapEnabled
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-            }`}
-            title="Toggle Snap Grid (0.5m / 15°) (X)"
-          >
-            <Magnet className="w-3.5 h-3.5" />
-            <span>Snap</span>
+            SIDE
           </button>
         </div>
-      )}
+      </div>
 
       {/* Measure Mode Banner */}
       {isMeasureActive && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-sky-500/10 border border-sky-400/40 backdrop-blur-md px-4 py-2 rounded-lg text-xs text-sky-300 flex items-center gap-2 shadow-lg">
-          <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-[var(--dock-translucent)] border border-emerald-500/40 backdrop-blur-xl px-4 py-1.5 rounded-full text-xs text-emerald-300 flex items-center gap-2 shadow-[var(--shadow-hud)]">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           <span>
             {pendingStartPoint
               ? 'Click second surface point to finish measurement'
@@ -694,20 +683,21 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         </div>
       )}
 
-      {/* Floating Measurement Dimension Tags */}
-      {measurements.map((m) => (
-        <div
-          key={m.id}
-          className="absolute pointer-events-none text-[10px] font-mono font-bold bg-[#16191f]/90 text-sky-300 px-2 py-0.5 rounded border border-sky-400/40 shadow"
-          style={{
-            // Position approximate badge on screen
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)'
-          }}
-        >
-          {m.distance.toFixed(2)} m
-        </div>
+      {/* Floating Measurement Dimension Tags Projected from 3D Space */}
+      {screenMeasurements.map((m) => (
+        m.visible && (
+          <div
+            key={m.id}
+            className="absolute pointer-events-none text-[10px] font-mono font-bold bg-[var(--dock-bg)] text-cyan-300 px-2 py-0.5 rounded border border-cyan-400/40 shadow-[var(--shadow-hud)]"
+            style={{
+              left: `${m.x}px`,
+              top: `${m.y}px`,
+              transform: 'translate(-50%, -50%)'
+            }}
+          >
+            {m.distance.toFixed(3)} m
+          </div>
+        )
       ))}
     </div>
   );

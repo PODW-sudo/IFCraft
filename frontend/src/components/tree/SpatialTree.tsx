@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -36,6 +36,19 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set([0]));
 
+  useEffect(() => {
+    if (!tree) return;
+    const initialExpanded = new Set<number>();
+    const collectStoreys = (node: SpatialNode, depth: number) => {
+      initialExpanded.add(node.express_id);
+      if (depth < 3 && node.children) {
+        node.children.forEach((child) => collectStoreys(child, depth + 1));
+      }
+    };
+    collectStoreys(tree, 0);
+    setExpandedNodes(initialExpanded);
+  }, [tree]);
+
   const { width, isDragging, startResizing, resetWidth } = useResizable({
     initialWidth: 288,
     minWidth: 220,
@@ -60,7 +73,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
   const getNodeIcon = (type: string) => {
     switch (type) {
       case 'IfcProject':
-        return <FolderTree className="w-3.5 h-3.5 text-sky-400" />;
+        return <FolderTree className="w-3.5 h-3.5 text-cyan-400" />;
       case 'IfcSite':
         return <Building2 className="w-3.5 h-3.5 text-emerald-400" />;
       case 'IfcBuilding':
@@ -98,7 +111,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
           onClick={() => onSelectElement(node.express_id)}
           className={`group flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors ${
             isSelected
-              ? 'bg-sky-500/20 text-sky-300 font-medium border border-sky-500/30'
+              ? 'bg-cyan-500/20 text-cyan-300 font-medium border border-cyan-500/30'
               : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
           }`}
           style={{ paddingLeft: `${Math.max(8, depth * 14)}px` }}
@@ -131,7 +144,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
                 onToggleIsolate(isIsolated ? null : node.express_id);
               }}
               className={`p-1 rounded text-slate-400 hover:text-white transition-opacity opacity-0 group-hover:opacity-100 ${
-                isIsolated ? 'opacity-100 text-sky-400' : ''
+                isIsolated ? 'opacity-100 text-cyan-400' : ''
               }`}
               title={isIsolated ? 'Restore all' : 'Isolate element'}
             >
@@ -154,7 +167,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
   return (
     <div
       style={{ width: `${width}px` }}
-      className="relative flex-shrink-0 h-[calc(100vh-3.5rem)] flex flex-col bg-[#16191f]/90 backdrop-blur-md border-r border-[#262a33] text-slate-200 transition-none"
+      className="fixed left-4 top-16 bottom-6 z-20 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-left-4"
     >
       <ResizeHandle
         position="right"
@@ -163,23 +176,24 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
         isDragging={isDragging}
       />
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#262a33]">
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)]/40">
         <div className="flex items-center gap-2">
-          <FolderTree className="w-4 h-4 text-sky-400" />
+          <FolderTree className="w-4 h-4 text-cyan-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-            Spatial Tree
+            Spatial Hierarchy
           </span>
         </div>
         <button
           onClick={onToggleOpen}
-          className="text-slate-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-slate-800"
+          className="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded hover:bg-[var(--control-hover)] transition-colors"
+          title="Close Hierarchy Drawer"
         >
           &times;
         </button>
       </div>
 
       {/* Search Input */}
-      <div className="p-2 border-b border-[#262a33]">
+      <div className="p-2 border-b border-[var(--border-subtle)]">
         <div className="relative flex items-center">
           <Search className="w-3.5 h-3.5 absolute left-2 text-slate-400" />
           <input
@@ -187,10 +201,10 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
             name="hierarchySearch"
             type="text"
             aria-label="Search hierarchy"
-            placeholder="Search hierarchy..."
+            placeholder="Search hierarchy (#124, Wall, Slab)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-[#0d0f12] text-xs text-slate-200 pl-7 pr-2 py-1.5 rounded border border-[#262a33] focus:outline-none focus:border-sky-500/50"
+            className="w-full bg-[var(--control-bg)] text-xs text-slate-200 pl-7 pr-2 py-1.5 rounded-lg border border-[var(--border-subtle)] focus:outline-none focus:border-cyan-400/50"
           />
           {searchTerm && (
             <button

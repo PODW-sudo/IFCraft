@@ -194,7 +194,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
   return (
     <aside
       style={{ width: `${width}px` }}
-      className="relative flex-shrink-0 h-[calc(100vh-3.5rem)] flex flex-col bg-[#16191f]/95 backdrop-blur-md border-l border-[#262a33] text-slate-200 z-10 transition-none"
+      className="fixed right-4 top-16 bottom-6 z-20 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
     >
       <ResizeHandle
         position="left"
@@ -203,16 +203,17 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
         isDragging={isDragging}
       />
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#262a33]">
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)]/40">
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="w-4 h-4 text-sky-400" />
+          <SlidersHorizontal className="w-4 h-4 text-cyan-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
             Property Inspector
           </span>
         </div>
         <button
           onClick={onClose}
-          className="text-slate-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-slate-800"
+          className="text-slate-400 hover:text-white text-xs p-1 rounded hover:bg-[var(--control-hover)] transition-colors"
+          title="Close Inspector"
         >
           <X className="w-4 h-4" />
         </button>
@@ -222,18 +223,18 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <Loader2 className="w-6 h-6 animate-spin text-sky-400 mb-2" />
+            <Loader2 className="w-6 h-6 animate-spin text-cyan-400 mb-2" />
             <span className="text-xs">Loading element attributes...</span>
           </div>
         ) : details ? (
           <>
             {/* Entity Summary Card */}
-            <div className="p-3 rounded-lg bg-[#0d0f12] border border-[#262a33] space-y-2">
+            <div className="p-3 rounded-xl bg-[var(--control-bg)]/60 border border-[var(--border-subtle)] space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white truncate max-w-[180px]">
                   {details.name}
                 </span>
-                <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 font-mono">
+                <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 font-mono">
                   #{details.express_id}
                 </span>
               </div>
@@ -248,22 +249,22 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
 
             {/* Live 3D Transform Coordinates Readout */}
             {transformInfo && (
-              <div className="p-3 rounded-lg bg-[#0d0f12] border border-[#262a33] space-y-2">
+              <div className="p-3 rounded-xl bg-[var(--control-bg)]/60 border border-[var(--border-subtle)] space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                  <Box className="w-3.5 h-3.5 text-sky-400" />
+                  <Box className="w-3.5 h-3.5 text-cyan-400" />
                   <span>3D World Placement</span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 text-center font-mono text-[11px]">
-                  <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                  <div className="bg-[var(--dock-bg)] p-1.5 rounded border border-[var(--border-subtle)]">
                     <span className="text-red-400 block text-[9px]">X</span>
                     {transformInfo.position[0].toFixed(2)}m
                   </div>
-                  <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                  <div className="bg-[var(--dock-bg)] p-1.5 rounded border border-[var(--border-subtle)]">
                     <span className="text-emerald-400 block text-[9px]">Y</span>
                     {transformInfo.position[1].toFixed(2)}m
                   </div>
-                  <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
-                    <span className="text-sky-400 block text-[9px]">Z</span>
+                  <div className="bg-[var(--dock-bg)] p-1.5 rounded border border-[var(--border-subtle)]">
+                    <span className="text-cyan-400 block text-[9px]">Z</span>
                     {transformInfo.position[2].toFixed(2)}m
                   </div>
                 </div>
@@ -277,7 +278,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                   <Scale className="w-3.5 h-3.5 text-amber-400" />
                   <span>Quantities</span>
                 </div>
-                <div className="bg-[#0d0f12] rounded-lg border border-[#262a33] divide-y divide-[#262a33]/60 text-xs">
+                <div className="bg-[var(--control-bg)]/60 rounded-xl border border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]/60 text-xs">
                   {Object.entries(details.quantities).map(([qName, qVal]) => (
                     <div key={qName} className="flex justify-between px-3 py-1.5">
                       <span className="text-slate-400">{qName}</span>
@@ -299,7 +300,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                 </div>
                 <button
                   onClick={() => setShowAddProp((prev) => !prev)}
-                  className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 px-1.5 py-0.5 rounded hover:bg-slate-800"
+                  className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 rounded hover:bg-[var(--control-hover)]"
                 >
                   <Plus className="w-3 h-3" />
                   <span>Add Property</span>
@@ -310,16 +311,16 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               {showAddProp && (
                 <form
                   onSubmit={handleAddProperty}
-                  className="p-3 bg-[#0d0f12] rounded-lg border border-sky-500/30 space-y-2 text-xs"
+                  className="p-3 bg-[var(--control-bg)]/90 rounded-xl border border-cyan-500/40 space-y-2 text-xs"
                 >
-                  <span className="font-semibold text-sky-300 block">Add Property / Pset</span>
+                  <span className="font-semibold text-cyan-300 block">Add Property / Pset</span>
                   <input
                     type="text"
                     required
                     placeholder="Pset Name (e.g. Pset_WallCommon)"
                     value={newPsetName}
                     onChange={(e) => setNewPsetName(e.target.value)}
-                    className="w-full bg-slate-900 px-2 py-1 rounded border border-slate-700 text-slate-200"
+                    className="w-full bg-[var(--dock-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-200"
                   />
                   <input
                     type="text"
@@ -327,7 +328,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                     placeholder="Property Name (e.g. FireRating)"
                     value={newPropName}
                     onChange={(e) => setNewPropName(e.target.value)}
-                    className="w-full bg-slate-900 px-2 py-1 rounded border border-slate-700 text-slate-200"
+                    className="w-full bg-[var(--dock-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-200"
                   />
                   <div className="flex gap-2">
                     <input
@@ -336,12 +337,12 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                       placeholder="Value (e.g. 60 min)"
                       value={newPropVal}
                       onChange={(e) => setNewPropVal(e.target.value)}
-                      className="flex-1 bg-slate-900 px-2 py-1 rounded border border-slate-700 text-slate-200"
+                      className="flex-1 bg-[var(--dock-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-200"
                     />
                     <select
                       value={newPropType}
                       onChange={(e) => setNewPropType(e.target.value)}
-                      className="bg-slate-900 px-2 py-1 rounded border border-slate-700 text-slate-200"
+                      className="bg-[var(--dock-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-200"
                     >
                       <option value="IfcLabel">Label</option>
                       <option value="IfcText">Text</option>
@@ -353,14 +354,14 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowAddProp(false)}
-                      className="px-2 py-0.5 rounded text-slate-400 hover:text-white"
+                      className="px-2.5 py-1 rounded text-slate-400 hover:text-white"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={isSaving}
-                      className="px-2.5 py-0.5 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold"
+                      className="px-3 py-1 rounded-full bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold"
                     >
                       Save
                     </button>
@@ -371,15 +372,15 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               {/* Pset List */}
               {details.psets && details.psets.length > 0 ? (
                 details.psets.map((pset) => (
-                  <div key={pset.name} className="bg-[#0d0f12] rounded-lg border border-[#262a33] overflow-hidden">
-                    <div className="px-3 py-1.5 bg-slate-900/60 border-b border-[#262a33] text-xs font-semibold text-slate-300">
+                  <div key={pset.name} className="bg-[var(--control-bg)]/60 rounded-xl border border-[var(--border-subtle)] overflow-hidden">
+                    <div className="px-3 py-1.5 bg-[var(--control-bg)] border-b border-[var(--border-subtle)] text-xs font-semibold text-slate-300">
                       {pset.name}
                     </div>
-                    <div className="divide-y divide-[#262a33]/60 text-xs">
+                    <div className="divide-y divide-[var(--border-subtle)]/60 text-xs">
                       {pset.properties.map((prop) => {
                         const isEditing = editingKey === `${pset.name}:${prop.name}`;
                         return (
-                          <div key={prop.name} className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-900/40">
+                          <div key={prop.name} className="flex items-center justify-between px-3 py-1.5 hover:bg-[var(--control-hover)]/40 transition-colors">
                             <span className="text-slate-400 font-medium truncate max-w-[120px]" title={prop.name}>
                               {prop.name}
                             </span>
@@ -390,13 +391,13 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                                   type="text"
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  className="w-24 bg-slate-800 px-1.5 py-0.5 rounded border border-sky-400 text-slate-100 font-mono text-xs focus:outline-none"
+                                  className="w-24 bg-slate-800 px-1.5 py-0.5 rounded border border-cyan-400 text-slate-100 font-mono text-xs focus:outline-none"
                                   autoFocus
                                 />
                                 <button
                                   onClick={() => handleSaveEdit(pset.name, prop)}
                                   disabled={isSaving}
-                                  className="p-1 rounded bg-sky-500 hover:bg-sky-400 text-slate-950"
+                                  className="p-1 rounded bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold"
                                   title="Save"
                                 >
                                   <Check className="w-3 h-3" />
@@ -416,7 +417,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                                 </span>
                                 <button
                                   onClick={() => handleStartEdit(pset.name, prop)}
-                                  className="text-slate-500 hover:text-sky-400 p-0.5 transition-colors"
+                                  className="text-slate-500 hover:text-cyan-400 p-0.5 transition-colors"
                                   title="Edit property"
                                 >
                                   <Edit2 className="w-3 h-3" />
