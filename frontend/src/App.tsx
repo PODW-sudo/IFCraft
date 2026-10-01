@@ -358,6 +358,22 @@ export const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  // Handle Load Sample Project
+  const handleLoadSample = async (sampleId: string) => {
+    try {
+      setIsLoading(true);
+      setLoadingStage('Instantiating architectural sample model...');
+      setLoadingPercent(20);
+      const project = await api.loadSampleProject(sampleId);
+      setIsNewProjectModalOpen(false);
+      await loadProject(project);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to load sample: ${msg}`);
+      setIsLoading(false);
+    }
+  };
+
   // Handle AI Copilot Model Modification Refresh
   const handleModelModifiedByCopilot = useCallback(() => {
     if (currentProject) {
@@ -442,12 +458,20 @@ export const App: React.FC = () => {
                 <p className="text-xs text-slate-400 mb-4">
                   This model currently contains spatial hierarchy (Site, Building, Storey). Upload an IFC model or import geometry to view 3D elements.
                 </p>
-                <button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="px-4 py-2 rounded text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 transition-colors shadow-sm"
-                >
-                  Upload IFC Model
-                </button>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 transition-colors shadow-sm"
+                  >
+                    Upload IFC
+                  </button>
+                  <button
+                    onClick={() => setIsNewProjectModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#262a33] hover:bg-[#323743] text-white transition-colors border border-zinc-700/60"
+                  >
+                    Sample Models
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -488,6 +512,7 @@ export const App: React.FC = () => {
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onCreateProject={handleCreateProject}
+        onLoadSample={handleLoadSample}
         isLoading={isLoading}
       />
     </div>

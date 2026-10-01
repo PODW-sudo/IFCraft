@@ -17,6 +17,56 @@ from ..services.ifc_service import IFCService
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
+SAMPLES_METADATA = [
+    {
+        "id": "duplex_residential",
+        "name": "Duplex Residential Villa",
+        "description": "2-storey residential building complete with ground floor, first floor, partition walls, floor slabs, structural columns, and property sets.",
+        "schema_version": "IFC4",
+        "element_count": 23,
+        "file_name": "duplex_residential.ifc"
+    },
+    {
+        "id": "office_pavilion",
+        "name": "Modern Architectural Pavilion",
+        "description": "Open-span commercial pavilion featuring cantilever canopy roof, structural grid columns, and glass enclosure facades.",
+        "schema_version": "IFC4",
+        "element_count": 12,
+        "file_name": "office_pavilion.ifc"
+    }
+]
+
+@router.get("/samples/list", response_model=list[dict])
+async def list_sample_models() -> list[dict]:
+    """Retrieve bundled architectural sample models."""
+    return SAMPLES_METADATA
+
+@router.post("/samples/{sample_id}/load", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+async def load_sample_project(sample_id: str) -> ProjectResponse:
+    """Instantiate a new project from a bundled sample IFC file."""
+    sample_meta = next((s for s in SAMPLES_METADATA if s["id"] == sample_id), None)
+    if not sample_meta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Sample model '{sample_id}' not found."
+        )
+    
+    sample_file = Path(__file__).parent.parent / "samples" / sample_meta["file_name"]
+    if not sample_file.exists():
+        from ..samples.sample_generator import generate_samples
+        generate_samples(sample_file.parent)
+
+    with open(sample_file, "rb") as f:
+        content = f.read()
+
+    project = await ProjectService.import_project_from_bytes(
+        name=sample_meta["name"],
+        description=sample_meta["description"],
+        original_filename=sample_meta["file_name"],
+        content=content
+    )
+    return project
+
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects() -> list[ProjectResponse]:
     """Retrieve all available IFC projects."""

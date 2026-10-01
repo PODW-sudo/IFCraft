@@ -45,7 +45,7 @@
   - Connect tool execution directly to active 3D scene and backend `ifcopenshell` instances.
   - **Quality Gate:** Tool calling functions parse correctly; mock or live prompts successfully trigger model queries and scene updates.
 
-- [ ] **Phase 7: Sample Models, Project Onboarding & Export**
+- [x] **Phase 7: Sample Models, Project Onboarding & Export**
   - Bundle sample IFC models (e.g., standard Duplex / architectural sample).
   - Build blank project generator.
   - Implement complete IFC export generating valid, compliant IFC files with all geometric transformations and modified properties preserved.

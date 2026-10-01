@@ -74,3 +74,27 @@ export async function sendCopilotChat(
   return res.json();
 }
 
+export async function fetchSampleModels(): Promise<Array<{
+  id: string;
+  name: string;
+  description: string;
+  schema_version: string;
+  element_count: number;
+}>> {
+  const res = await fetch(`${BASE_URL}/projects/samples/list`);
+  if (!res.ok) throw new Error(`Failed to fetch sample models: ${res.statusText}`);
+  return res.json();
+}
+
+export async function loadSampleProject(sampleId: string): Promise<ProjectMetadata> {
+  const res = await fetch(`${BASE_URL}/projects/samples/${sampleId}/load`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to load sample project');
+  }
+  return res.json();
+}
+
+
