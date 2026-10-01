@@ -31,8 +31,23 @@ class Room:
         # express_id -> { user_id, user_name, user_color, acquired_at }
         self.locks: dict[int, dict[str, Any]] = {}
 
+    def cleanup_stale_locks(self):
+        """Purge any locks held by disconnected users."""
+        active_user_ids = set(self.sessions.keys())
+        stale_express_ids = [
+            eid for eid, lock in self.locks.items()
+            if lock.get("user_id") not in active_user_ids
+        ]
+        for eid in stale_express_ids:
+            del self.locks[eid]
+
     def add_user(self, session: UserSession):
         self.sessions[session.user_id] = session
+        # If this is the only active user in the room, clear all stale locks
+        if len(self.sessions) <= 1:
+            self.locks.clear()
+        else:
+            self.cleanup_stale_locks()
 
     def remove_user(self, user_id: str) -> list[int]:
         """Remove user and release all locks held by this user."""
@@ -43,14 +58,49 @@ class Room:
                 released_locks.append(express_id)
         if user_id in self.sessions:
             del self.sessions[user_id]
+
+        # If only 0 or 1 user left in the room, clear all locks so remaining user is never blocked
+        if len(self.sessions) <= 1:
+            for express_id in list(self.locks.keys()):
+                released_locks.append(express_id)
+            self.locks.clear()
+        else:
+            self.cleanup_stale_locks()
+
         return released_locks
 
     def acquire_lock(self, express_id: int, user_id: str) -> bool:
         """Attempt to acquire soft lock on element for user."""
+        self.cleanup_stale_locks()
+
+        # If user is alone in the room, ALWAYS grant lock
+        if len(self.sessions) <= 1:
+            session = self.sessions.get(user_id)
+            self.locks[express_id] = {
+                "user_id": user_id,
+                "user_name": session.user_name if session else "User",
+                "user_color": session.user_color if session else "#38bdf8",
+                "acquired_at": datetime.now(timezone.utc).isoformat()
+            }
+            if session:
+                session.selected_express_id = express_id
+            return True
+
         if express_id in self.locks:
-            if self.locks[express_id]["user_id"] == user_id:
-                return True # already held by same user
-            return False # locked by someone else
+            holder_id = self.locks[express_id].get("user_id")
+            # If held by the same user or by an inactive session, grant/refresh lock
+            if holder_id == user_id or holder_id not in self.sessions:
+                session = self.sessions.get(user_id)
+                self.locks[express_id] = {
+                    "user_id": user_id,
+                    "user_name": session.user_name if session else "User",
+                    "user_color": session.user_color if session else "#38bdf8",
+                    "acquired_at": datetime.now(timezone.utc).isoformat()
+                }
+                if session:
+                    session.selected_express_id = express_id
+                return True
+            return False # Locked by another active user
         
         session = self.sessions.get(user_id)
         if not session:
