@@ -27,6 +27,7 @@ interface CopilotSidebarProps {
   projectId: string;
   selectedExpressId: number | null;
   onModelModified: () => void;
+  onWidthChange?: (width: number) => void;
 }
 
 const DEFAULT_MESSAGES: ChatMessage[] = [
@@ -51,7 +52,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   onClose,
   projectId,
   selectedExpressId,
-  onModelModified
+  onModelModified,
+  onWidthChange
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -216,6 +218,12 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (onWidthChange && isOpen) {
+      onWidthChange(width);
+    }
+  }, [width, isOpen, onWidthChange]);
+
   const currentProvider = providers.find((p) => p.id === selectedProviderId);
 
   const hasActiveKey = React.useMemo(() => {
@@ -227,6 +235,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     if (selectedProviderId === 'openai' && config.openaiKey.trim()) return true;
     return false;
   }, [currentProvider, selectedProviderId, config]);
+
+  if (!isOpen) return null;
 
   return (
     <>
@@ -253,6 +263,11 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                   <>
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
                     <span className="text-cyan-300 font-mono">Offline CAD Engine</span>
+                  </>
+                ) : selectedProviderId === 'ollama' ? (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+                    <span className="text-slate-300 font-mono">Local Port 11434</span>
                   </>
                 ) : hasActiveKey ? (
                   <>
