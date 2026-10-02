@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  Layers
+  Layers,
+  AlertTriangle
 } from 'lucide-react';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
@@ -46,6 +47,12 @@ interface SpatialTopPillProps {
   collaborators?: Collaborator[];
   hiddenCategories?: Set<string>;
   onToggleCategory?: (category: string) => void;
+  isFederationOpen?: boolean;
+  onToggleFederation?: () => void;
+  subModelCount?: number;
+  isClashOpen?: boolean;
+  onToggleClash?: () => void;
+  clashCount?: number;
 }
 
 export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
@@ -66,7 +73,13 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   spatialTree,
   collaborators = [],
   hiddenCategories = new Set(),
-  onToggleCategory
+  onToggleCategory,
+  isFederationOpen = false,
+  onToggleFederation,
+  subModelCount = 0,
+  isClashOpen = false,
+  onToggleClash,
+  clashCount = 0
 }) => {
   // Find spatial path for breadcrumbs
   const findBreadcrumbPath = (node: SpatialNode | null, targetId: number | null, path: string[] = []): string[] | null => {
@@ -256,6 +269,44 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+
+      {/* Federation Button */}
+      <button
+        onClick={onToggleFederation}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+          isFederationOpen
+            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+        }`}
+        title="Federated Model Coordination"
+      >
+        <Layers className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline text-xs">Federation</span>
+        {subModelCount > 0 && (
+          <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
+            +{subModelCount}
+          </span>
+        )}
+      </button>
+
+      {/* Clashes Button */}
+      <button
+        onClick={onToggleClash}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+          isClashOpen
+            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+        }`}
+        title="Spatial Clash Detection"
+      >
+        <AlertTriangle className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline text-xs">Clashes</span>
+        {clashCount > 0 && (
+          <span className="text-[9px] font-mono px-1 rounded-full bg-amber-500/30 text-amber-300 font-bold">
+            {clashCount}
+          </span>
+        )}
+      </button>
 
       <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
 

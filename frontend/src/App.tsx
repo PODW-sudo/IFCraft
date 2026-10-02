@@ -14,7 +14,9 @@ import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './components
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
-import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse } from './types/ifc';
+import { FederatedModelManager } from './components/federation/FederatedModelManager';
+import { ClashInspector } from './components/federation/ClashInspector';
+import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse, SubModel, ClashRecord, ClashCheckResponse, DisciplineType } from './types/ifc';
 import * as api from './services/api';
 import {
   CollaborationClient,
@@ -92,6 +94,15 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [loadingPercent, setLoadingPercent] = useState(0);
+
+  // Phase 10 State: Multi-Model Federation & Clash Detection
+  const [subModels, setSubModels] = useState<SubModel[]>([]);
+  const [hiddenModelIds, setHiddenModelIds] = useState<Set<string>>(new Set());
+  const [isFederationOpen, setIsFederationOpen] = useState(false);
+  const [isClashInspectorOpen, setIsClashInspectorOpen] = useState(false);
+  const [clashResult, setClashResult] = useState<ClashCheckResponse | null>(null);
+  const [activeClash, setActiveClash] = useState<ClashRecord | null>(null);
+  const [isClashLoading, setIsClashLoading] = useState(false);
 
   // Web Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -178,6 +189,103 @@ export const App: React.FC = () => {
       client.disconnect();
     };
   }, [currentProject]);
+
+  // Fetch sub-models when currentProject changes
+  useEffect(() => {
+    if (!currentProject) {
+      setSubModels([]);
+      setClashResult(null);
+      setActiveClash(null);
+      return;
+    }
+    api.fetchSubModels(currentProject.id)
+      .then((models) => {
+        setSubModels(models);
+      })
+      .catch((err) => console.warn('Could not fetch sub-models:', err));
+  }, [currentProject]);
+
+  const handleToggleModelVisibility = useCallback((modelId: string) => {
+    setHiddenModelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  }, []);
+
+  const handleUploadSubModel = useCallback(async (file: File, discipline: DisciplineType, name?: string) => {
+    if (!currentProject) return;
+    const subModel = await api.uploadSubModel(currentProject.id, file, discipline, name);
+    setSubModels((prev) => [...prev, subModel]);
+
+    const buffer = await file.arrayBuffer();
+    const worker = new IfcWorker();
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const data = event.data;
+      if (data.type === 'COMPLETE') {
+        const taggedGeoms = data.geometries.map((g) => ({
+          ...g,
+          modelId: subModel.id,
+          discipline
+        }));
+        setGeometries((prev) => [...prev, ...taggedGeoms]);
+        worker.terminate();
+      } else if (data.type === 'ERROR') {
+        console.error('Sub-model geometry parse failed:', data.message);
+        worker.terminate();
+      }
+    };
+    worker.postMessage({ action: 'PARSE_IFC', buffer, fileName: file.name }, [buffer]);
+  }, [currentProject]);
+
+  const handleDeleteSubModel = useCallback(async (modelId: string) => {
+    if (!currentProject) return;
+    await api.deleteSubModel(currentProject.id, modelId);
+    setSubModels((prev) => prev.filter((m) => m.id !== modelId));
+    setGeometries((prev) => prev.filter((g) => g.modelId !== modelId));
+  }, [currentProject]);
+
+  const handleRunClashCheck = useCallback(async (tolerance: number = 0.01) => {
+    if (!currentProject) {
+      setClashResult({
+        total_clashes: 0,
+        hard_clashes: 0,
+        clearance_clashes: 0,
+        tolerance,
+        clashes: [],
+        duration_ms: 1.0
+      });
+      return;
+    }
+    setIsClashLoading(true);
+    try {
+      const res = await api.runClashCheck(currentProject.id, tolerance);
+      setClashResult(res);
+      if (res.clashes.length > 0) {
+        setActiveClash(res.clashes[0]);
+      }
+    } catch (e) {
+      console.error('Clash detection failed:', e);
+    } finally {
+      setIsClashLoading(false);
+    }
+  }, [currentProject]);
+
+  const handleLoadSampleDiscipline = useCallback(async (discipline: 'STRUCT' | 'MEP') => {
+    if (!currentProject) return;
+    const sampleFileName = discipline === 'STRUCT' ? 'Ifc4_Revit_STR.ifc' : 'Ifc4_Revit_MEP.ifc';
+    try {
+      const resp = await fetch(`/modelsfortests/${sampleFileName}`);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const file = new File([blob], sampleFileName, { type: 'application/octet-stream' });
+        await handleUploadSubModel(file, discipline, `${discipline} Model`);
+      }
+    } catch (e) {
+      console.warn('Could not load sample model:', e);
+    }
+  }, [currentProject, handleUploadSubModel]);
 
   const toggleCategoryVisibility = useCallback((category: string) => {
     setHiddenCategories((prev) => {
@@ -492,7 +600,13 @@ export const App: React.FC = () => {
           isUploadModalOpen,
           isNewProjectModalOpen,
           projectsCount: projects.length,
-          geometriesCount: geometries.length
+          geometriesCount: geometries.length,
+          subModelsCount: subModels.length,
+          subModels,
+          isFederationOpen,
+          isClashInspectorOpen,
+          clashResult,
+          activeClash
         }),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
@@ -507,6 +621,13 @@ export const App: React.FC = () => {
         openOmnibar: () => setIsOmnibarOpen(true),
         closeOmnibar: () => setIsOmnibarOpen(false),
         clearMeasurements: () => setMeasurements([]),
+        openFederationModal: () => setIsFederationOpen(true),
+        closeFederationModal: () => setIsFederationOpen(false),
+        openClashInspector: () => setIsClashInspectorOpen(true),
+        closeClashInspector: () => setIsClashInspectorOpen(false),
+        runClashCheck: async (tolerance = 0.01) => handleRunClashCheck(tolerance),
+        setActiveClash: (clash: ClashRecord | null) => setActiveClash(clash),
+        toggleModelVisibility: (modelId: string) => handleToggleModelVisibility(modelId),
         addMeasurement: (start: [number, number, number], end: [number, number, number]) => {
           const dx = end[0] - start[0];
           const dy = end[1] - start[1];
@@ -555,7 +676,14 @@ export const App: React.FC = () => {
     isUploadModalOpen,
     isNewProjectModalOpen,
     projects,
-    geometries
+    geometries,
+    subModels,
+    isFederationOpen,
+    isClashInspectorOpen,
+    clashResult,
+    activeClash,
+    handleRunClashCheck,
+    handleToggleModelVisibility
   ]);
 
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
@@ -573,6 +701,10 @@ export const App: React.FC = () => {
       data-qa-transform-mode={transformMode}
       data-qa-section-active={sectionConfig.enabled ? 'true' : 'false'}
       data-qa-render-style={renderStyle}
+      data-qa-submodel-count={subModels.length}
+      data-qa-clash-count={clashResult?.total_clashes ?? 0}
+      data-qa-federation-open={isFederationOpen ? 'true' : 'false'}
+      data-qa-clash-open={isClashInspectorOpen ? 'true' : 'false'}
     >
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
       <div
@@ -585,6 +717,8 @@ export const App: React.FC = () => {
           onSelectElement={handleSelectElement}
           hiddenCategories={hiddenCategories}
           isolatedExpressID={isolatedExpressID}
+          hiddenModelIds={hiddenModelIds}
+          activeClash={activeClash}
           transformMode={transformMode}
           snapEnabled={snapEnabled}
           onTransformEnd={handleTransformEnd}
@@ -624,6 +758,12 @@ export const App: React.FC = () => {
         collaborators={collaborators}
         hiddenCategories={hiddenCategories}
         onToggleCategory={toggleCategoryVisibility}
+        isFederationOpen={isFederationOpen}
+        onToggleFederation={() => setIsFederationOpen((prev) => !prev)}
+        subModelCount={subModels.length}
+        isClashOpen={isClashInspectorOpen}
+        onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
+        clashCount={clashResult?.total_clashes ?? 0}
       />
 
       {/* 3. Floating Left Hierarchy Drawer */}
@@ -758,6 +898,29 @@ export const App: React.FC = () => {
         onCreateProject={handleCreateProject}
         onLoadSample={handleLoadSample}
         isLoading={isLoading}
+      />
+
+      {/* Phase 10: Multi-Model Federated Coordination & Clash Detection */}
+      <FederatedModelManager
+        isOpen={isFederationOpen}
+        onClose={() => setIsFederationOpen(false)}
+        projectName={currentProject?.name ?? ''}
+        subModels={subModels}
+        hiddenModelIds={hiddenModelIds}
+        onToggleModelVisibility={handleToggleModelVisibility}
+        onUploadSubModel={handleUploadSubModel}
+        onDeleteSubModel={handleDeleteSubModel}
+        onLoadSampleDiscipline={handleLoadSampleDiscipline}
+      />
+
+      <ClashInspector
+        isOpen={isClashInspectorOpen}
+        onClose={() => setIsClashInspectorOpen(false)}
+        clashResult={clashResult}
+        activeClash={activeClash}
+        onSelectClash={setActiveClash}
+        onRunClashCheck={handleRunClashCheck}
+        isLoading={isClashLoading}
       />
     </div>
   );
