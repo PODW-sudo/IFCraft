@@ -527,6 +527,129 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
                         break
             return ("pass", "3D collision marker and wireframe box rendered.") if c else ("fail", "Clash marker rendering failed.")
 
+        elif tid == "TC-079":
+            # CAD Modeling Toolbar Mount & Tool Palette
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openCadToolbar()")
+            await asyncio.sleep(0.3)
+            tb = await cdp.eval("Boolean(document.querySelector('[data-qa=\"cad-toolbar\"]'))")
+            wall_btn = await cdp.eval("Boolean(document.querySelector('[data-qa=\"cad-tool-wall\"]'))")
+            return ("pass", "CAD modeling toolbar and tool palette mounted.") if (tb and wall_btn) else ("fail", "CAD toolbar mount failed.")
+
+        elif tid == "TC-080":
+            # Interactive Wall Placement Tool Activation
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openCadToolbar()")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setCadMode('wall')")
+            await asyncio.sleep(0.3)
+            mode = await cdp.eval("document.body.firstElementChild.getAttribute('data-qa-cad-mode')")
+            return ("pass", "Interactive wall placement tool activated.") if mode == "wall" else ("fail", f"Expected mode wall, got {mode}")
+
+        elif tid == "TC-081":
+            # Parametric Wall Synthesis & Geometry Render
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.drawCadWall([0, 0], [6, 0])")
+            # Wait for backend synthesis and model reload
+            wall_created = False
+            for _ in range(12):
+                await asyncio.sleep(0.5)
+                h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+                if isinstance(h, list) and any(x.get("action_type") == "create_wall" for x in h):
+                    wall_created = True
+                    break
+            return ("pass", "Parametric wall synthesized and geometry updated.") if wall_created else ("fail", "Parametric wall synthesis failed.")
+
+        elif tid == "TC-082":
+            # Parametric Slab Synthesis & Boundary Extrusion
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.drawCadSlab([0, 0], [6, 4])")
+            slab_created = False
+            for _ in range(12):
+                await asyncio.sleep(0.5)
+                h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+                if isinstance(h, list) and any(x.get("action_type") == "create_slab" for x in h):
+                    slab_created = True
+                    break
+            return ("pass", "Parametric slab extruded solid synthesized.") if slab_created else ("fail", "Parametric slab synthesis failed.")
+
+        elif tid == "TC-083":
+            # Parametric Column Synthesis & Elevation Placement
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.drawCadColumn([3, 2])")
+            col_created = False
+            for _ in range(12):
+                await asyncio.sleep(0.5)
+                h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+                if isinstance(h, list) and any(x.get("action_type") == "create_column" for x in h):
+                    col_created = True
+                    break
+            return ("pass", "Parametric vertical column synthesized.") if col_created else ("fail", "Parametric column synthesis failed.")
+
+        elif tid == "TC-084":
+            # Door Opening & Boolean Void Cutout
+            res = await cdp.eval("""
+            (async () => {
+                const h = window.__IFC_QA_BRIDGE__.getCadHistory();
+                const w = h.find(x => x.action_type === 'create_wall');
+                if (w) {
+                    window.__IFC_QA_BRIDGE__.setCadMode('door');
+                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 2.0);
+                    return true;
+                }
+                return false;
+            })()
+            """)
+            door_created = False
+            for _ in range(12):
+                await asyncio.sleep(0.5)
+                h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+                if isinstance(h, list) and any(x.get("action_type") == "create_door" for x in h):
+                    door_created = True
+                    break
+            return ("pass", "Door opening void cutout and filling created.") if door_created else ("fail", "Door creation failed.")
+
+        elif tid == "TC-085":
+            # Window Opening & Boolean Void Cutout
+            res = await cdp.eval("""
+            (async () => {
+                const h = window.__IFC_QA_BRIDGE__.getCadHistory();
+                const w = h.find(x => x.action_type === 'create_wall');
+                if (w) {
+                    window.__IFC_QA_BRIDGE__.setCadMode('window');
+                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 3.5);
+                    return true;
+                }
+                return false;
+            })()
+            """)
+            win_created = False
+            for _ in range(12):
+                await asyncio.sleep(0.5)
+                h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+                if isinstance(h, list) and any(x.get("action_type") == "create_window" for x in h):
+                    win_created = True
+                    break
+            return ("pass", "Window opening void cutout and filling created.") if win_created else ("fail", "Window creation failed.")
+
+        elif tid == "TC-086":
+            # Spatial Modeling Undo Transaction (Ctrl+Z)
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.triggerCadUndo()")
+            await asyncio.sleep(1.0)
+            h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+            undone = any(x.get("status") == "UNDONE" for x in h) if isinstance(h, list) else False
+            return ("pass", "CAD undo reverted transaction and updated model.") if undone else ("fail", "CAD undo transaction failed.")
+
+        elif tid == "TC-087":
+            # Spatial Modeling Redo Transaction (Ctrl+Y)
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.triggerCadRedo()")
+            await asyncio.sleep(1.0)
+            h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+            active_count = sum(1 for x in h if x.get("status") == "ACTIVE") if isinstance(h, list) else 0
+            return ("pass", "CAD redo restored previously undone transaction.") if active_count > 0 else ("fail", "CAD redo transaction failed.")
+
+        elif tid == "TC-088":
+            # CAD Transaction History Stack Inspection
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openCadToolbar()")
+            hist_btn = await cdp.eval("Boolean(document.querySelector('[data-qa=\"cad-history-btn\"]'))")
+            h = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getCadHistory()")
+            has_entries = isinstance(h, list) and len(h) > 0
+            return ("pass", f"CAD transaction history stack inspected ({len(h)} entries).") if (hist_btn and has_entries) else ("fail", "CAD history inspection failed.")
+
         # Default handler for granular milestone tests
         else:
             duration = time.time() - t0

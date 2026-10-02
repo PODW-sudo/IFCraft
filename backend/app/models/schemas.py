@@ -159,3 +159,75 @@ class ClashCheckResponse(BaseModel):
     clashes: list[ClashItem]
     duration_ms: float
 
+# ===========================================================================
+# CAD Modeling & Parametric Synthesis Schemas (Phase 11)
+# ===========================================================================
+
+class CadWallRequest(BaseModel):
+    start: list[float] = Field(description="Start [x, y] or [x, y, z] in meters")
+    end: list[float] = Field(description="End [x, y] or [x, y, z] in meters")
+    elevation: float = Field(0.0, description="Base elevation in meters")
+    height: float = Field(3.0, description="Wall height in meters")
+    thickness: float = Field(0.2, description="Wall thickness in meters")
+    name: Optional[str] = "Parametric Wall"
+    storey_id: Optional[int] = None
+
+class CadSlabRequest(BaseModel):
+    boundary: list[list[float]] = Field(description="List of 2D or 3D vertices [[x1, y1], [x2, y2], ...]")
+    elevation: float = Field(0.0, description="Base elevation in meters")
+    thickness: float = Field(0.3, description="Slab thickness in meters")
+    name: Optional[str] = "Parametric Slab"
+    storey_id: Optional[int] = None
+
+class CadColumnRequest(BaseModel):
+    position: list[float] = Field(description="Position [x, y] or [x, y, z] in meters")
+    elevation: float = Field(0.0, description="Base elevation in meters")
+    height: float = Field(3.0, description="Column height in meters")
+    width: float = Field(0.35, description="Column width (X) in meters")
+    depth: float = Field(0.35, description="Column depth (Y) in meters")
+    name: Optional[str] = "Parametric Column"
+    storey_id: Optional[int] = None
+
+class CadOpeningRequest(BaseModel):
+    host_wall_id: int = Field(description="Express ID of the host wall")
+    opening_type: str = Field("door", description="'door' or 'window'")
+    offset_along_wall: float = Field(1.0, description="Offset along wall centerline from start point in meters")
+    sill_height: float = Field(0.0, description="Height above wall base in meters (0 for door, e.g. 0.9 for window)")
+    width: float = Field(0.9, description="Opening width in meters")
+    height: float = Field(2.1, description="Opening height in meters")
+    thickness: Optional[float] = Field(None, description="Opening thickness (defaults to host wall thickness + 0.1)")
+    name: Optional[str] = None
+
+class CadElementResponse(BaseModel):
+    success: bool
+    express_id: int
+    global_id: str
+    entity_type: str
+    name: str
+    transaction_id: str
+    opening_express_id: Optional[int] = None
+    message: str = "Element synthesized successfully"
+
+class CadUndoRedoResponse(BaseModel):
+    success: bool
+    transaction_id: str
+    action: str
+    affected_express_id: int
+    can_undo: bool
+    can_redo: bool
+    message: str
+
+class CadHistoryItem(BaseModel):
+    id: str
+    action_type: str
+    express_id: int
+    entity_type: str
+    parameters: dict[str, Any]
+    status: str
+    created_at: str
+
+class CadHistoryResponse(BaseModel):
+    history: list[CadHistoryItem]
+    can_undo: bool
+    can_redo: bool
+

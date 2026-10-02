@@ -157,4 +157,107 @@ export async function runClashCheck(
   return res.json();
 }
 
+// ===========================================================================
+// CAD Modeling & Parametric Synthesis (Phase 11)
+// ===========================================================================
+
+export async function createCadWall(
+  projectId: string,
+  req: import('../types/ifc').CadWallRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/wall`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to create wall');
+  }
+  return res.json();
+}
+
+export async function createCadSlab(
+  projectId: string,
+  req: import('../types/ifc').CadSlabRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/slab`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to create slab');
+  }
+  return res.json();
+}
+
+export async function createCadColumn(
+  projectId: string,
+  req: import('../types/ifc').CadColumnRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/column`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to create column');
+  }
+  return res.json();
+}
+
+export async function createCadOpening(
+  projectId: string,
+  req: import('../types/ifc').CadOpeningRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/opening`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to create opening');
+  }
+  return res.json();
+}
+
+export async function undoCad(
+  projectId: string
+): Promise<import('../types/ifc').CadUndoRedoResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/undo`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to undo');
+  }
+  return res.json();
+}
+
+export async function redoCad(
+  projectId: string
+): Promise<import('../types/ifc').CadUndoRedoResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/redo`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to redo');
+  }
+  return res.json();
+}
+
+export async function fetchCadHistory(
+  projectId: string
+): Promise<import('../types/ifc').CadHistoryResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/history`);
+  if (!res.ok) throw new Error(`Failed to fetch CAD history: ${res.statusText}`);
+  return res.json();
+}
+
+
 

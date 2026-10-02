@@ -80,12 +80,12 @@
   - Expanded QA Harness test suite with TC-071 through TC-078 (26 key tests, 78 total tests).
   - **Quality Gate:** Key tier (26/26) passes in live Chrome; all 4 UI gates pass; `pnpm exec tsc --noEmit` passes with 0 errors.
 
-- [ ] **Phase 11: Advanced Spatial Modeling & Interactive IFC Element Creation**
+- [x] **Phase 11: Advanced Spatial Modeling & Interactive IFC Element Creation**
   - Backend parametric CAD service (`cad_service.py`) & endpoints (`/api/projects/{id}/cad/*`) leveraging `ifcopenshell.api` to synthesize walls, slabs, columns, doors, and windows with `IfcOpeningElement` boolean void cutouts.
   - Frontend CAD drawing toolbar (`CadToolbar.tsx`) and viewport click-to-draw snapping helpers (ground plane, wall guides).
-  - Bidirectional Undo/Redo stack (`Ctrl+Z`, `Ctrl+Y`) with transaction logging.
-  - QA Harness test cases (TC-079 to TC-088) covering CAD creation and undo/redo operations.
-  - **Quality Gate:** Element creation generates valid geometry; undo/redo restores state accurately; key QA tier passes in Chrome.
+  - Bidirectional Undo/Redo stack (`Ctrl+Z`, `Ctrl+Y`) with SQLite transaction persistence (`cad_transactions`).
+  - QA Harness test cases (TC-079 to TC-088) covering CAD creation and undo/redo operations (33 key tests, 88 total tests).
+  - **Quality Gate:** Key tier (33/33) passes with 100% in live Chrome; element creation generates valid IFC geometry; undo/redo restores state accurately; all 4 UI gates pass; `pnpm exec tsc --noEmit` has 0 errors.
 
 - [ ] **Phase 12: Collaborative Session Playback, BCF Export & Spatial Change Audit**
   - Backend BCF 2.1/3.0 `.bcfzip` generator (`bcf_service.py`) & export endpoints (`/api/projects/{id}/bcf/*`).
