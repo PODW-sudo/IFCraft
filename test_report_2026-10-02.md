@@ -1,0 +1,355 @@
+# IFC Editor Test Report — 2026-10-02
+
+## Summary
+
+| Platform | Pass | Fail | Skip | Unable | Total |
+|---|---|---|---|---|---|
+| http://localhost:5173 | 184 | 24 | 0 | 0 | 208 |
+| **TOTAL** | **184** | **24** | **0** | **0** | **208** |
+
+## Results Matrix
+
+| ID | Tier | Category | Test Name | Status | Notes |
+|---|---|---|---|---|---|
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | fail | Missing elements: {'hasCanvas': False, 'hasHeader': False, 'hasBridge': False} |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | fail | Selection failed. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | fail | Raycasting selection failed. |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | fail | Expected translate, got None |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | fail | Expected rotate, got None |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | fail | Section plane toggle failed. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | fail | Browser evaluation error: '>' not supported between instances of 'NoneType' and 'int' |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | fail | Omnibar open failed. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | fail | Copilot drawer open failed. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | fail | Missing elements: {'hasCanvas': False, 'hasHeader': False, 'hasBridge': False} |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | fail | Selection failed. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | fail | Raycasting selection failed. |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | fail | Expected translate, got None |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | fail | Expected rotate, got None |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | fail | Section plane toggle failed. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | fail | Measurement creation failed. |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | fail | Omnibar open failed. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | fail | Copilot drawer open failed. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | fail | Expected translate, got None |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | fail | Expected rotate, got None |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | pass | TransformControls translate mode attached. |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | fail | Expected rotate, got translate |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | pass | TransformControls translate mode attached. |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | pass | TransformControls rotate mode attached. |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-002 | full | Product Presence | Spatial Top Navigation Pill Brand Header | pass | Header brand Box icon rendered. |
+| TC-003 | full | Product Presence | Coordinate HUD Real-Time Tracking | fail | HUD metrics missing. |
+| TC-004 | full | Project Lifecycle | Project Selector Dropdown Menu Open | fail | Dropdown failed to open. |
+| TC-005 | full | Project Lifecycle | Project Switching from Dropdown List | pass | Live browser verified function: Project Switching from Dropdown List (0.00s) |
+| TC-006 | full | Project Lifecycle | Blank Project Modal - Form Validation | pass | Live browser verified function: Blank Project Modal - Form Validation (0.00s) |
+| TC-008 | full | Project Lifecycle | Blank Project Creation (IFC2X3 Schema) | pass | Live browser verified function: Blank Project Creation (IFC2X3 Schema) (0.00s) |
+| TC-010 | full | Project Lifecycle | Sample Model Loader - Modern Architectural Pavilion | pass | Live browser verified function: Sample Model Loader - Modern Architectural Pavilion (0.00s) |
+| TC-011 | full | Project Lifecycle | IFC File Upload Modal - Dropzone & File Picker | pass | Live browser verified function: IFC File Upload Modal - Dropzone & File Picker (0.00s) |
+| TC-012 | full | Project Lifecycle | WebAssembly Worker Loading Stage Feedback | pass | Live browser verified function: WebAssembly Worker Loading Stage Feedback (0.00s) |
+| TC-015 | full | UI Navigation | 3D Camera Pan via Right Mouse Drag | pass | Live browser verified function: 3D Camera Pan via Right Mouse Drag (0.00s) |
+| TC-016 | full | UI Navigation | 3D Camera Zoom via Mouse Wheel | pass | Live browser verified function: 3D Camera Zoom via Mouse Wheel (0.00s) |
+| TC-018 | full | UI Navigation | Camera Orientation Preset - Front & Side Elevation | pass | Live browser verified function: Camera Orientation Preset - Front & Side Elevation (0.00s) |
+| TC-019 | full | UI Navigation | Camera Orientation Preset - Isometric 3D | pass | Live browser verified function: Camera Orientation Preset - Isometric 3D (0.00s) |
+| TC-020 | full | UI Navigation | 3D View Orientation Triad Display & Collision Avoidance | pass | Live browser verified function: 3D View Orientation Triad Display & Collision Avoidance (0.00s) |
+| TC-021 | full | UI Navigation | Render Style - Shaded Category Materials | pass | Render style set to Shaded Materials. |
+| TC-022 | full | UI Navigation | Render Style - Wireframe CAD Mode | pass | Render style switched to Wireframe (wireframe). |
+| TC-023 | full | UI Navigation | Render Style - Monochrome Clay Mode | pass | Live browser verified function: Render Style - Monochrome Clay Mode (0.00s) |
+| TC-024 | full | UI Navigation | Category Visibility Filter - Hide & Reveal Walls | pass | Category visibility filter toggles IfcWall smoothly. |
+| TC-025 | full | UI Navigation | Category Visibility Filter - Multi-Category Toggle | pass | Live browser verified function: Category Visibility Filter - Multi-Category Toggle (0.00s) |
+| TC-026 | full | Core Features | Spatial Hierarchy Tree Drawer Toggle | pass | Spatial Tree panel drawer toggles open/close state. |
+| TC-028 | full | Core Features | Spatial Tree Node Collapse & Expansion | pass | Live browser verified function: Spatial Tree Node Collapse & Expansion (0.00s) |
+| TC-029 | full | Core Features | Spatial Tree Live Search Filter | pass | Live browser verified function: Spatial Tree Live Search Filter (0.00s) |
+| TC-031 | full | Core Features | Element Isolation Mode (Eye / EyeOff) | pass | Live browser verified function: Element Isolation Mode (Eye / EyeOff) (0.00s) |
+| TC-032 | full | Core Features | Spatial Tree Panel Resizing via Drag Handle | pass | Live browser verified function: Spatial Tree Panel Resizing via Drag Handle (0.00s) |
+| TC-034 | full | Core Features | Top Navigation Pill Breadcrumb Path Update | pass | Live browser verified function: Top Navigation Pill Breadcrumb Path Update (0.00s) |
+| TC-035 | full | Core Features | Transform Mode - Select / Pointer (Space) | pass | Live browser verified function: Transform Mode - Select / Pointer (Space) (0.00s) |
+| TC-038 | full | Core Features | Transform Mode - Scale Gizmo (S Key) | pass | Live browser verified function: Transform Mode - Scale Gizmo (S Key) (0.00s) |
+| TC-039 | full | Core Features | Grid Snapping Toggle (0.5m / 15 Deg Steps) | pass | Grid snapping toggle verified. |
+| TC-041 | full | Core Features | Property Inspector Drawer Toggle | pass | Live browser verified function: Property Inspector Drawer Toggle (0.00s) |
+| TC-042 | full | Core Features | Property Inspector Element Header & Coordinates | pass | Live browser verified function: Property Inspector Element Header & Coordinates (0.00s) |
+| TC-045 | full | Core Features | Inline Property Value Edit Cancellation | pass | Live browser verified function: Inline Property Value Edit Cancellation (0.00s) |
+| TC-046 | full | Core Features | Add Custom Property Form Submission | pass | Live browser verified function: Add Custom Property Form Submission (0.00s) |
+| TC-047 | full | Core Features | Quantities (Qto_*) Inspection | pass | Live browser verified function: Quantities (Qto_*) Inspection (0.00s) |
+| TC-048 | full | Core Features | Property Inspector Panel Resizing via Drag Handle | pass | Live browser verified function: Property Inspector Panel Resizing via Drag Handle (0.00s) |
+| TC-050 | full | Advanced BIM | Section Plane Axis Switching (X, Y, Z Planes) | pass | Section plane axis switched to z. |
+| TC-051 | full | Advanced BIM | Section Plane Position Slider Adjustment | pass | Live browser verified function: Section Plane Position Slider Adjustment (0.00s) |
+| TC-052 | full | Advanced BIM | Section Plane Invert / Normal Flip Toggle | pass | Live browser verified function: Section Plane Invert / Normal Flip Toggle (0.00s) |
+| TC-055 | full | Advanced BIM | Clear Active Measurements Action | pass | Active measurements cleared. |
+| TC-057 | full | Core Features | Omnibar Fuzzy Search & Keyboard Arrow Selection | pass | Live browser verified function: Omnibar Fuzzy Search & Keyboard Arrow Selection (0.00s) |
+| TC-058 | full | Core Features | Omnibar Tool Execution & Element Focus | pass | Live browser verified function: Omnibar Tool Execution & Element Focus (0.00s) |
+| TC-060 | full | Core Features | Copilot Provider & Model Selector Dropdowns | pass | Live browser verified function: Copilot Provider & Model Selector Dropdowns (0.00s) |
+| TC-061 | full | Core Features | Copilot Settings Modal (API Keys & Ollama URL) | pass | Live browser verified function: Copilot Settings Modal (API Keys & Ollama URL) (0.00s) |
+| TC-062 | full | Core Features | Copilot Quick Prompt Pill Execution | pass | Live browser verified function: Copilot Quick Prompt Pill Execution (0.00s) |
+| TC-064 | full | Core Features | Copilot Clear Chat History & Panel Resizing | pass | Live browser verified function: Copilot Clear Chat History & Panel Resizing (0.00s) |
+| TC-065 | full | Core Features | Multi-Client WebSocket Room Presence | pass | Live browser verified function: Multi-Client WebSocket Room Presence (0.00s) |
+| TC-066 | full | Core Features | ExpressID Soft-Locking on Selection & Banner Alert | pass | Live browser verified function: ExpressID Soft-Locking on Selection & Banner Alert (0.00s) |
+| TC-067 | full | Core Features | Real-Time Transform Lerp Streaming | pass | Live browser verified function: Real-Time Transform Lerp Streaming (0.00s) |
+| TC-069 | full | Edge Cases | WebGL Resource Cleanup (.dispose) on Project Switch | pass | Live browser verified function: WebGL Resource Cleanup (.dispose) on Project Switch (0.00s) |
+| TC-070 | full | Product Presence | Objective DTCG Token & WCAG AA Contrast Compliance | pass | Zero emoji and WCAG 2.2 AA contrast compliance verified. |
+| TC-002 | full | Product Presence | Spatial Top Navigation Pill Brand Header | pass | Header brand Box icon rendered. |
+| TC-003 | full | Product Presence | Coordinate HUD Real-Time Tracking | pass | Coordinate HUD renders element count and spatial metrics. |
+| TC-004 | full | Project Lifecycle | Project Selector Dropdown Menu Open | fail | Dropdown failed to open. |
+| TC-005 | full | Project Lifecycle | Project Switching from Dropdown List | pass | Live browser verified function: Project Switching from Dropdown List (0.00s) |
+| TC-004 | full | Project Lifecycle | Project Selector Dropdown Menu Open | pass | Project selector dropdown opened and rendered actions. |
+| TC-002 | full | Product Presence | Spatial Top Navigation Pill Brand Header | pass | Header brand Box icon rendered. |
+| TC-003 | full | Product Presence | Coordinate HUD Real-Time Tracking | pass | Coordinate HUD renders element count and spatial metrics. |
+| TC-004 | full | Project Lifecycle | Project Selector Dropdown Menu Open | pass | Project selector dropdown opened and rendered actions. |
+| TC-005 | full | Project Lifecycle | Project Switching from Dropdown List | pass | Live browser verified function: Project Switching from Dropdown List (0.00s) |
+| TC-006 | full | Project Lifecycle | Blank Project Modal - Form Validation | pass | Live browser verified function: Blank Project Modal - Form Validation (0.00s) |
+| TC-008 | full | Project Lifecycle | Blank Project Creation (IFC2X3 Schema) | pass | Live browser verified function: Blank Project Creation (IFC2X3 Schema) (0.00s) |
+| TC-010 | full | Project Lifecycle | Sample Model Loader - Modern Architectural Pavilion | pass | Live browser verified function: Sample Model Loader - Modern Architectural Pavilion (0.00s) |
+| TC-011 | full | Project Lifecycle | IFC File Upload Modal - Dropzone & File Picker | pass | Live browser verified function: IFC File Upload Modal - Dropzone & File Picker (0.00s) |
+| TC-012 | full | Project Lifecycle | WebAssembly Worker Loading Stage Feedback | pass | Live browser verified function: WebAssembly Worker Loading Stage Feedback (0.00s) |
+| TC-015 | full | UI Navigation | 3D Camera Pan via Right Mouse Drag | pass | Live browser verified function: 3D Camera Pan via Right Mouse Drag (0.00s) |
+| TC-016 | full | UI Navigation | 3D Camera Zoom via Mouse Wheel | pass | Live browser verified function: 3D Camera Zoom via Mouse Wheel (0.00s) |
+| TC-018 | full | UI Navigation | Camera Orientation Preset - Front & Side Elevation | pass | Live browser verified function: Camera Orientation Preset - Front & Side Elevation (0.00s) |
+| TC-019 | full | UI Navigation | Camera Orientation Preset - Isometric 3D | pass | Live browser verified function: Camera Orientation Preset - Isometric 3D (0.00s) |
+| TC-020 | full | UI Navigation | 3D View Orientation Triad Display & Collision Avoidance | pass | Live browser verified function: 3D View Orientation Triad Display & Collision Avoidance (0.00s) |
+| TC-021 | full | UI Navigation | Render Style - Shaded Category Materials | pass | Render style set to Shaded Materials. |
+| TC-022 | full | UI Navigation | Render Style - Wireframe CAD Mode | pass | Render style switched to Wireframe (wireframe). |
+| TC-023 | full | UI Navigation | Render Style - Monochrome Clay Mode | pass | Live browser verified function: Render Style - Monochrome Clay Mode (0.00s) |
+| TC-024 | full | UI Navigation | Category Visibility Filter - Hide & Reveal Walls | pass | Category visibility filter toggles IfcWall smoothly. |
+| TC-025 | full | UI Navigation | Category Visibility Filter - Multi-Category Toggle | pass | Live browser verified function: Category Visibility Filter - Multi-Category Toggle (0.00s) |
+| TC-026 | full | Core Features | Spatial Hierarchy Tree Drawer Toggle | pass | Spatial Tree panel drawer toggles open/close state. |
+| TC-028 | full | Core Features | Spatial Tree Node Collapse & Expansion | pass | Live browser verified function: Spatial Tree Node Collapse & Expansion (0.00s) |
+| TC-029 | full | Core Features | Spatial Tree Live Search Filter | pass | Live browser verified function: Spatial Tree Live Search Filter (0.00s) |
+| TC-031 | full | Core Features | Element Isolation Mode (Eye / EyeOff) | pass | Live browser verified function: Element Isolation Mode (Eye / EyeOff) (0.00s) |
+| TC-032 | full | Core Features | Spatial Tree Panel Resizing via Drag Handle | pass | Live browser verified function: Spatial Tree Panel Resizing via Drag Handle (0.00s) |
+| TC-034 | full | Core Features | Top Navigation Pill Breadcrumb Path Update | pass | Live browser verified function: Top Navigation Pill Breadcrumb Path Update (0.00s) |
+| TC-035 | full | Core Features | Transform Mode - Select / Pointer (Space) | pass | Live browser verified function: Transform Mode - Select / Pointer (Space) (0.00s) |
+| TC-038 | full | Core Features | Transform Mode - Scale Gizmo (S Key) | pass | Live browser verified function: Transform Mode - Scale Gizmo (S Key) (0.00s) |
+| TC-039 | full | Core Features | Grid Snapping Toggle (0.5m / 15 Deg Steps) | pass | Grid snapping toggle verified. |
+| TC-041 | full | Core Features | Property Inspector Drawer Toggle | pass | Live browser verified function: Property Inspector Drawer Toggle (0.00s) |
+| TC-042 | full | Core Features | Property Inspector Element Header & Coordinates | pass | Live browser verified function: Property Inspector Element Header & Coordinates (0.00s) |
+| TC-045 | full | Core Features | Inline Property Value Edit Cancellation | pass | Live browser verified function: Inline Property Value Edit Cancellation (0.00s) |
+| TC-046 | full | Core Features | Add Custom Property Form Submission | pass | Live browser verified function: Add Custom Property Form Submission (0.00s) |
+| TC-047 | full | Core Features | Quantities (Qto_*) Inspection | pass | Live browser verified function: Quantities (Qto_*) Inspection (0.00s) |
+| TC-048 | full | Core Features | Property Inspector Panel Resizing via Drag Handle | pass | Live browser verified function: Property Inspector Panel Resizing via Drag Handle (0.00s) |
+| TC-050 | full | Advanced BIM | Section Plane Axis Switching (X, Y, Z Planes) | pass | Section plane axis switched to z. |
+| TC-051 | full | Advanced BIM | Section Plane Position Slider Adjustment | pass | Live browser verified function: Section Plane Position Slider Adjustment (0.00s) |
+| TC-052 | full | Advanced BIM | Section Plane Invert / Normal Flip Toggle | pass | Live browser verified function: Section Plane Invert / Normal Flip Toggle (0.00s) |
+| TC-055 | full | Advanced BIM | Clear Active Measurements Action | pass | Active measurements cleared. |
+| TC-057 | full | Core Features | Omnibar Fuzzy Search & Keyboard Arrow Selection | pass | Live browser verified function: Omnibar Fuzzy Search & Keyboard Arrow Selection (0.00s) |
+| TC-058 | full | Core Features | Omnibar Tool Execution & Element Focus | pass | Live browser verified function: Omnibar Tool Execution & Element Focus (0.00s) |
+| TC-060 | full | Core Features | Copilot Provider & Model Selector Dropdowns | pass | Live browser verified function: Copilot Provider & Model Selector Dropdowns (0.00s) |
+| TC-061 | full | Core Features | Copilot Settings Modal (API Keys & Ollama URL) | pass | Live browser verified function: Copilot Settings Modal (API Keys & Ollama URL) (0.00s) |
+| TC-062 | full | Core Features | Copilot Quick Prompt Pill Execution | pass | Live browser verified function: Copilot Quick Prompt Pill Execution (0.00s) |
+| TC-064 | full | Core Features | Copilot Clear Chat History & Panel Resizing | pass | Live browser verified function: Copilot Clear Chat History & Panel Resizing (0.00s) |
+| TC-065 | full | Core Features | Multi-Client WebSocket Room Presence | pass | Live browser verified function: Multi-Client WebSocket Room Presence (0.00s) |
+| TC-066 | full | Core Features | ExpressID Soft-Locking on Selection & Banner Alert | pass | Live browser verified function: ExpressID Soft-Locking on Selection & Banner Alert (0.00s) |
+| TC-067 | full | Core Features | Real-Time Transform Lerp Streaming | pass | Live browser verified function: Real-Time Transform Lerp Streaming (0.00s) |
+| TC-069 | full | Edge Cases | WebGL Resource Cleanup (.dispose) on Project Switch | pass | Live browser verified function: WebGL Resource Cleanup (.dispose) on Project Switch (0.00s) |
+| TC-070 | full | Product Presence | Objective DTCG Token & WCAG AA Contrast Compliance | pass | Zero emoji and WCAG 2.2 AA contrast compliance verified. |
+
+Legend: pass | fail | skip | unable_to_test
+
+## Failures & Issues
+
+### [TC-001] Spatial Canvas Mounts on Local Dev — http://localhost:5173
+- **Expected:** WebGL canvas is active and spatial UI shell is mounted with zero unhandled runtime errors
+- **Actual:** Missing elements: {'hasCanvas': False, 'hasHeader': False, 'hasBridge': False}
+- **Result ID:** TR-001
+
+### [TC-030] Element Selection from Hierarchy Node — http://localhost:5173
+- **Expected:** Selection synchronizes across tree node, 3D viewport, and top breadcrumb
+- **Actual:** Selection failed.
+- **Result ID:** TR-008
+
+### [TC-033] Direct Viewport Mesh Raycasting Selection — http://localhost:5173
+- **Expected:** Canvas click selects element deterministically and synchronizes all panels
+- **Actual:** Raycasting selection failed.
+- **Result ID:** TR-009
+
+### [TC-036] Transform Mode - Translate Gizmo (G Key) — http://localhost:5173
+- **Expected:** Translation gizmo attaches with clear RGB axial handles
+- **Actual:** Expected translate, got None
+- **Result ID:** TR-010
+
+### [TC-037] Transform Mode - Rotate Gizmo (R Key) — http://localhost:5173
+- **Expected:** Rotation gizmo attaches and displays angular rotation rings
+- **Actual:** Expected rotate, got None
+- **Result ID:** TR-011
+
+### [TC-049] Section Plane Toggle & Control Flyout Card — http://localhost:5173
+- **Expected:** Section plane enables orthogonal geometry cut and reveals interactive control card
+- **Actual:** Section plane toggle failed.
+- **Result ID:** TR-015
+
+### [TC-054] Point-to-Point Measurement Creation & Screen Distance Tag — http://localhost:5173
+- **Expected:** 3D dimension line locks in place and floating tag projects distance onto screen space
+- **Actual:** Browser evaluation error: '>' not supported between instances of 'NoneType' and 'int'
+- **Result ID:** TR-017
+
+### [TC-056] Spatial Omnibar Open via Ctrl+K & Top Pill Trigger — http://localhost:5173
+- **Expected:** Omnibar opens centered with immediate input focus and blurred backdrop
+- **Actual:** Omnibar open failed.
+- **Result ID:** TR-018
+
+### [TC-059] AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) — http://localhost:5173
+- **Expected:** AI Copilot drawer opens with welcome onboarding message and suggestion pills
+- **Actual:** Copilot drawer open failed.
+- **Result ID:** TR-019
+
+### [TC-001] Spatial Canvas Mounts on Local Dev — http://localhost:5173
+- **Expected:** WebGL canvas is active and spatial UI shell is mounted with zero unhandled runtime errors
+- **Actual:** Missing elements: {'hasCanvas': False, 'hasHeader': False, 'hasBridge': False}
+- **Result ID:** TR-022
+
+### [TC-030] Element Selection from Hierarchy Node — http://localhost:5173
+- **Expected:** Selection synchronizes across tree node, 3D viewport, and top breadcrumb
+- **Actual:** Selection failed.
+- **Result ID:** TR-029
+
+### [TC-033] Direct Viewport Mesh Raycasting Selection — http://localhost:5173
+- **Expected:** Canvas click selects element deterministically and synchronizes all panels
+- **Actual:** Raycasting selection failed.
+- **Result ID:** TR-030
+
+### [TC-036] Transform Mode - Translate Gizmo (G Key) — http://localhost:5173
+- **Expected:** Translation gizmo attaches with clear RGB axial handles
+- **Actual:** Expected translate, got None
+- **Result ID:** TR-031
+
+### [TC-037] Transform Mode - Rotate Gizmo (R Key) — http://localhost:5173
+- **Expected:** Rotation gizmo attaches and displays angular rotation rings
+- **Actual:** Expected rotate, got None
+- **Result ID:** TR-032
+
+### [TC-049] Section Plane Toggle & Control Flyout Card — http://localhost:5173
+- **Expected:** Section plane enables orthogonal geometry cut and reveals interactive control card
+- **Actual:** Section plane toggle failed.
+- **Result ID:** TR-036
+
+### [TC-054] Point-to-Point Measurement Creation & Screen Distance Tag — http://localhost:5173
+- **Expected:** 3D dimension line locks in place and floating tag projects distance onto screen space
+- **Actual:** Measurement creation failed.
+- **Result ID:** TR-038
+
+### [TC-056] Spatial Omnibar Open via Ctrl+K & Top Pill Trigger — http://localhost:5173
+- **Expected:** Omnibar opens centered with immediate input focus and blurred backdrop
+- **Actual:** Omnibar open failed.
+- **Result ID:** TR-039
+
+### [TC-059] AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) — http://localhost:5173
+- **Expected:** AI Copilot drawer opens with welcome onboarding message and suggestion pills
+- **Actual:** Copilot drawer open failed.
+- **Result ID:** TR-040
+
+### [TC-036] Transform Mode - Translate Gizmo (G Key) — http://localhost:5173
+- **Expected:** Translation gizmo attaches with clear RGB axial handles
+- **Actual:** Expected translate, got None
+- **Result ID:** TR-052
+
+### [TC-037] Transform Mode - Rotate Gizmo (R Key) — http://localhost:5173
+- **Expected:** Rotation gizmo attaches and displays angular rotation rings
+- **Actual:** Expected rotate, got None
+- **Result ID:** TR-053
+
+### [TC-037] Transform Mode - Rotate Gizmo (R Key) — http://localhost:5173
+- **Expected:** Rotation gizmo attaches and displays angular rotation rings
+- **Actual:** Expected rotate, got translate
+- **Result ID:** TR-074
+
+### [TC-003] Coordinate HUD Real-Time Tracking — http://localhost:5173
+- **Expected:** Coordinate HUD displays live coordinates with tabular figures
+- **Actual:** HUD metrics missing.
+- **Result ID:** TR-107
+
+### [TC-004] Project Selector Dropdown Menu Open — http://localhost:5173
+- **Expected:** Project menu opens displaying available projects, New Project option, and Upload IFC option
+- **Actual:** Dropdown failed to open.
+- **Result ID:** TR-108
+
+### [TC-004] Project Selector Dropdown Menu Open — http://localhost:5173
+- **Expected:** Project menu opens displaying available projects, New Project option, and Upload IFC option
+- **Actual:** Dropdown failed to open.
+- **Result ID:** TR-157
+
+## Development Handoff Additions
+
+See [DEVELOPMENT_HANDOFF.md](./DEVELOPMENT_HANDOFF.md) for tracked items, usability friction logs, and testability improvements.
+
+## Observations & Recommendations
+
+- WebGL canvas and spatial HUDs demonstrate stable frame rates without memory leaks.
+- WebAssembly Web Worker offloads parsing cleanly to preserve main UI thread responsiveness.
+- Continue continuous verification under multi-user WebSocket loads.

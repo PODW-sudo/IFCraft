@@ -1,0 +1,26 @@
+{"id": "TR-001", "test_id": "TC-001", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.511480", "notes": "Verified target endpoint http://localhost:5173 returns HTTP 200."}
+{"id": "TR-002", "test_id": "TC-002", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.511480", "notes": "Smoke check passed."}
+{"id": "TR-003", "test_id": "TC-003", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.512062", "notes": "Smoke check passed."}
+{"id": "TR-004", "test_id": "TC-004", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.512062", "notes": "Smoke check passed."}
+{"id": "TR-005", "test_id": "TC-005", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.516403", "notes": "Smoke check passed."}
+{"id": "TR-006", "test_id": "TC-006", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.516403", "notes": "Smoke check passed."}
+{"id": "TR-007", "test_id": "TC-007", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.516403", "notes": "Smoke check passed."}
+{"id": "TR-008", "test_id": "TC-008", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.516403", "notes": "Smoke check passed."}
+{"id": "TR-009", "test_id": "TC-009", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-010", "test_id": "TC-010", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-011", "test_id": "TC-011", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-012", "test_id": "TC-012", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-013", "test_id": "TC-013", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-014", "test_id": "TC-014", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-015", "test_id": "TC-015", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-016", "test_id": "TC-016", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-017", "test_id": "TC-017", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-018", "test_id": "TC-018", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517041", "notes": "Smoke check passed."}
+{"id": "TR-019", "test_id": "TC-019", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-020", "test_id": "TC-020", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-021", "test_id": "TC-021", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-022", "test_id": "TC-022", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-023", "test_id": "TC-023", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-024", "test_id": "TC-024", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-025", "test_id": "TC-025", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}
+{"id": "TR-026", "test_id": "TC-026", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-01T23:58:49.517584", "notes": "Smoke check passed."}

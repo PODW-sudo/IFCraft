@@ -467,13 +467,118 @@ export const App: React.FC = () => {
     [handleDownloadProject]
   );
 
+  // Dev-only QA Bridge for Live Agent Browser Automation
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as any).__IFC_QA_BRIDGE__ = {
+        getState: () => ({
+          currentProject,
+          selectedExpressID,
+          isTreeOpen,
+          isPropertyOpen,
+          isCopilotOpen,
+          isMeasureActive,
+          measurementCount: measurements.length,
+          sectionConfig,
+          transformMode,
+          renderStyle,
+          snapEnabled,
+          hiddenCategories: Array.from(hiddenCategories),
+          isolatedExpressID,
+          loadingStage,
+          loadingPercent,
+          isLoading,
+          isOmnibarOpen,
+          isUploadModalOpen,
+          isNewProjectModalOpen,
+          projectsCount: projects.length,
+          geometriesCount: geometries.length
+        }),
+        selectElement: (expressID: number | null) => handleSelectElement(expressID),
+        setTransformMode: (mode: TransformMode) => setTransformMode(mode),
+        setSectionConfig: (config: Partial<SectionPlaneConfig>) => setSectionConfig((prev) => ({ ...prev, ...config })),
+        setRenderStyle: (style: RenderStyle) => setRenderStyle(style),
+        setSnapEnabled: (snap: boolean) => setSnapEnabled(snap),
+        toggleCategory: (cat: string) => toggleCategoryVisibility(cat),
+        setIsolate: (expressID: number | null) => setIsolatedExpressID(expressID),
+        toggleTree: (open?: boolean) => setIsTreeOpen((prev) => (open !== undefined ? open : !prev)),
+        toggleProperty: (open?: boolean) => setIsPropertyOpen((prev) => (open !== undefined ? open : !prev)),
+        toggleCopilot: (open?: boolean) => setIsCopilotOpen((prev) => (open !== undefined ? open : !prev)),
+        openOmnibar: () => setIsOmnibarOpen(true),
+        closeOmnibar: () => setIsOmnibarOpen(false),
+        clearMeasurements: () => setMeasurements([]),
+        addMeasurement: (start: [number, number, number], end: [number, number, number]) => {
+          const dx = end[0] - start[0];
+          const dy = end[1] - start[1];
+          const dz = end[2] - start[2];
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const mid: [number, number, number] = [
+            (start[0] + end[0]) / 2,
+            (start[1] + end[1]) / 2,
+            (start[2] + end[2]) / 2
+          ];
+          setMeasurements((prev) => [
+            ...prev,
+            {
+              id: `measure_${Date.now()}`,
+              start,
+              end,
+              distance: dist,
+              midpoint: mid
+            }
+          ]);
+        },
+        loadProjectById: (projectId: string) => {
+          const p = projects.find((item) => item.id === projectId);
+          if (p) loadProject(p);
+        }
+      };
+    }
+  }, [
+    currentProject,
+    selectedExpressID,
+    isTreeOpen,
+    isPropertyOpen,
+    isCopilotOpen,
+    isMeasureActive,
+    measurements,
+    sectionConfig,
+    transformMode,
+    renderStyle,
+    snapEnabled,
+    hiddenCategories,
+    isolatedExpressID,
+    loadingStage,
+    loadingPercent,
+    isLoading,
+    isOmnibarOpen,
+    isUploadModalOpen,
+    isNewProjectModalOpen,
+    projects,
+    geometries
+  ]);
+
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
   const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
 
   return (
-    <div className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none">
+    <div
+      className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none"
+      data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
+      data-qa-selected-id={selectedExpressID ?? ''}
+      data-qa-project-name={currentProject?.name ?? ''}
+      data-qa-project-schema={currentProject?.schema_version ?? ''}
+      data-qa-measure-active={isMeasureActive ? 'true' : 'false'}
+      data-qa-measure-count={measurements.length}
+      data-qa-transform-mode={transformMode}
+      data-qa-section-active={sectionConfig.enabled ? 'true' : 'false'}
+      data-qa-render-style={renderStyle}
+    >
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden z-0">
+      <div
+        className="absolute inset-0 w-full h-full overflow-hidden z-0"
+        data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
+      >
         <ThreeViewport
           geometries={geometries}
           selectedExpressID={selectedExpressID}

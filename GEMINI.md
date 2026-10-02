@@ -38,5 +38,24 @@ Before marking any phase complete in `ROADMAP.md`, you must run and pass the fol
 - **Backend Verification:**
   - Python import check / smoke test verifying FastAPI and `ifcopenshell` run without runtime errors.
   - Endpoints return expected status codes.
+- **Objective UX/UI Gates:**
+  - `.\backend\venv\Scripts\python.exe scripts/gates/run_gates.py` (Zero Emoji, Hardcodes, Intent, Contrast all PASS)
+- **Agent QA Harness Verification:**
+  - `.\backend\venv\Scripts\python.exe scripts/qa_runner.py check` (0 syntax or configuration errors across 70 test cases)
+  - Execute Key Functionalities on every test run: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser`
+  - Execute Major Milestone Suite before marking any phase complete: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser` (all 70 tests in live Google Chrome)
+  - Append raw results to `test_results_YYYY-MM-DD.jsonl` and compile `test_report_YYYY-MM-DD.md`
+  - Record any discovered bugs, UX friction, or testability gaps in `DEVELOPMENT_HANDOFF.md`
 - **Git Checkpoint:**
-  - After passing the gate, commit changes with message: `feat(phase-X): complete <phase name>`.
+  - After passing all gates, commit changes with message: `feat(phase-X): complete <phase name>`.
+
+---
+
+## 4. Agent QA Harness Integration & Continuous Verification
+The project enforces the file-based **Agent QA Harness** (based on `https://github.com/jitangupta/agent-qa-harness`):
+- **Master Runbook (`AGENTS.md`):** All autonomous testing follows `AGENTS.md` procedures (Mode detection, test execution, real-time logging, usability review).
+- **Test Spec (`test_cases.jsonl`):** Every new feature or architectural phase must add corresponding test cases to `test_cases.jsonl` with unique IDs, preconditions, steps, and expected outcomes.
+- **Configuration & Cues (`project.config.md`):** Maintained with up-to-date target endpoints, entry points, UI cues, and data safety rules.
+- **Usability Review Rule:** A functional test pass is not sufficient. Agents must evaluate spatial ergonomics, viewport immersion, manipulator responsiveness, and typography, logging all friction points into `DEVELOPMENT_HANDOFF.md`.
+- **Known Problem Patterns (`PATTERNS.md`):** Reference established patterns for 3D WebGL canvas raycasting, Web Worker WASM asynchrony, and WebSocket soft-lock testing.
+- **QA Subagent & Skills:** Use the `qa-agent` subagent (`.agents/subagents/qa-agent.md`) and `agent-qa-harness` skill (`.agents/skills/agent-qa-harness/SKILL.md`) for executing browser runs and compiling reports.
