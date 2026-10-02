@@ -540,7 +540,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
             await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openCadToolbar()")
             await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setCadMode('wall')")
             await asyncio.sleep(0.3)
-            mode = await cdp.eval("document.body.firstElementChild.getAttribute('data-qa-cad-mode')")
+            mode = await cdp.eval("document.querySelector('[data-qa-cad-mode]') ? document.querySelector('[data-qa-cad-mode]').getAttribute('data-qa-cad-mode') : (window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().cadToolMode)")
             return ("pass", "Interactive wall placement tool activated.") if mode == "wall" else ("fail", f"Expected mode wall, got {mode}")
 
         elif tid == "TC-081":

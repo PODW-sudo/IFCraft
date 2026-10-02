@@ -1,0 +1,153 @@
+name: Agent QA Harness & Continuous Verification Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+    inputs:
+      test_tier:
+        description: 'Test Tier to execute'
+        required: true
+        default: 'key'
+        type: choice
+        options:
+          - key
+          - milestone
+
+jobs:
+  quality-gates:
+    name: Deterministic Quality & UX Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Backend Runtime Smoke Test
+        run: |
+          python -c "import fastapi, ifcopenshell, aiosqlite, uvicorn; print('Backend core imports OK')"
+
+      - name: Set up Node.js 20 & pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: pnpm install
+
+      - name: Frontend Strict Typecheck
+        working-directory: ./frontend
+        run: pnpm exec tsc -b
+
+      - name: Frontend Production Bundle Build
+        working-directory: ./frontend
+        run: pnpm run build
+
+      - name: Run Objective UX/UI Quality Gates
+        run: |
+          python scripts/gates/run_gates.py
+
+      - name: Validate Agent QA Harness Integrity
+        run: |
+          python scripts/qa_runner.py check
+
+  e2e-browser-qa:
+    name: Live Browser E2E Test Suite
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Set up Node.js & pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: pnpm install
+
+      - name: Install Google Chrome (Headless)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Start Backend Server
+        run: |
+          python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 &
+        env:
+          PYTHONUNBUFFERED: "1"
+
+      - name: Start Frontend Dev Server
+        working-directory: ./frontend
+        run: |
+          pnpm run dev --host 127.0.0.1 --port 5173 &
+
+      - name: Wait for Services to be Ready
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/api/projects > /dev/null && curl -s http://127.0.0.1:5173 > /dev/null; then
+              echo "Services are ready!"
+              break
+            fi
+            echo "Waiting for services..."
+            sleep 1
+          done
+
+      - name: Execute QA Harness Browser Tests
+        run: |
+          tier="${{ github.event.inputs.test_tier || 'key' }}"
+          if [ "$tier" = "milestone" ]; then
+            python scripts/qa_runner.py run --milestone --browser
+          else
+            python scripts/qa_runner.py run --tier key --browser
+          fi
+
+      - name: Upload Test Results Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-harness-reports
+          path: |
+            test_results_*.jsonl
+            test_report_*.md
+            DEVELOPMENT_HANDOFF.md
