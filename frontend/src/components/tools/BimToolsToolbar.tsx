@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 export type CameraPreset = 'iso' | 'top' | 'front' | 'side';
-export type RenderStyle = 'shaded' | 'wireframe' | 'ghost' | 'discipline';
+export type RenderStyle = 'shaded' | 'wireframe' | 'ghost' | 'discipline' | 'diff';
 
 export interface SectionPlaneConfig {
   enabled: boolean;

@@ -4,10 +4,8 @@ import {
   Play,
   X,
   Target,
-  Filter,
   CheckCircle2,
   Sliders,
-  Layers,
   ArrowRight
 } from 'lucide-react';
 import * as Slider from '@radix-ui/react-slider';

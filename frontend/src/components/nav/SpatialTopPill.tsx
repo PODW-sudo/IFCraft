@@ -16,7 +16,9 @@ import {
   EyeOff,
   Layers,
   AlertTriangle,
-  PenTool
+  PenTool,
+  ClipboardList,
+  History
 } from 'lucide-react';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
@@ -56,6 +58,12 @@ interface SpatialTopPillProps {
   clashCount?: number;
   isCadOpen?: boolean;
   onToggleCad?: () => void;
+  isBcfOpen?: boolean;
+  onToggleBcf?: () => void;
+  bcfTopicCount?: number;
+  isTimelineOpen?: boolean;
+  onToggleTimeline?: () => void;
+  auditCount?: number;
 }
 
 export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
@@ -84,7 +92,13 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   onToggleClash,
   clashCount = 0,
   isCadOpen = false,
-  onToggleCad
+  onToggleCad,
+  isBcfOpen = false,
+  onToggleBcf,
+  bcfTopicCount = 0,
+  isTimelineOpen = false,
+  onToggleTimeline,
+  auditCount = 0
 }) => {
   // Find spatial path for breadcrumbs
   const findBreadcrumbPath = (node: SpatialNode | null, targetId: number | null, path: string[] = []): string[] | null => {
@@ -326,6 +340,46 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
       >
         <PenTool className="w-3.5 h-3.5" />
         <span className="hidden sm:inline text-xs">Model</span>
+      </button>
+
+      {/* BCF Issues & Collaboration Toggle */}
+      <button
+        data-qa="pill-bcf-toggle"
+        onClick={onToggleBcf}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+          isBcfOpen
+            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+        }`}
+        title="BCF Issues & Viewpoints"
+      >
+        <ClipboardList className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline text-xs">BCF</span>
+        {bcfTopicCount > 0 && (
+          <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
+            {bcfTopicCount}
+          </span>
+        )}
+      </button>
+
+      {/* Audit Timeline Scrubber Toggle */}
+      <button
+        data-qa="pill-timeline-toggle"
+        onClick={onToggleTimeline}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+          isTimelineOpen
+            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+        }`}
+        title="Session Playback & Change Audit"
+      >
+        <History className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline text-xs">Timeline</span>
+        {auditCount > 0 && (
+          <span className="text-[9px] font-mono px-1 rounded-full bg-slate-700 text-slate-300">
+            {auditCount}
+          </span>
+        )}
       </button>
 
       <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />

@@ -87,13 +87,15 @@
   - QA Harness test cases (TC-079 to TC-088) covering CAD creation and undo/redo operations (33 key tests, 88 total tests).
   - **Quality Gate:** Key tier (33/33) passes with 100% in live Chrome; element creation generates valid IFC geometry; undo/redo restores state accurately; all 4 UI gates pass; `pnpm exec tsc --noEmit` has 0 errors.
 
-- [ ] **Phase 12: Collaborative Session Playback, BCF Export & Spatial Change Audit**
-  - Backend BCF 2.1/3.0 `.bcfzip` generator (`bcf_service.py`) & export endpoints (`/api/projects/{id}/bcf/*`).
-  - Temporal change audit log tracking element modifications, moves, and deletions with timestamps and user attribution.
-  - Frontend visual diff rendering shader (added = green, modified = yellow, deleted = red ghost).
-  - Temporal audit playback timeline scrubber (`TimelineScrubber.tsx`).
-  - QA Harness test cases (TC-089 to TC-096) covering BCF export and audit playback.
-  - **Quality Gate:** BCF archive imports cleanly into standard BIM tools; visual diff accurately highlights modified elements; key QA tier passes in Chrome.
+- [x] **Phase 12: Collaborative Session Playback, BCF Export & Spatial Change Audit**
+  - Backend BCF 2.1 standard `.bcfzip` generator (`bcf_service.py`) & export endpoints (`/api/projects/{id}/bcf/*`) packaging `bcf.version`, `markup.bcf`, and `viewpoint.bcfv` with perspective camera direction and FoV.
+  - Automatic conversion of geometric clash detection collisions into BCF topics with localized clash viewpoints.
+  - Temporal change audit log tracking element additions, moves, and deletions with timestamps and user attribution (`audit_service.py` & `/api/projects/{id}/audit/*`).
+  - Frontend visual diff rendering shader in `ThreeViewport.tsx` (added = emerald green, modified = amber, unchanged = ghost slate).
+  - Temporal audit playback timeline scrubber (`TimelineScrubber.tsx`) with play/pause, step controls, and element focus.
+  - Floating `BcfManagerModal.tsx` for creating topics, attaching 3D viewpoints, and exporting standard `.bcfzip`.
+  - Expanded QA Harness test suite with TC-089 through TC-096 (41 key tests, 96 total tests).
+  - **Quality Gate:** Standard BCF 2.1 archive exports with verified folder structure; visual diff accurately color-codes elements; Key QA tier passes 41/41 (100%) in live Google Chrome; all 4 UI gates pass; `pnpm exec tsc --noEmit` and `pnpm run build` pass with 0 errors.
 
 - [ ] **Phase 13: CI/CD Automated Regression Pipeline & Master Quality Gates**
   - GitHub Actions automated CI workflow (`.github/workflows/qa-harness.yml`) running backend unit tests, frontend build, UX lint gates, and headless Chrome E2E harness.

@@ -17,6 +17,8 @@ import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import { FederatedModelManager } from './components/federation/FederatedModelManager';
 import { ClashInspector } from './components/federation/ClashInspector';
 import { CadToolbar } from './components/cad/CadToolbar';
+import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
+import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
 import type { 
   GeometryData, 
   SpatialNode, 
@@ -27,7 +29,11 @@ import type {
   ClashCheckResponse, 
   DisciplineType,
   CadToolMode,
-  CadHistoryItem
+  CadHistoryItem,
+  BcfTopic,
+  BcfTopicCreateRequest,
+  AuditTimelineItem,
+  AuditDiffResponse
 } from './types/ifc';
 import * as api from './services/api';
 import {
@@ -124,6 +130,13 @@ export const App: React.FC = () => {
   const [cadCanUndo, setCadCanUndo] = useState(false);
   const [cadCanRedo, setCadCanRedo] = useState(false);
   const [cadHistory, setCadHistory] = useState<CadHistoryItem[]>([]);
+
+  // Phase 12 State: BCF 2.1 Issues & Collaborative Change Playback Scrubber
+  const [isBcfOpen, setIsBcfOpen] = useState(false);
+  const [bcfTopics, setBcfTopics] = useState<BcfTopic[]>([]);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [auditTimeline, setAuditTimeline] = useState<AuditTimelineItem[]>([]);
+  const [auditDiff, setAuditDiff] = useState<AuditDiffResponse | null>(null);
 
   // Web Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -729,6 +742,72 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleCadUndo, handleCadRedo]);
 
+  // Phase 12 Handlers: BCF 2.1 Issues & Audit Playback
+  const refreshBcfTopics = useCallback(async () => {
+    if (!currentProject) {
+      setBcfTopics([]);
+      return;
+    }
+    try {
+      const topics = await api.fetchBcfTopics(currentProject.id);
+      setBcfTopics(topics);
+    } catch (err) {
+      console.warn('Could not fetch BCF topics:', err);
+    }
+  }, [currentProject]);
+
+  const refreshAuditData = useCallback(async () => {
+    if (!currentProject) {
+      setAuditTimeline([]);
+      setAuditDiff(null);
+      return;
+    }
+    try {
+      const timeline = await api.fetchAuditTimeline(currentProject.id);
+      setAuditTimeline(timeline);
+      const diff = await api.fetchAuditDiff(currentProject.id);
+      setAuditDiff(diff);
+    } catch (err) {
+      console.warn('Could not fetch audit data:', err);
+    }
+  }, [currentProject]);
+
+  useEffect(() => {
+    if (currentProject) {
+      refreshBcfTopics();
+      refreshAuditData();
+    }
+  }, [currentProject, refreshBcfTopics, refreshAuditData]);
+
+  const handleCreateBcfTopic = useCallback(async (req: BcfTopicCreateRequest) => {
+    if (!currentProject) return;
+    try {
+      await api.createBcfTopic(currentProject.id, req);
+      await refreshBcfTopics();
+    } catch (err) {
+      console.error('Failed to create BCF topic:', err);
+      throw err;
+    }
+  }, [currentProject, refreshBcfTopics]);
+
+  const handleImportClashesToBcf = useCallback(async (clashes: ClashRecord[]) => {
+    if (!currentProject) return [];
+    try {
+      const created = await api.importClashesToBcf(currentProject.id, clashes);
+      await refreshBcfTopics();
+      return created;
+    } catch (err) {
+      console.error('Failed to import clashes to BCF:', err);
+      throw err;
+    }
+  }, [currentProject, refreshBcfTopics]);
+
+  const handleSelectBcfTopic = useCallback((topic: BcfTopic) => {
+    if (topic.selected_elements && topic.selected_elements.length > 0) {
+      setSelectedExpressID(topic.selected_elements[0]);
+    }
+  }, []);
+
   // Dev-only QA Bridge for Live Agent Browser Automation
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -766,7 +845,14 @@ export const App: React.FC = () => {
           cadCanUndo,
           cadCanRedo,
           cadHistoryCount: cadHistory.length,
-          cadHistory
+          cadHistory,
+          isBcfOpen,
+          bcfTopicsCount: bcfTopics.length,
+          bcfTopics,
+          isTimelineOpen,
+          auditTimelineCount: auditTimeline.length,
+          auditTimeline,
+          auditDiff
         }),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
@@ -801,6 +887,30 @@ export const App: React.FC = () => {
         drawCadColumn: (pos: [number, number]) => handleCadDrawColumn(pos),
         drawCadOpening: (wallId: number, offset: number) => handleCadDrawOpening(wallId, offset),
         getCadHistory: () => cadHistory,
+        openBcfModal: () => {
+          setIsBcfOpen(true);
+          refreshBcfTopics();
+        },
+        closeBcfModal: () => setIsBcfOpen(false),
+        createBcfTopic: async (req: BcfTopicCreateRequest) => handleCreateBcfTopic(req),
+        importClashesToBcf: async () => {
+          if (clashResult && clashResult.clashes.length > 0) {
+            return handleImportClashesToBcf(clashResult.clashes);
+          }
+          return [];
+        },
+        getBcfExportUrl: () => (currentProject ? api.getBcfExportUrl(currentProject.id) : null),
+        openTimelineScrubber: () => {
+          setIsTimelineOpen(true);
+          refreshAuditData();
+        },
+        closeTimelineScrubber: () => setIsTimelineOpen(false),
+        fetchAuditDiff: async () => {
+          if (!currentProject) return null;
+          const diff = await api.fetchAuditDiff(currentProject.id);
+          setAuditDiff(diff);
+          return diff;
+        },
         addMeasurement: (start: [number, number, number], end: [number, number, number]) => {
           const dx = end[0] - start[0];
           const dy = end[1] - start[1];
@@ -868,7 +978,16 @@ export const App: React.FC = () => {
     handleCadDrawWall,
     handleCadDrawSlab,
     handleCadDrawColumn,
-    handleCadDrawOpening
+    handleCadDrawOpening,
+    isBcfOpen,
+    bcfTopics,
+    isTimelineOpen,
+    auditTimeline,
+    auditDiff,
+    refreshBcfTopics,
+    refreshAuditData,
+    handleCreateBcfTopic,
+    handleImportClashesToBcf
   ]);
 
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
@@ -893,6 +1012,10 @@ export const App: React.FC = () => {
       data-qa-cad-open={isCadOpen ? 'true' : 'false'}
       data-qa-cad-mode={cadToolMode}
       data-qa-cad-history-count={cadHistory.length}
+      data-qa-bcf-open={isBcfOpen ? 'true' : 'false'}
+      data-qa-bcf-count={bcfTopics.length}
+      data-qa-timeline-open={isTimelineOpen ? 'true' : 'false'}
+      data-qa-audit-count={auditTimeline.length}
     >
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
       <div
@@ -907,6 +1030,7 @@ export const App: React.FC = () => {
           isolatedExpressID={isolatedExpressID}
           hiddenModelIds={hiddenModelIds}
           activeClash={activeClash}
+          auditDiff={auditDiff}
           transformMode={transformMode}
           snapEnabled={snapEnabled}
           onTransformEnd={handleTransformEnd}
@@ -960,6 +1084,18 @@ export const App: React.FC = () => {
         clashCount={clashResult?.total_clashes ?? 0}
         isCadOpen={isCadOpen}
         onToggleCad={handleToggleCad}
+        isBcfOpen={isBcfOpen}
+        onToggleBcf={() => {
+          setIsBcfOpen((prev) => !prev);
+          if (!isBcfOpen) refreshBcfTopics();
+        }}
+        bcfTopicCount={bcfTopics.length}
+        isTimelineOpen={isTimelineOpen}
+        onToggleTimeline={() => {
+          setIsTimelineOpen((prev) => !prev);
+          if (!isTimelineOpen) refreshAuditData();
+        }}
+        auditCount={auditTimeline.length}
       />
 
       {/* 2b. Floating CAD Modeling Toolbar */}
@@ -1136,6 +1272,38 @@ export const App: React.FC = () => {
         onSelectClash={setActiveClash}
         onRunClashCheck={handleRunClashCheck}
         isLoading={isClashLoading}
+      />
+
+      {/* Phase 12: BCF 2.1 Issue Management Modal */}
+      {currentProject && (
+        <BcfManagerModal
+          isOpen={isBcfOpen}
+          onClose={() => setIsBcfOpen(false)}
+          projectName={currentProject.name}
+          topics={bcfTopics}
+          onCreateTopic={handleCreateBcfTopic}
+          onImportClashes={async () => {
+            if (clashResult && clashResult.clashes.length > 0) {
+              await handleImportClashesToBcf(clashResult.clashes);
+            }
+          }}
+          clashCount={clashResult?.total_clashes ?? 0}
+          onSelectTopic={handleSelectBcfTopic}
+          selectedExpressID={selectedExpressID}
+          exportUrl={api.getBcfExportUrl(currentProject.id)}
+        />
+      )}
+
+      {/* Phase 12: Collaborative Session Playback & Audit Timeline Scrubber */}
+      <TimelineScrubber
+        isOpen={isTimelineOpen}
+        onClose={() => setIsTimelineOpen(false)}
+        timeline={auditTimeline}
+        onSelectEvent={(event: AuditTimelineItem | null) => {
+          if (event?.express_id) {
+            setSelectedExpressID(event.express_id);
+          }
+        }}
       />
     </div>
   );

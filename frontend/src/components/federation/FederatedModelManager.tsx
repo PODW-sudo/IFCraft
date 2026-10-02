@@ -6,9 +6,6 @@ import {
   EyeOff,
   Trash2,
   X,
-  FileCheck,
-  Building,
-  Cpu,
   Compass,
   AlertCircle
 } from 'lucide-react';

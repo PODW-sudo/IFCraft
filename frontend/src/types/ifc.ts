@@ -242,3 +242,50 @@ export interface CadHistoryResponse {
   can_redo: boolean;
 }
 
+export interface BcfTopic {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  topic_type: string;
+  topic_status: string;
+  priority: 'Low' | 'Normal' | 'High' | 'Critical' | string;
+  creation_author: string;
+  camera_position?: [number, number, number];
+  camera_target?: [number, number, number];
+  selected_elements: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BcfTopicCreateRequest {
+  title: string;
+  description?: string;
+  topic_type?: string;
+  topic_status?: string;
+  priority?: string;
+  camera_position?: [number, number, number];
+  camera_target?: [number, number, number];
+  selected_elements?: number[];
+}
+
+export interface AuditTimelineItem {
+  id: number;
+  project_id: string;
+  user_id: string;
+  user_name: string;
+  action_type: string;
+  express_id?: number | null;
+  entity_type?: string | null;
+  payload: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface AuditDiffResponse {
+  total_elements: number;
+  added: number[];
+  modified: number[];
+  deleted: number[];
+}
+
+
