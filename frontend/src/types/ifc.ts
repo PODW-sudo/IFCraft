@@ -164,3 +164,81 @@ export interface ClashCheckResponse {
   duration_ms: number;
 }
 
+export type CadToolMode = 'select' | 'wall' | 'slab' | 'column' | 'door' | 'window';
+
+export interface CadWallRequest {
+  start: [number, number];
+  end: [number, number];
+  elevation?: number;
+  height?: number;
+  thickness?: number;
+  name?: string;
+  storey_id?: number;
+}
+
+export interface CadSlabRequest {
+  boundary: [number, number][];
+  elevation?: number;
+  thickness?: number;
+  name?: string;
+  storey_id?: number;
+}
+
+export interface CadColumnRequest {
+  position: [number, number];
+  elevation?: number;
+  height?: number;
+  width?: number;
+  depth?: number;
+  name?: string;
+  storey_id?: number;
+}
+
+export interface CadOpeningRequest {
+  host_wall_id: number;
+  opening_type: 'door' | 'window';
+  offset_along_wall?: number;
+  sill_height?: number;
+  width?: number;
+  height?: number;
+  thickness?: number;
+  name?: string;
+}
+
+export interface CadElementResponse {
+  success: boolean;
+  express_id: number;
+  global_id: string;
+  entity_type: string;
+  name: string;
+  transaction_id: string;
+  opening_express_id?: number;
+  message: string;
+}
+
+export interface CadUndoRedoResponse {
+  success: boolean;
+  transaction_id: string;
+  action: string;
+  affected_express_id: number;
+  can_undo: boolean;
+  can_redo: boolean;
+  message: string;
+}
+
+export interface CadHistoryItem {
+  id: string;
+  action_type: string;
+  express_id: number;
+  entity_type: string;
+  parameters: Record<string, unknown>;
+  status: 'ACTIVE' | 'UNDONE';
+  created_at: string;
+}
+
+export interface CadHistoryResponse {
+  history: CadHistoryItem[];
+  can_undo: boolean;
+  can_redo: boolean;
+}
+

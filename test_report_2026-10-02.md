@@ -4,8 +4,8 @@
 
 | Platform | Pass | Fail | Skip | Unable | Total |
 |---|---|---|---|---|---|
-| http://localhost:5173 | 258 | 26 | 0 | 0 | 284 |
-| **TOTAL** | **258** | **26** | **0** | **0** | **284** |
+| http://localhost:5173 | 315 | 35 | 0 | 0 | 350 |
+| **TOTAL** | **315** | **35** | **0** | **0** | **350** |
 
 ## Results Matrix
 
@@ -295,6 +295,72 @@
 | TC-075 | key | Advanced BIM | Spatial Clash Inspector HUD Mount | pass | Spatial Clash Inspector HUD mounted cleanly. |
 | TC-076 | key | Advanced BIM | Geometric Collision & Clearance Clash Check | pass | Clash detection executed (detected 112 collisions). |
 | TC-077 | key | Advanced BIM | 3D Clash Marker & Wireframe Box Rendering | pass | 3D collision marker and wireframe box rendered. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | pass | TransformControls translate mode attached. |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | pass | TransformControls rotate mode attached. |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-071 | key | Advanced BIM | Federated Model Manager Dialog Mount | pass | Federated Model Manager dialog mounted cleanly. |
+| TC-074 | key | Advanced BIM | Discipline Mode Render Style Switching | pass | Render style switched to discipline mode. |
+| TC-075 | key | Advanced BIM | Spatial Clash Inspector HUD Mount | pass | Spatial Clash Inspector HUD mounted cleanly. |
+| TC-076 | key | Advanced BIM | Geometric Collision & Clearance Clash Check | pass | Clash detection executed (detected 112 collisions). |
+| TC-077 | key | Advanced BIM | 3D Clash Marker & Wireframe Box Rendering | pass | 3D collision marker and wireframe box rendered. |
+| TC-079 | key | Advanced BIM | CAD Modeling Toolbar Mount & Tool Palette | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-081 | key | Advanced BIM | Parametric Wall Synthesis & Geometry Render | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-082 | key | Advanced BIM | Parametric Slab Synthesis & Boundary Extrusion | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-083 | key | Advanced BIM | Parametric Column Synthesis & Elevation Placement | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-084 | key | Advanced BIM | Door Opening & Boolean Void Cutout | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-086 | key | Advanced BIM | Spatial Modeling Undo Transaction (Ctrl+Z) | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-087 | key | Advanced BIM | Spatial Modeling Redo Transaction (Ctrl+Y) | fail | Browser evaluation error: name 'tc_id' is not defined |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample verified; worker processing active. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | pass | TransformControls translate mode attached. |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | pass | TransformControls rotate mode attached. |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-071 | key | Advanced BIM | Federated Model Manager Dialog Mount | pass | Federated Model Manager dialog mounted cleanly. |
+| TC-074 | key | Advanced BIM | Discipline Mode Render Style Switching | pass | Render style switched to discipline mode. |
+| TC-075 | key | Advanced BIM | Spatial Clash Inspector HUD Mount | pass | Spatial Clash Inspector HUD mounted cleanly. |
+| TC-076 | key | Advanced BIM | Geometric Collision & Clearance Clash Check | pass | Clash detection executed (detected 112 collisions). |
+| TC-077 | key | Advanced BIM | 3D Clash Marker & Wireframe Box Rendering | pass | 3D collision marker and wireframe box rendered. |
+| TC-079 | key | Advanced BIM | CAD Modeling Toolbar Mount & Tool Palette | pass | CAD modeling toolbar and tool palette mounted. |
+| TC-081 | key | Advanced BIM | Parametric Wall Synthesis & Geometry Render | pass | Parametric wall synthesized and geometry updated. |
+| TC-082 | key | Advanced BIM | Parametric Slab Synthesis & Boundary Extrusion | pass | Parametric slab extruded solid synthesized. |
+| TC-083 | key | Advanced BIM | Parametric Column Synthesis & Elevation Placement | pass | Parametric vertical column synthesized. |
+| TC-084 | key | Advanced BIM | Door Opening & Boolean Void Cutout | pass | Door opening void cutout and filling created. |
+| TC-086 | key | Advanced BIM | Spatial Modeling Undo Transaction (Ctrl+Z) | pass | CAD undo reverted transaction and updated model. |
+| TC-087 | key | Advanced BIM | Spatial Modeling Redo Transaction (Ctrl+Y) | pass | CAD redo restored previously undone transaction. |
 
 Legend: pass | fail | skip | unable_to_test
 
@@ -429,6 +495,51 @@ Legend: pass | fail | skip | unable_to_test
 - **Expected:** Camera animates to collision center and renders 3D clash marker pin and bounding wireframe
 - **Actual:** Clash marker rendering failed.
 - **Result ID:** TR-258
+
+### [TC-013] Export Modified IFC File Download — http://localhost:5173
+- **Expected:** Browser downloads schema-compliant .ifc file with updated placements and edited properties
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-288
+
+### [TC-027] Spatial Hierarchy Tree Decomposition — http://localhost:5173
+- **Expected:** Decomposition accurately mirrors IFC spatial structure with semantic icons
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-291
+
+### [TC-079] CAD Modeling Toolbar Mount & Tool Palette — http://localhost:5173
+- **Expected:** Floating CAD modeling toolbar mounts cleanly with active tool palette
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-311
+
+### [TC-081] Parametric Wall Synthesis & Geometry Render — http://localhost:5173
+- **Expected:** Parametric wall is synthesized with 2-point geometry and added to active project
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-312
+
+### [TC-082] Parametric Slab Synthesis & Boundary Extrusion — http://localhost:5173
+- **Expected:** Parametric slab is synthesized with extruded solid geometry
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-313
+
+### [TC-083] Parametric Column Synthesis & Elevation Placement — http://localhost:5173
+- **Expected:** Parametric vertical column is synthesized at specified ground coordinate
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-314
+
+### [TC-084] Door Opening & Boolean Void Cutout — http://localhost:5173
+- **Expected:** Door filling is inserted into wall with geometric boolean void cutout
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-315
+
+### [TC-086] Spatial Modeling Undo Transaction (Ctrl+Z) — http://localhost:5173
+- **Expected:** Last CAD action is cleanly undone and entity removed from IFC model
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-316
+
+### [TC-087] Spatial Modeling Redo Transaction (Ctrl+Y) — http://localhost:5173
+- **Expected:** Undone CAD transaction is re-applied and element restored in model
+- **Actual:** Browser evaluation error: name 'tc_id' is not defined
+- **Result ID:** TR-317
 
 ## Development Handoff Additions
 

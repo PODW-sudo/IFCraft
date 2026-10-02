@@ -15,7 +15,8 @@ import {
   Eye,
   EyeOff,
   Layers,
-  AlertTriangle
+  AlertTriangle,
+  PenTool
 } from 'lucide-react';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
@@ -53,6 +54,8 @@ interface SpatialTopPillProps {
   isClashOpen?: boolean;
   onToggleClash?: () => void;
   clashCount?: number;
+  isCadOpen?: boolean;
+  onToggleCad?: () => void;
 }
 
 export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
@@ -79,7 +82,9 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   subModelCount = 0,
   isClashOpen = false,
   onToggleClash,
-  clashCount = 0
+  clashCount = 0,
+  isCadOpen = false,
+  onToggleCad
 }) => {
   // Find spatial path for breadcrumbs
   const findBreadcrumbPath = (node: SpatialNode | null, targetId: number | null, path: string[] = []): string[] | null => {
@@ -306,6 +311,21 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
             {clashCount}
           </span>
         )}
+      </button>
+
+      {/* Parametric CAD Modeling Tool Toggle */}
+      <button
+        data-qa="pill-cad-toggle"
+        onClick={onToggleCad}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+          isCadOpen
+            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+        }`}
+        title="Parametric 3D Modeling Tools"
+      >
+        <PenTool className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline text-xs">Model</span>
       </button>
 
       <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />

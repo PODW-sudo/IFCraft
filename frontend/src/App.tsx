@@ -16,7 +16,19 @@ import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import { FederatedModelManager } from './components/federation/FederatedModelManager';
 import { ClashInspector } from './components/federation/ClashInspector';
-import type { GeometryData, SpatialNode, ProjectMetadata, WorkerResponse, SubModel, ClashRecord, ClashCheckResponse, DisciplineType } from './types/ifc';
+import { CadToolbar } from './components/cad/CadToolbar';
+import type { 
+  GeometryData, 
+  SpatialNode, 
+  ProjectMetadata, 
+  WorkerResponse, 
+  SubModel, 
+  ClashRecord, 
+  ClashCheckResponse, 
+  DisciplineType,
+  CadToolMode,
+  CadHistoryItem
+} from './types/ifc';
 import * as api from './services/api';
 import {
   CollaborationClient,
@@ -103,6 +115,15 @@ export const App: React.FC = () => {
   const [clashResult, setClashResult] = useState<ClashCheckResponse | null>(null);
   const [activeClash, setActiveClash] = useState<ClashRecord | null>(null);
   const [isClashLoading, setIsClashLoading] = useState(false);
+
+  // Phase 11 State: Advanced Spatial Modeling (CAD) & Undo/Redo
+  const [isCadOpen, setIsCadOpen] = useState(false);
+  const [cadToolMode, setCadToolMode] = useState<CadToolMode>('select');
+  const [cadWallHeight, setCadWallHeight] = useState(3.0);
+  const [cadWallThickness, setCadWallThickness] = useState(0.2);
+  const [cadCanUndo, setCadCanUndo] = useState(false);
+  const [cadCanRedo, setCadCanRedo] = useState(false);
+  const [cadHistory, setCadHistory] = useState<CadHistoryItem[]>([]);
 
   // Web Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -575,6 +596,139 @@ export const App: React.FC = () => {
     [handleDownloadProject]
   );
 
+  // CAD Modeling Handlers (Phase 11)
+  const refreshCadHistory = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      const res = await api.fetchCadHistory(currentProject.id);
+      setCadHistory(res.history);
+      setCadCanUndo(res.can_undo);
+      setCadCanRedo(res.can_redo);
+    } catch (err) {
+      console.error('Failed to fetch CAD history:', err);
+    }
+  }, [currentProject]);
+
+  const handleToggleCad = useCallback(() => {
+    setIsCadOpen((prev) => {
+      const next = !prev;
+      if (next) refreshCadHistory();
+      return next;
+    });
+  }, [refreshCadHistory]);
+
+  const handleCadDrawWall = useCallback(async (start: [number, number], end: [number, number]) => {
+    if (!currentProject) return;
+    try {
+      await api.createCadWall(currentProject.id, {
+        start,
+        end,
+        height: cadWallHeight,
+        thickness: cadWallThickness,
+        name: 'Parametric Wall'
+      });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to create CAD wall:', err);
+    }
+  }, [currentProject, cadWallHeight, cadWallThickness, refreshCadHistory, loadProject]);
+
+  const handleCadDrawSlab = useCallback(async (c1: [number, number], c2: [number, number]) => {
+    if (!currentProject) return;
+    try {
+      await api.createCadSlab(currentProject.id, {
+        boundary: [c1, c2],
+        thickness: 0.3,
+        name: 'Parametric Slab'
+      });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to create CAD slab:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleCadDrawColumn = useCallback(async (pos: [number, number]) => {
+    if (!currentProject) return;
+    try {
+      await api.createCadColumn(currentProject.id, {
+        position: pos,
+        height: cadWallHeight,
+        width: 0.35,
+        depth: 0.35,
+        name: 'Parametric Column'
+      });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to create CAD column:', err);
+    }
+  }, [currentProject, cadWallHeight, refreshCadHistory, loadProject]);
+
+  const handleCadDrawOpening = useCallback(async (wallId: number, offset: number) => {
+    if (!currentProject) return;
+    const isDoor = cadToolMode === 'door';
+    try {
+      await api.createCadOpening(currentProject.id, {
+        host_wall_id: wallId,
+        opening_type: isDoor ? 'door' : 'window',
+        offset_along_wall: offset,
+        width: isDoor ? 0.9 : 1.2,
+        height: isDoor ? 2.1 : 1.4,
+        sill_height: isDoor ? 0.0 : 0.9,
+        name: isDoor ? 'Parametric Door' : 'Parametric Window'
+      });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to create CAD opening:', err);
+    }
+  }, [currentProject, cadToolMode, refreshCadHistory, loadProject]);
+
+  const handleCadUndo = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      await api.undoCad(currentProject.id);
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to undo CAD action:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleCadRedo = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      await api.redoCad(currentProject.id);
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to redo CAD action:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  // Global Keyboard Shortcuts for CAD Undo/Redo (Ctrl+Z, Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleCadRedo();
+        } else {
+          handleCadUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleCadRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleCadUndo, handleCadRedo]);
+
   // Dev-only QA Bridge for Live Agent Browser Automation
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -606,7 +760,13 @@ export const App: React.FC = () => {
           isFederationOpen,
           isClashInspectorOpen,
           clashResult,
-          activeClash
+          activeClash,
+          isCadOpen,
+          cadToolMode,
+          cadCanUndo,
+          cadCanRedo,
+          cadHistoryCount: cadHistory.length,
+          cadHistory
         }),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
@@ -628,6 +788,19 @@ export const App: React.FC = () => {
         runClashCheck: async (tolerance = 0.01) => handleRunClashCheck(tolerance),
         setActiveClash: (clash: ClashRecord | null) => setActiveClash(clash),
         toggleModelVisibility: (modelId: string) => handleToggleModelVisibility(modelId),
+        openCadToolbar: () => {
+          setIsCadOpen(true);
+          refreshCadHistory();
+        },
+        closeCadToolbar: () => setIsCadOpen(false),
+        setCadMode: (mode: CadToolMode) => setCadToolMode(mode),
+        triggerCadUndo: () => handleCadUndo(),
+        triggerCadRedo: () => handleCadRedo(),
+        drawCadWall: (start: [number, number], end: [number, number]) => handleCadDrawWall(start, end),
+        drawCadSlab: (c1: [number, number], c2: [number, number]) => handleCadDrawSlab(c1, c2),
+        drawCadColumn: (pos: [number, number]) => handleCadDrawColumn(pos),
+        drawCadOpening: (wallId: number, offset: number) => handleCadDrawOpening(wallId, offset),
+        getCadHistory: () => cadHistory,
         addMeasurement: (start: [number, number, number], end: [number, number, number]) => {
           const dx = end[0] - start[0];
           const dy = end[1] - start[1];
@@ -683,7 +856,19 @@ export const App: React.FC = () => {
     clashResult,
     activeClash,
     handleRunClashCheck,
-    handleToggleModelVisibility
+    handleToggleModelVisibility,
+    isCadOpen,
+    cadToolMode,
+    cadCanUndo,
+    cadCanRedo,
+    cadHistory,
+    refreshCadHistory,
+    handleCadUndo,
+    handleCadRedo,
+    handleCadDrawWall,
+    handleCadDrawSlab,
+    handleCadDrawColumn,
+    handleCadDrawOpening
   ]);
 
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
@@ -705,6 +890,9 @@ export const App: React.FC = () => {
       data-qa-clash-count={clashResult?.total_clashes ?? 0}
       data-qa-federation-open={isFederationOpen ? 'true' : 'false'}
       data-qa-clash-open={isClashInspectorOpen ? 'true' : 'false'}
+      data-qa-cad-open={isCadOpen ? 'true' : 'false'}
+      data-qa-cad-mode={cadToolMode}
+      data-qa-cad-history-count={cadHistory.length}
     >
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
       <div
@@ -735,6 +923,12 @@ export const App: React.FC = () => {
           remoteTransform={remoteTransform}
           isRightDrawerOpen={isRightDrawerOpen}
           rightDrawerWidth={activeRightDrawerWidth}
+          cadToolMode={cadToolMode}
+          onCadDrawWall={handleCadDrawWall}
+          onCadDrawSlab={handleCadDrawSlab}
+          onCadDrawColumn={handleCadDrawColumn}
+          onCadDrawOpening={handleCadDrawOpening}
+          onCadCancel={() => setCadToolMode('select')}
         />
       </div>
 
@@ -764,7 +958,28 @@ export const App: React.FC = () => {
         isClashOpen={isClashInspectorOpen}
         onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
         clashCount={clashResult?.total_clashes ?? 0}
+        isCadOpen={isCadOpen}
+        onToggleCad={handleToggleCad}
       />
+
+      {/* 2b. Floating CAD Modeling Toolbar */}
+      {isCadOpen && (
+        <CadToolbar
+          activeMode={cadToolMode}
+          onSelectMode={setCadToolMode}
+          canUndo={cadCanUndo}
+          canRedo={cadCanRedo}
+          onUndo={handleCadUndo}
+          onRedo={handleCadRedo}
+          history={cadHistory}
+          onRefreshHistory={refreshCadHistory}
+          onClose={() => setIsCadOpen(false)}
+          wallHeight={cadWallHeight}
+          setWallHeight={setCadWallHeight}
+          wallThickness={cadWallThickness}
+          setWallThickness={setCadWallThickness}
+        />
+      )}
 
       {/* 3. Floating Left Hierarchy Drawer */}
       <SpatialTree

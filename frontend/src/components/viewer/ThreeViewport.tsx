@@ -60,6 +60,13 @@ interface ThreeViewportProps {
   // Phase 10 Props: Multi-Model Federation & Clash Detection
   hiddenModelIds?: Set<string>;
   activeClash?: import('../../types/ifc').ClashRecord | null;
+  // Phase 11 Props: Interactive CAD Modeling
+  cadToolMode?: import('../../types/ifc').CadToolMode;
+  onCadDrawWall?: (start: [number, number], end: [number, number]) => void;
+  onCadDrawSlab?: (corner1: [number, number], corner2: [number, number]) => void;
+  onCadDrawColumn?: (pos: [number, number]) => void;
+  onCadDrawOpening?: (hostWallId: number, offsetAlongWall: number) => void;
+  onCadCancel?: () => void;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -185,7 +192,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   isRightDrawerOpen: _isRightDrawerOpen = false,
   rightDrawerWidth: _rightDrawerWidth = 320,
   hiddenModelIds,
-  activeClash
+  activeClash,
+  cadToolMode = 'select',
+  onCadDrawWall,
+  onCadDrawSlab,
+  onCadDrawColumn,
+  onCadDrawOpening,
+  onCadCancel
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -199,6 +212,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
   const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
+  const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
+
+  // CAD Interactive Modeling State
+  const [cadStartPoint, setCadStartPoint] = useState<THREE.Vector3 | null>(null);
 
   // Dynamic 3D Screen Projection for Measurements
   const measurementsRef = useRef(measurements);
@@ -321,6 +338,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const measureGroup = new THREE.Group();
     scene.add(measureGroup);
     measureGroupRef.current = measureGroup;
+
+    const cadGroup = new THREE.Group();
+    scene.add(cadGroup);
+    cadPreviewGroupRef.current = cadGroup;
 
     // Snap Indicator Gizmo (High renderOrder, depthTest false for obstruction-free snapping)
     const snapGroup = new THREE.Group();
@@ -868,37 +889,68 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
   }, [isMeasureActive]);
 
-  // Handle ESC key to cancel current measurement or exit measure tool
+  // Reset CAD preview when returning to select mode
+  useEffect(() => {
+    if (cadToolMode === 'select') {
+      setCadStartPoint(null);
+      if (cadPreviewGroupRef.current) {
+        while (cadPreviewGroupRef.current.children.length > 0) {
+          const c = cadPreviewGroupRef.current.children[0];
+          cadPreviewGroupRef.current.remove(c);
+          if ('geometry' in c && c.geometry instanceof THREE.BufferGeometry) c.geometry.dispose();
+          if ('material' in c && c.material instanceof THREE.Material) c.material.dispose();
+        }
+      }
+    }
+  }, [cadToolMode]);
+
+  // Handle ESC key to cancel current measurement or CAD drawing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isMeasureActive) {
-        if (pendingStartPoint) {
-          setPendingStartPoint(null);
-          setPreviewMeasure(null);
-          if (measurePreviewGroupRef.current) {
-            measurePreviewGroupRef.current.visible = false;
+      if (e.key === 'Escape') {
+        if (cadToolMode !== 'select') {
+          if (cadStartPoint) {
+            setCadStartPoint(null);
+          } else if (onCadCancel) {
+            onCadCancel();
           }
-        } else if (onCancelMeasure) {
-          onCancelMeasure();
+          if (cadPreviewGroupRef.current) {
+            while (cadPreviewGroupRef.current.children.length > 0) {
+              const c = cadPreviewGroupRef.current.children[0];
+              cadPreviewGroupRef.current.remove(c);
+            }
+          }
+        }
+        if (isMeasureActive) {
+          if (pendingStartPoint) {
+            setPendingStartPoint(null);
+            setPreviewMeasure(null);
+            if (measurePreviewGroupRef.current) {
+              measurePreviewGroupRef.current.visible = false;
+            }
+          } else if (onCancelMeasure) {
+            onCancelMeasure();
+          }
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMeasureActive, pendingStartPoint, onCancelMeasure]);
+  }, [cadToolMode, cadStartPoint, onCadCancel, isMeasureActive, pendingStartPoint, onCancelMeasure]);
 
   // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (isDraggingGizmoRef.current) return;
-      if (!isMeasureActive) return;
+      if (!isMeasureActive && cadToolMode === 'select') return;
 
       const container = containerRef.current;
       const camera = cameraRef.current;
       const group = meshesGroupRef.current;
       const snapGroup = snapIndicatorGroupRef.current;
       const previewGroup = measurePreviewGroupRef.current;
-      if (!container || !camera || !group || !snapGroup) return;
+      const cadGroup = cadPreviewGroupRef.current;
+      if (!container || !camera || !group) return;
 
       const rect = container.getBoundingClientRect();
       const mouse = new THREE.Vector2(
@@ -908,6 +960,65 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, camera);
+
+      // CAD Preview handling
+      if (cadToolMode !== 'select' && cadGroup) {
+        while (cadGroup.children.length > 0) {
+          const c = cadGroup.children[0];
+          cadGroup.remove(c);
+          if ('geometry' in c && c.geometry instanceof THREE.BufferGeometry) c.geometry.dispose();
+          if ('material' in c && c.material instanceof THREE.Material) c.material.dispose();
+        }
+
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const groundHit = new THREE.Vector3();
+        const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
+
+        if (cadToolMode === 'wall') {
+          if (cadStartPoint && hitGround) {
+            const geom = new THREE.BufferGeometry().setFromPoints([cadStartPoint, groundHit]);
+            const mat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 3 });
+            cadGroup.add(new THREE.Line(geom, mat));
+            const sMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+            const s1 = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), sMat);
+            s1.position.copy(cadStartPoint);
+            const s2 = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), sMat);
+            s2.position.copy(groundHit);
+            cadGroup.add(s1);
+            cadGroup.add(s2);
+          } else if (hitGround) {
+            const sMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4, wireframe: true });
+            const s = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), sMat);
+            s.position.copy(groundHit);
+            cadGroup.add(s);
+          }
+        } else if (cadToolMode === 'column' && hitGround) {
+          const colGeom = new THREE.BoxGeometry(0.35, 3.0, 0.35);
+          const colMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.5 });
+          const colMesh = new THREE.Mesh(colGeom, colMat);
+          colMesh.position.set(groundHit.x, 1.5, groundHit.z);
+          cadGroup.add(colMesh);
+        } else if (cadToolMode === 'slab') {
+          if (cadStartPoint && hitGround) {
+            const dx = Math.max(0.2, Math.abs(groundHit.x - cadStartPoint.x));
+            const dz = Math.max(0.2, Math.abs(groundHit.z - cadStartPoint.z));
+            const midX = (cadStartPoint.x + groundHit.x) / 2;
+            const midZ = (cadStartPoint.z + groundHit.z) / 2;
+            const slabGeom = new THREE.BoxGeometry(dx, 0.3, dz);
+            const slabMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.4 });
+            const slabMesh = new THREE.Mesh(slabGeom, slabMat);
+            slabMesh.position.set(midX, -0.15, midZ);
+            cadGroup.add(slabMesh);
+          } else if (hitGround) {
+            const sMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4, wireframe: true });
+            const s = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), sMat);
+            s.position.copy(groundHit);
+            cadGroup.add(s);
+          }
+        }
+      }
+
+      if (!isMeasureActive || !snapGroup) return;
 
       const visibleMeshes = group.children.filter((c) => c.visible);
       const snapResult = findSnapPoint(raycaster, visibleMeshes, camera);
@@ -1047,6 +1158,51 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         return;
       }
 
+      // CAD Modeling Tool Actions
+      if (cadToolMode !== 'select') {
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const groundHit = new THREE.Vector3();
+        const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
+
+        if (cadToolMode === 'wall') {
+          if (!cadStartPoint && hitGround) {
+            setCadStartPoint(groundHit.clone());
+          } else if (cadStartPoint && hitGround && onCadDrawWall) {
+            onCadDrawWall([cadStartPoint.x, cadStartPoint.z], [groundHit.x, groundHit.z]);
+            setCadStartPoint(null);
+          }
+          return;
+        }
+
+        if (cadToolMode === 'slab') {
+          if (!cadStartPoint && hitGround) {
+            setCadStartPoint(groundHit.clone());
+          } else if (cadStartPoint && hitGround && onCadDrawSlab) {
+            onCadDrawSlab([cadStartPoint.x, cadStartPoint.z], [groundHit.x, groundHit.z]);
+            setCadStartPoint(null);
+          }
+          return;
+        }
+
+        if (cadToolMode === 'column') {
+          if (hitGround && onCadDrawColumn) {
+            onCadDrawColumn([groundHit.x, groundHit.z]);
+          }
+          return;
+        }
+
+        if (cadToolMode === 'door' || cadToolMode === 'window') {
+          if (intersects.length > 0 && onCadDrawOpening) {
+            const hit = intersects[0].object as THREE.Mesh;
+            const expId = hit.userData.expressID as number;
+            const offset = Math.max(0.5, hit.position.distanceTo(intersects[0].point));
+            onCadDrawOpening(expId, offset);
+          }
+          return;
+        }
+        return;
+      }
+
       // Normal Selection
       if (intersects.length > 0) {
         const hit = intersects[0].object as THREE.Mesh;
@@ -1061,7 +1217,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         onSelectElement(null);
       }
     },
-    [isMeasureActive, pendingStartPoint, onAddMeasurement, onSelectElement, onTransformChange]
+    [
+      isMeasureActive,
+      pendingStartPoint,
+      onAddMeasurement,
+      onSelectElement,
+      onTransformChange,
+      cadToolMode,
+      cadStartPoint,
+      onCadDrawWall,
+      onCadDrawSlab,
+      onCadDrawColumn,
+      onCadDrawOpening
+    ]
   );
 
   return (
