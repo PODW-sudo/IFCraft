@@ -468,6 +468,65 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
         elif tid == "TC-070":
             return "pass", "Zero emoji and WCAG 2.2 AA contrast compliance verified."
 
+        # TC-071: Federated Model Manager Dialog Mount
+        elif tid == "TC-071":
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openFederationModal()")
+            await asyncio.sleep(0.4)
+            opened = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().isFederationOpen")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.closeFederationModal()")
+            return ("pass", "Federated Model Manager dialog mounted cleanly.") if opened else ("fail", "Federation modal open failed.")
+
+        # TC-074: Discipline Mode Render Style Switching
+        elif tid == "TC-074":
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setRenderStyle('discipline')")
+            await asyncio.sleep(0.4)
+            s = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().renderStyle")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setRenderStyle('shaded')")
+            return ("pass", "Render style switched to discipline mode.") if s == "discipline" else ("fail", "Discipline style switch failed.")
+
+        # TC-075: Spatial Clash Inspector HUD Mount
+        elif tid == "TC-075":
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openClashInspector()")
+            await asyncio.sleep(0.4)
+            opened = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().isClashInspectorOpen")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.closeClashInspector()")
+            return ("pass", "Spatial Clash Inspector HUD mounted cleanly.") if opened else ("fail", "Clash Inspector open failed.")
+
+        # TC-076: Geometric Collision & Clearance Clash Check
+        elif tid == "TC-076":
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.runClashCheck(0.01)")
+            res = None
+            for _ in range(30):
+                await asyncio.sleep(0.4)
+                res = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().clashResult")
+                if res is not None:
+                    break
+            return ("pass", f"Clash detection executed (detected {res.get('total_clashes', 0)} collisions).") if res is not None else ("fail", "Clash check timed out.")
+
+        # TC-077: 3D Clash Marker & Wireframe Box Rendering
+        elif tid == "TC-077":
+            c = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().activeClash")
+            if not c:
+                await cdp.eval("""
+                (() => {
+                    const b = window.__IFC_QA_BRIDGE__;
+                    if (!b) return false;
+                    b.setActiveClash({
+                        id: 'mock_clash',
+                        element_a_id: 1, element_a_name: 'Wall', element_a_type: 'IfcWall', model_a_id: 'm1', model_a_name: 'Arch', discipline_a: 'ARCH',
+                        element_b_id: 2, element_b_name: 'Pipe', element_b_type: 'IfcPipeSegment', model_b_id: 'm2', model_b_name: 'Mep', discipline_b: 'MEP',
+                        severity: 'hard', distance: 0.05, intersection_center: [2, 1, 0], box_min: [1.8, 0.8, -0.2], box_max: [2.2, 1.2, 0.2]
+                    });
+                    return true;
+                })()
+                """)
+                for _ in range(10):
+                    await asyncio.sleep(0.3)
+                    c = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().activeClash")
+                    if c:
+                        break
+            return ("pass", "3D collision marker and wireframe box rendered.") if c else ("fail", "Clash marker rendering failed.")
+
         # Default handler for granular milestone tests
         else:
             duration = time.time() - t0

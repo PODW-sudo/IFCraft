@@ -97,4 +97,64 @@ export async function loadSampleProject(sampleId: string): Promise<ProjectMetada
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Phase 10: Multi-Model Federation & Clash Detection APIs
+// ---------------------------------------------------------------------------
+
+export async function fetchSubModels(projectId: string): Promise<import('../types/ifc').SubModel[]> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/models`);
+  if (!res.ok) throw new Error(`Failed to fetch sub-models: ${res.statusText}`);
+  return res.json();
+}
+
+export async function uploadSubModel(
+  projectId: string,
+  file: File,
+  discipline: string = 'ARCH',
+  name?: string
+): Promise<import('../types/ifc').SubModel> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('discipline', discipline);
+  if (name) formData.append('name', name);
+
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/models`, {
+    method: 'POST',
+    body: formData
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to upload sub-model');
+  }
+  return res.json();
+}
+
+export async function deleteSubModel(projectId: string, modelId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/models/${modelId}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error(`Failed to delete sub-model: ${res.statusText}`);
+}
+
+export function getSubModelDownloadUrl(projectId: string, modelId: string): string {
+  return `${BASE_URL}/projects/${projectId}/models/${modelId}/download`;
+}
+
+export async function runClashCheck(
+  projectId: string,
+  tolerance: number = 0.01,
+  modelIds?: string[]
+): Promise<import('../types/ifc').ClashCheckResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/clashes/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tolerance, model_ids: modelIds })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Clash detection failed');
+  }
+  return res.json();
+}
+
 

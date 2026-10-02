@@ -14,6 +14,8 @@ export interface GeometryData {
   indices: Uint32Array;
   matrix: number[]; // 16 floats
   color: [number, number, number, number]; // RGBA [0-1]
+  modelId?: string;
+  discipline?: DisciplineType;
 }
 
 export interface WorkerParseRequest {
@@ -113,5 +115,52 @@ export interface AIProvider {
   default_base_url?: string;
   requires_api_key: boolean;
   has_server_key?: boolean;
+}
+
+export type DisciplineType = 'ARCH' | 'STRUCT' | 'MEP' | 'CIVIL' | 'OTHER';
+
+export interface SubModel {
+  id: string;
+  project_id: string;
+  name: string;
+  discipline: DisciplineType;
+  file_name: string;
+  file_size: number;
+  element_count: number;
+  created_at: string;
+  visible?: boolean;
+  opacity?: number;
+}
+
+export interface ClashRecord {
+  id: string;
+  element_a_id: number;
+  element_a_name: string;
+  element_a_type: string;
+  model_a_id: string;
+  model_a_name: string;
+  discipline_a: string;
+
+  element_b_id: number;
+  element_b_name: string;
+  element_b_type: string;
+  model_b_id: string;
+  model_b_name: string;
+  discipline_b: string;
+
+  severity: 'hard' | 'clearance';
+  distance: number;
+  intersection_center: [number, number, number];
+  box_min: [number, number, number];
+  box_max: [number, number, number];
+}
+
+export interface ClashCheckResponse {
+  total_clashes: number;
+  hard_clashes: number;
+  clearance_clashes: number;
+  tolerance: number;
+  clashes: ClashRecord[];
+  duration_ms: number;
 }
 

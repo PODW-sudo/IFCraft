@@ -57,6 +57,9 @@ interface ThreeViewportProps {
   // Dynamic HUD Collision Avoidance
   isRightDrawerOpen?: boolean;
   rightDrawerWidth?: number;
+  // Phase 10 Props: Multi-Model Federation & Clash Detection
+  hiddenModelIds?: Set<string>;
+  activeClash?: import('../../types/ifc').ClashRecord | null;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -72,6 +75,22 @@ const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metaln
   IfcStair: { color: 0x94a3b8, roughness: 0.8, metalness: 0.1 },
   IfcRailing: { color: 0x334155, roughness: 0.5, metalness: 0.8 }
 };
+
+const DISCIPLINE_COLORS: Record<string, { color: number; roughness: number; metalness: number }> = {
+  ARCH: { color: 0xd4d4d8, roughness: 0.8, metalness: 0.05 },
+  STRUCT: { color: 0x3b82f6, roughness: 0.5, metalness: 0.3 },
+  MEP: { color: 0xf97316, roughness: 0.4, metalness: 0.4 },
+  CIVIL: { color: 0x10b981, roughness: 0.7, metalness: 0.1 },
+  OTHER: { color: 0xa855f7, roughness: 0.6, metalness: 0.2 }
+};
+
+function inferDiscipline(type: string, explicitDiscipline?: string): string {
+  if (explicitDiscipline) return explicitDiscipline;
+  if (type.includes('Beam') || type.includes('Column') || type.includes('Footing') || type.includes('Reinforc') || type.includes('Member')) return 'STRUCT';
+  if (type.includes('Pipe') || type.includes('Duct') || type.includes('Flow') || type.includes('Pump') || type.includes('Valve') || type.includes('Fitting') || type.includes('Cable') || type.includes('Electrical')) return 'MEP';
+  if (type.includes('Terrain') || type.includes('Site') || type.includes('Road') || type.includes('Bridge')) return 'CIVIL';
+  return 'ARCH';
+}
 
 const DEFAULT_MATERIAL_CONFIG = { color: 0x94a3b8, roughness: 0.75, metalness: 0.1 };
 
@@ -164,7 +183,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   elementLocks = {},
   remoteTransform,
   isRightDrawerOpen: _isRightDrawerOpen = false,
-  rightDrawerWidth: _rightDrawerWidth = 320
+  rightDrawerWidth: _rightDrawerWidth = 320,
+  hiddenModelIds,
+  activeClash
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -177,6 +198,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const bboxHelperRef = useRef<THREE.BoxHelper | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
+  const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
 
   // Dynamic 3D Screen Projection for Measurements
   const measurementsRef = useRef(measurements);
@@ -522,7 +544,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         mesh.applyMatrix4(mat);
       }
 
-      mesh.userData = { expressID: geom.expressID, type: geom.type };
+      mesh.userData = {
+        expressID: geom.expressID,
+        type: geom.type,
+        modelId: geom.modelId || 'main',
+        discipline: geom.discipline || inferDiscipline(geom.type)
+      };
       group.add(mesh);
 
       const existing = meshMapRef.current.get(geom.expressID) || [];
@@ -551,12 +578,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
   }, [geometries]);
 
-  // Handle visibility filtering (Categories & Isolation)
+  // Handle visibility filtering (Categories, Isolation, & Model Federation)
   useEffect(() => {
     meshMapRef.current.forEach((meshes) => {
       meshes.forEach((mesh) => {
         const type = mesh.userData.type as string;
         const expressID = mesh.userData.expressID as number;
+        const modelId = (mesh.userData.modelId as string) || 'main';
 
         let visible = true;
         if (hiddenCategories.has(type)) {
@@ -565,13 +593,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (isolatedExpressID !== null && expressID !== isolatedExpressID) {
           visible = false;
         }
+        if (hiddenModelIds && hiddenModelIds.has(modelId)) {
+          visible = false;
+        }
 
         mesh.visible = visible;
       });
     });
-  }, [hiddenCategories, isolatedExpressID]);
+  }, [hiddenCategories, isolatedExpressID, hiddenModelIds]);
 
-  // 4. Update Render Style (Shaded, Wireframe, Ghost)
+  // 4. Update Render Style (Shaded, Wireframe, Ghost, Discipline)
   useEffect(() => {
     meshMapRef.current.forEach((meshes) => {
       meshes.forEach((mesh) => {
@@ -586,16 +617,80 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           mat.wireframe = false;
           mat.transparent = true;
           mat.opacity = 0.25;
+        } else if (renderStyle === 'discipline') {
+          mat.wireframe = false;
+          mat.transparent = false;
+          mat.opacity = 1.0;
+          const disc = (mesh.userData.discipline as string) || inferDiscipline(mesh.userData.type as string);
+          const discColor = DISCIPLINE_COLORS[disc] || DISCIPLINE_COLORS.ARCH;
+          mat.color.setHex(discColor.color);
         } else {
           mat.wireframe = false;
           const config = CATEGORY_COLORS[mesh.userData.type] || DEFAULT_MATERIAL_CONFIG;
           mat.transparent = Boolean(config.opacity && config.opacity < 1.0);
           mat.opacity = config.opacity ?? 1.0;
+          mat.color.setHex(config.color);
         }
         mat.needsUpdate = true;
       });
     });
   }, [renderStyle]);
+
+  // 4b. Render 3D Clash Collision Marker & Wireframe Box
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    if (!clashMarkerGroupRef.current) {
+      const g = new THREE.Group();
+      scene.add(g);
+      clashMarkerGroupRef.current = g;
+    }
+    const group = clashMarkerGroupRef.current;
+
+    // Clear previous clash marker
+    while (group.children.length > 0) {
+      const child = group.children[0] as THREE.Mesh;
+      group.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+      else if (child.material) child.material.dispose();
+    }
+
+    if (!activeClash) return;
+
+    const center = new THREE.Vector3(...activeClash.intersection_center);
+
+    // Glowing collision octahedron marker
+    const markerGeom = new THREE.OctahedronGeometry(0.35, 0);
+    const markerMat = new THREE.MeshStandardMaterial({
+      color: activeClash.severity === 'hard' ? 0xef4444 : 0xf59e0b,
+      emissive: activeClash.severity === 'hard' ? 0xdc2626 : 0xd97706,
+      emissiveIntensity: 0.9,
+      roughness: 0.2,
+      metalness: 0.8
+    });
+    const markerMesh = new THREE.Mesh(markerGeom, markerMat);
+    markerMesh.position.copy(center);
+    markerMesh.renderOrder = 9999;
+    group.add(markerMesh);
+
+    // Bounding collision wireframe box
+    const minPt = new THREE.Vector3(...activeClash.box_min);
+    const maxPt = new THREE.Vector3(...activeClash.box_max);
+    const b3 = new THREE.Box3(minPt, maxPt);
+    const boxHelper = new THREE.Box3Helper(b3, new THREE.Color(activeClash.severity === 'hard' ? 0xef4444 : 0xf59e0b));
+    group.add(boxHelper);
+
+    // Smoothly focus camera on clash center
+    if (controlsRef.current && cameraRef.current) {
+      controlsRef.current.target.copy(center);
+      const cam = cameraRef.current;
+      cam.position.set(center.x + 3.5, center.y + 2.5, center.z + 3.5);
+      cam.lookAt(center);
+      controlsRef.current.update();
+    }
+  }, [activeClash]);
 
   // 5. Handle Camera Presets (Iso, Top, Front, Side)
   useEffect(() => {

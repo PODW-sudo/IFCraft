@@ -251,7 +251,8 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
               {[
                 { id: 'shaded', label: 'Shaded Materials' },
                 { id: 'wireframe', label: 'Wireframe CAD' },
-                { id: 'monochrome', label: 'Monochrome Clay' }
+                { id: 'ghost', label: 'Ghost / X-Ray' },
+                { id: 'discipline', label: 'Discipline Mode' }
               ].map((style) => (
                 <DropdownMenu.Item
                   key={style.id}

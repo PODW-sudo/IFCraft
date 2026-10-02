@@ -70,3 +70,34 @@
   - Build automated CLI runner (`scripts/qa_runner.py`) interfacing with Google Chrome via Chrome DevTools Protocol (CDP).
   - Register autonomous `qa-agent` subagent and `agent-qa-harness` skill.
   - **Quality Gate:** `qa_runner.py check` passes 70/70; Key suite (21/21) passes in Chrome; Milestone suite (49/49) passes in Chrome (100% pass rate); all 4 UX/design gates pass; `pnpm exec tsc --noEmit` has 0 errors.
+
+- [x] **Phase 10: Multi-Model Federated Coordination & Spatial Clash Detection**
+  - Database schema & SQLite index for federated project sub-models (`project_models`).
+  - FastAPI federation endpoints (`/api/projects/{id}/submodels`) for multi-model upload, layer visibility, and discipline tagging (`ARCH`, `STRUCT`, `MEP`, `CIVIL`).
+  - High-performance AABB + triangle collision & clearance clash detection engine (`clash_service.py`) supporting cross-schema (IFC2X3/IFC4) geometry.
+  - Frontend floating HUDs: `FederatedModelManager` and `ClashInspector` with tolerance slider and severity tabs.
+  - Discipline mode rendering shader in `ThreeViewport.tsx` and 3D pulsing clash marker pin with bounding wireframe.
+  - Expanded QA Harness test suite with TC-071 through TC-078 (26 key tests, 78 total tests).
+  - **Quality Gate:** Key tier (26/26) passes in live Chrome; all 4 UI gates pass; `pnpm exec tsc --noEmit` passes with 0 errors.
+
+- [ ] **Phase 11: Advanced Spatial Modeling & Interactive IFC Element Creation**
+  - Backend parametric CAD service (`cad_service.py`) & endpoints (`/api/projects/{id}/cad/*`) leveraging `ifcopenshell.api` to synthesize walls, slabs, columns, doors, and windows with `IfcOpeningElement` boolean void cutouts.
+  - Frontend CAD drawing toolbar (`CadToolbar.tsx`) and viewport click-to-draw snapping helpers (ground plane, wall guides).
+  - Bidirectional Undo/Redo stack (`Ctrl+Z`, `Ctrl+Y`) with transaction logging.
+  - QA Harness test cases (TC-079 to TC-088) covering CAD creation and undo/redo operations.
+  - **Quality Gate:** Element creation generates valid geometry; undo/redo restores state accurately; key QA tier passes in Chrome.
+
+- [ ] **Phase 12: Collaborative Session Playback, BCF Export & Spatial Change Audit**
+  - Backend BCF 2.1/3.0 `.bcfzip` generator (`bcf_service.py`) & export endpoints (`/api/projects/{id}/bcf/*`).
+  - Temporal change audit log tracking element modifications, moves, and deletions with timestamps and user attribution.
+  - Frontend visual diff rendering shader (added = green, modified = yellow, deleted = red ghost).
+  - Temporal audit playback timeline scrubber (`TimelineScrubber.tsx`).
+  - QA Harness test cases (TC-089 to TC-096) covering BCF export and audit playback.
+  - **Quality Gate:** BCF archive imports cleanly into standard BIM tools; visual diff accurately highlights modified elements; key QA tier passes in Chrome.
+
+- [ ] **Phase 13: CI/CD Automated Regression Pipeline & Master Quality Gates**
+  - GitHub Actions automated CI workflow (`.github/workflows/qa-harness.yml`) running backend unit tests, frontend build, UX lint gates, and headless Chrome E2E harness.
+  - Local all-in-one verification script (`scripts/ci_verify.ps1`).
+  - Full major milestone audit running all 96+ tests across all categories in Google Chrome.
+  - Comprehensive final walkthrough artifact and release documentation.
+  - **Quality Gate:** Complete test suite passes with 100% pass rate in headless Chrome; 0 lint/type/contrast errors across entire codebase.

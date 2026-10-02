@@ -109,3 +109,53 @@ class CopilotChatResponse(BaseModel):
     tool_calls: list[ToolCall] = []
     project_updated: bool = False
 
+# ---------------------------------------------------------------------------
+# Phase 10: Federated Coordination & Clash Detection Schemas
+# ---------------------------------------------------------------------------
+
+class SubModelResponse(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    discipline: str = "ARCH"  # ARCH, STRUCT, MEP, CIVIL, OTHER
+    file_name: str
+    file_size: int
+    element_count: int
+    created_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ClashItem(BaseModel):
+    id: str
+    element_a_id: int
+    element_a_name: str
+    element_a_type: str
+    model_a_id: str
+    model_a_name: str
+    discipline_a: str
+
+    element_b_id: int
+    element_b_name: str
+    element_b_type: str
+    model_b_id: str
+    model_b_name: str
+    discipline_b: str
+
+    severity: str = "hard"  # hard, clearance
+    distance: float = 0.0  # penetration depth or clearance distance
+    intersection_center: list[float] = [0.0, 0.0, 0.0]  # [x, y, z]
+    box_min: list[float] = [0.0, 0.0, 0.0]
+    box_max: list[float] = [0.0, 0.0, 0.0]
+
+class ClashCheckRequest(BaseModel):
+    tolerance: float = Field(0.01, description="Tolerance margin in meters (default 0.01m = 1cm)")
+    model_ids: Optional[list[str]] = Field(None, description="Subset of model IDs to check, or all if omitted")
+
+class ClashCheckResponse(BaseModel):
+    total_clashes: int
+    hard_clashes: int
+    clearance_clashes: int
+    tolerance: float
+    clashes: list[ClashItem]
+    duration_ms: float
+
