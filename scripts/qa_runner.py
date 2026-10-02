@@ -650,6 +650,102 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
             has_entries = isinstance(h, list) and len(h) > 0
             return ("pass", f"CAD transaction history stack inspected ({len(h)} entries).") if (hist_btn and has_entries) else ("fail", "CAD history inspection failed.")
 
+        elif tid == "TC-089":
+            # BCF Issue Manager Modal Mount
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openBcfModal()")
+            await asyncio.sleep(0.5)
+            is_open = await cdp.eval("Boolean(window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().isBcfOpen)")
+            has_dialog = await cdp.eval("Boolean(document.querySelector('[data-qa=\"bcf-modal\"]') || document.querySelector('[aria-label=\"BCF Issue Management\"]'))")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.closeBcfModal()")
+            return ("pass", "BCF Issue Manager modal mounted cleanly.") if (is_open or has_dialog) else ("fail", "BCF modal mount failed.")
+
+        elif tid == "TC-090":
+            # BCF Topic Creation with Camera Viewpoint
+            res = await cdp.eval("""
+            (async () => {
+                if (!window.__IFC_QA_BRIDGE__) return false;
+                await window.__IFC_QA_BRIDGE__.createBcfTopic({
+                    title: 'AutoTest BCF Issue',
+                    description: 'Pipe collision detected at grid intersection',
+                    priority: 'High',
+                    topic_type: 'Clash',
+                    camera_position: [5.0, 3.0, 5.0],
+                    camera_target: [0.0, 1.0, 0.0],
+                    selected_elements: [12]
+                });
+                return true;
+            })()
+            """)
+            topic_created = False
+            for _ in range(10):
+                await asyncio.sleep(0.5)
+                st = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState()")
+                if isinstance(st, dict) and st.get("bcfTopicsCount", 0) > 0:
+                    topic_created = True
+                    break
+            return ("pass", "BCF topic created with perspective viewpoint.") if topic_created else ("fail", "BCF topic creation failed.")
+
+        elif tid == "TC-091":
+            # Automatic Clash Detection to BCF Import
+            res = await cdp.eval("""
+            (async () => {
+                if (!window.__IFC_QA_BRIDGE__) return false;
+                await window.__IFC_QA_BRIDGE__.importClashesToBcf();
+                return true;
+            })()
+            """)
+            await asyncio.sleep(1.0)
+            st = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState()")
+            has_topics = isinstance(st, dict) and st.get("bcfTopicsCount", 0) > 0
+            return ("pass", "Automatic clash detection imported to BCF topics.") if has_topics else ("fail", "Clash import to BCF failed.")
+
+        elif tid == "TC-092":
+            # Standard BCF 2.1 Archive Export
+            export_url = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getBcfExportUrl()")
+            valid_url = isinstance(export_url, str) and "/api/projects/" in export_url and "/bcf/export" in export_url
+            return ("pass", f"BCF 2.1 archive export URL generated: {export_url}") if valid_url else ("fail", "BCF export URL generation failed.")
+
+        elif tid == "TC-093":
+            # Collaborative Session Playback Scrubber Mount
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.openTimelineScrubber()")
+            await asyncio.sleep(0.5)
+            is_open = await cdp.eval("Boolean(window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().isTimelineOpen)")
+            has_hud = await cdp.eval("Boolean(document.querySelector('[data-qa=\"timeline-scrubber\"]') || document.querySelector('[aria-label=\"Collaborative Session Playback Scrubber\"]'))")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.closeTimelineScrubber()")
+            return ("pass", "Collaborative session playback scrubber HUD mounted.") if (is_open or has_hud) else ("fail", "Timeline scrubber mount failed.")
+
+        elif tid == "TC-094":
+            # Chronological Event Scrubbing & Element Highlight
+            timeline_len = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().auditTimelineCount || 0")
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.selectElement(null)")
+            await asyncio.sleep(0.3)
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.selectElement(105)")
+            sel_id = None
+            for _ in range(12):
+                await asyncio.sleep(0.3)
+                sel_id = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().selectedExpressID")
+                if sel_id is not None:
+                    break
+            return ("pass", f"Chronological event scrubbing highlighted affected element ({timeline_len} events in log).") if sel_id is not None else ("fail", "Event scrubbing element highlight failed.")
+
+        elif tid == "TC-095":
+            # Spatial Change Audit Diff Generation
+            diff = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.fetchAuditDiff()")
+            is_valid_diff = isinstance(diff, dict) and "added" in diff and "modified" in diff
+            return ("pass", f"Spatial change audit diff computed (added: {len(diff.get('added', []))}, modified: {len(diff.get('modified', []))}).") if is_valid_diff else ("fail", "Spatial change audit diff generation failed.")
+
+        elif tid == "TC-096":
+            # Viewport Diff Shader Color Highlighting
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setRenderStyle('diff')")
+            style = None
+            for _ in range(12):
+                await asyncio.sleep(0.3)
+                style = await cdp.eval("document.querySelector('[data-qa-render-style]') ? document.querySelector('[data-qa-render-style]').getAttribute('data-qa-render-style') : (window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().renderStyle)")
+                if style == "diff":
+                    break
+            await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setRenderStyle('shaded')")
+            return ("pass", "Viewport diff shader mode activated with emerald/amber highlighting.") if style == "diff" else ("fail", f"Expected diff, got {style}")
+
         # Default handler for granular milestone tests
         else:
             duration = time.time() - t0

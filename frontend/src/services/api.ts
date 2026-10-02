@@ -259,5 +259,70 @@ export async function fetchCadHistory(
   return res.json();
 }
 
+// ===========================================================================
+// BCF 2.1 & Temporal Audit API (Phase 12)
+// ===========================================================================
+
+export async function fetchBcfTopics(
+  projectId: string
+): Promise<import('../types/ifc').BcfTopic[]> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/topics`);
+  if (!res.ok) throw new Error(`Failed to fetch BCF topics: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createBcfTopic(
+  projectId: string,
+  req: import('../types/ifc').BcfTopicCreateRequest
+): Promise<import('../types/ifc').BcfTopic> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/topics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to create BCF topic');
+  }
+  return res.json();
+}
+
+export async function importClashesToBcf(
+  projectId: string,
+  clashes: import('../types/ifc').ClashRecord[]
+): Promise<{ success: boolean; imported_topics_count: number }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/from-clashes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clashes })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to import clashes to BCF');
+  }
+  return res.json();
+}
+
+export function getBcfExportUrl(projectId: string): string {
+  return `${BASE_URL}/projects/${projectId}/bcf/export`;
+}
+
+export async function fetchAuditTimeline(
+  projectId: string
+): Promise<import('../types/ifc').AuditTimelineItem[]> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/audit/timeline`);
+  if (!res.ok) throw new Error(`Failed to fetch audit timeline: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAuditDiff(
+  projectId: string
+): Promise<import('../types/ifc').AuditDiffResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/audit/diff`);
+  if (!res.ok) throw new Error(`Failed to fetch audit diff: ${res.statusText}`);
+  return res.json();
+}
+
+
 
 

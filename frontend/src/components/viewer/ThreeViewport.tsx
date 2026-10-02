@@ -60,6 +60,9 @@ interface ThreeViewportProps {
   // Phase 10 Props: Multi-Model Federation & Clash Detection
   hiddenModelIds?: Set<string>;
   activeClash?: import('../../types/ifc').ClashRecord | null;
+  // Phase 12 Props: Spatial Change Audit Diff
+  auditDiff?: import('../../types/ifc').AuditDiffResponse | null;
+
   // Phase 11 Props: Interactive CAD Modeling
   cadToolMode?: import('../../types/ifc').CadToolMode;
   onCadDrawWall?: (start: [number, number], end: [number, number]) => void;
@@ -193,7 +196,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   rightDrawerWidth: _rightDrawerWidth = 320,
   hiddenModelIds,
   activeClash,
+  auditDiff,
   cadToolMode = 'select',
+
   onCadDrawWall,
   onCadDrawSlab,
   onCadDrawColumn,
@@ -638,6 +643,24 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           mat.wireframe = false;
           mat.transparent = true;
           mat.opacity = 0.25;
+        } else if (renderStyle === 'diff') {
+          mat.wireframe = false;
+          const expressId = mesh.userData.expressID as number;
+          const isAdded = auditDiff?.added?.includes(expressId);
+          const isModified = auditDiff?.modified?.includes(expressId);
+          if (isAdded) {
+            mat.transparent = false;
+            mat.opacity = 1.0;
+            mat.color.setHex(0x10b981); // Emerald green for newly added entities
+          } else if (isModified) {
+            mat.transparent = false;
+            mat.opacity = 1.0;
+            mat.color.setHex(0xf59e0b); // Amber for modified entities
+          } else {
+            mat.transparent = true;
+            mat.opacity = 0.2;
+            mat.color.setHex(0x64748b); // Ghost translucent slate for unchanged entities
+          }
         } else if (renderStyle === 'discipline') {
           mat.wireframe = false;
           mat.transparent = false;
@@ -655,7 +678,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         mat.needsUpdate = true;
       });
     });
-  }, [renderStyle]);
+  }, [renderStyle, auditDiff]);
 
   // 4b. Render 3D Clash Collision Marker & Wireframe Box
   useEffect(() => {

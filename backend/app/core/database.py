@@ -88,11 +88,32 @@ async def init_db() -> None:
             );
         """)
 
+        # BCF (BIM Collaboration Format) Topics table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bcf_topics (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                topic_type TEXT NOT NULL DEFAULT 'Clash',
+                topic_status TEXT NOT NULL DEFAULT 'Open',
+                priority TEXT NOT NULL DEFAULT 'Normal',
+                creation_author TEXT NOT NULL DEFAULT 'User',
+                camera_position TEXT,
+                camera_target TEXT,
+                selected_elements TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+            );
+        """)
+
         # Indexes for fast lookup
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_edit_history_project ON edit_history (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_project_models_project ON project_models (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_cad_trans_project ON cad_transactions (project_id, created_at);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_bcf_topics_project ON bcf_topics (project_id, created_at);")
         
         await db.commit()
     logger.info("Database schema initialized successfully.")

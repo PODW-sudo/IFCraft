@@ -231,3 +231,53 @@ class CadHistoryResponse(BaseModel):
     can_undo: bool
     can_redo: bool
 
+# ===========================================================================
+# BCF 2.1 & Temporal Audit Schemas (Phase 12)
+# ===========================================================================
+
+class BcfTopicCreateRequest(BaseModel):
+    title: str = Field(description="Issue topic title")
+    description: Optional[str] = Field("", description="Detailed issue description")
+    topic_type: str = Field("Clash", description="Topic type: Clash, Request, Issue, Remark")
+    topic_status: str = Field("Open", description="Topic status: Open, In Progress, Resolved, Closed")
+    priority: str = Field("Normal", description="Priority: Low, Normal, High, Critical")
+    camera_position: Optional[list[float]] = Field(None, description="Camera 3D viewpoint [x, y, z]")
+    camera_target: Optional[list[float]] = Field(None, description="Camera look-at target [x, y, z]")
+    selected_elements: Optional[list[int]] = Field(None, description="Associated IFC Express IDs")
+
+class BcfTopicResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    description: str
+    topic_type: str
+    topic_status: str
+    priority: str
+    creation_author: str
+    camera_position: Optional[list[float]] = None
+    camera_target: Optional[list[float]] = None
+    selected_elements: list[int] = []
+    created_at: str
+    updated_at: str
+
+class BcfClashImportRequest(BaseModel):
+    clashes: list[ClashItem] = Field(description="Clash detection items to convert to BCF topics")
+
+class AuditTimelineItem(BaseModel):
+    id: int
+    project_id: str
+    user_id: str
+    user_name: str
+    action_type: str
+    express_id: Optional[int] = None
+    entity_type: Optional[str] = None
+    payload: dict[str, Any]
+    timestamp: str
+
+class AuditDiffResponse(BaseModel):
+    total_elements: int
+    added: list[int]
+    modified: list[int]
+    deleted: list[int]
+
+
