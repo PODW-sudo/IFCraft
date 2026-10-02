@@ -190,5 +190,46 @@ pnpm run build
 │       └── web-ifc.wasm       # Static WebAssembly binary asset
 ├── storage/                   # Project models and SQLite database
 ├── ROADMAP.md                 # Autonomous phase-lock roadmap
+├── AGENTS.md                  # Agent QA Harness master runbook
+├── project.config.md          # QA Harness product config and UI cues
+├── test_cases.jsonl           # 70 structured QA test specifications
+├── DEVELOPMENT_HANDOFF.md     # Tracked bugs, UX friction, and improvements
+├── PATTERNS.md                # 3D WebGL, WASM, and Concurrency test patterns
 └── start.ps1                  # Single native runner script
 ```
+
+---
+
+## 🧪 Agent QA Harness
+
+The project integrates the file-based **[Agent QA Harness](https://github.com/jitangupta/agent-qa-harness)** for autonomous testing in real browser sessions using Google Chrome (or Microsoft Edge) via the Chromium DevTools Protocol (CDP):
+
+- **Runbook ([`AGENTS.md`](./AGENTS.md)):** Mode detection, test execution protocol, real-time JSONL logging, spatial usability review, and development handoff tracking.
+- **Specification ([`test_cases.jsonl`](./test_cases.jsonl)):** 70 granular test cases covering every product function across Project Lifecycle, 3D Viewport, Camera Presets, Hierarchy Tree, Raycasting & Gizmo transforms, Property Inspector & Psets, Sectioning, 3D Measurement, Category Filters, Omnibar, AI Copilot, and Real-Time WebSockets.
+- **Two Execution Tiers:**
+  - **Key Functionalities Tier (`--tier key`):** 21 critical end-to-end paths executed on **every test suite run**.
+  - **Milestone Suite Tier (`--milestone` / `--tier full`):** Exhaustive check of all 70 product functions on **each major milestone**.
+- **Backlog ([`DEVELOPMENT_HANDOFF.md`](./DEVELOPMENT_HANDOFF.md)):** Severity-graded (`P0`–`P3`) tracker for bugs, UX friction, and testability improvements.
+- **QA Subagent ([`.agents/subagents/qa-agent.md`](./.agents/subagents/qa-agent.md)):** Autonomous agent role for executing runs and auditing spatial ergonomics.
+- **QA Skill ([`.agents/skills/agent-qa-harness/SKILL.md`](./.agents/skills/agent-qa-harness/SKILL.md)):** Procedure guide for agent test authoring, runner execution, and reporting.
+
+### CLI Runner Commands
+
+```powershell
+# Validate harness config and test cases (0 errors across 70 tests)
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py check
+
+# List test cases (filter by tier: key or full)
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py list --tier key
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py list --tier full
+
+# Execute Key Functionalities tier in live Chrome browser (every run)
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser
+
+# Execute Major Milestone Suite in live Chrome browser (each milestone)
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser
+
+# Compile human-readable Markdown test report
+& .\backend\venv\Scripts\python.exe scripts/qa_runner.py report
+```
+

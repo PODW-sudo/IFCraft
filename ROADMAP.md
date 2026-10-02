@@ -59,3 +59,14 @@
   - Implement dynamic collision avoidance for overlapping panels and 3D View Orientation Triad.
   - Address adversarial critique directives with complete color unification (purged all `zinc-*` and `sky-*`), shadow acne elimination, true 3D screen-projected measurement tags, and auto-expanding spatial hierarchy.
   - **Quality Gate:** All 4 gates pass 100%; `pnpm exec tsc --noEmit` and `pnpm run build` pass with 0 errors; Design Critic Verdict: **PASS — GRADE S (93/100)**.
+
+- [x] **Phase 9: Agent QA Harness & Comprehensive Live Browser Automation**
+  - Implement full file-based QA Harness based on `jitangupta/agent-qa-harness` (`AGENTS.md`, `project.config.md`, `PATTERNS.md`, `DEVELOPMENT_HANDOFF.md`, `CLAUDE.md`).
+  - Author and tier 70 granular test case specifications (`test_cases.jsonl`) covering 100% of product functions.
+  - Establish two-tiered execution policy:
+    - **Key Functionalities Tier (`--tier key`):** 21 critical E2E user paths executed on every test run.
+    - **Major Milestone Tier (`--milestone` / `--tier full`):** Exhaustive 70-test audit executed on major releases.
+  - Expose robust frontend testability bridge (`window.__IFC_QA_BRIDGE__`) and semantic `data-qa-*` DOM attributes.
+  - Build automated CLI runner (`scripts/qa_runner.py`) interfacing with Google Chrome via Chrome DevTools Protocol (CDP).
+  - Register autonomous `qa-agent` subagent and `agent-qa-harness` skill.
+  - **Quality Gate:** `qa_runner.py check` passes 70/70; Key suite (21/21) passes in Chrome; Milestone suite (49/49) passes in Chrome (100% pass rate); all 4 UX/design gates pass; `pnpm exec tsc --noEmit` has 0 errors.
