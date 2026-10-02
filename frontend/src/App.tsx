@@ -679,9 +679,9 @@ export const App: React.FC = () => {
     }
   }, [currentProject, cadWallHeight, refreshCadHistory, loadProject]);
 
-  const handleCadDrawOpening = useCallback(async (wallId: number, offset: number) => {
+  const handleCadDrawOpening = useCallback(async (wallId: number, offset: number, explicitType?: 'door' | 'window') => {
     if (!currentProject) return;
-    const isDoor = cadToolMode === 'door';
+    const isDoor = explicitType ? (explicitType === 'door') : (cadToolMode === 'door');
     try {
       await api.createCadOpening(currentProject.id, {
         host_wall_id: wallId,
@@ -885,7 +885,7 @@ export const App: React.FC = () => {
         drawCadWall: (start: [number, number], end: [number, number]) => handleCadDrawWall(start, end),
         drawCadSlab: (c1: [number, number], c2: [number, number]) => handleCadDrawSlab(c1, c2),
         drawCadColumn: (pos: [number, number]) => handleCadDrawColumn(pos),
-        drawCadOpening: (wallId: number, offset: number) => handleCadDrawOpening(wallId, offset),
+        drawCadOpening: (wallId: number, offset: number, type?: 'door' | 'window') => handleCadDrawOpening(wallId, offset, type),
         getCadHistory: () => cadHistory,
         openBcfModal: () => {
           setIsBcfOpen(true);

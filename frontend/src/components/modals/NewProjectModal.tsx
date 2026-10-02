@@ -152,7 +152,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 Choose a pre-built architectural model with storeys, slabs, perimeter walls, and columns:
               </p>
 
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                 {samples.map((s) => {
                   const isSelected = selectedSampleId === s.id;
                   const Icon = s.id === 'duplex_residential' ? Building2 : Landmark;

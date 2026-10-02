@@ -22,6 +22,7 @@
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.7.0",
     "three": "^0.186.1",
+    "three-mesh-bvh": "^0.9.15",
     "web-ifc": "^0.0.78"
   },
   "devDependencies": {

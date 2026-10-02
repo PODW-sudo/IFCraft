@@ -588,7 +588,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
                 const w = h.find(x => x.action_type === 'create_wall');
                 if (w) {
                     window.__IFC_QA_BRIDGE__.setCadMode('door');
-                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 2.0);
+                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 2.0, 'door');
                     return true;
                 }
                 return false;
@@ -611,7 +611,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
                 const w = h.find(x => x.action_type === 'create_wall');
                 if (w) {
                     window.__IFC_QA_BRIDGE__.setCadMode('window');
-                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 3.5);
+                    await window.__IFC_QA_BRIDGE__.drawCadOpening(w.express_id, 3.5, 'window');
                     return true;
                 }
                 return false;
