@@ -2,7 +2,13 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { Compass } from 'lucide-react';
+
+// Extend Three.js prototypes for accelerated BVH raycasting
+(THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
+(THREE.BufferGeometry.prototype as any).disposeBoundsTree = disposeBoundsTree;
+(THREE.Mesh.prototype as any).raycast = acceleratedRaycast;
 import type { GeometryData } from '../../types/ifc';
 import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/BimToolsToolbar';
 
@@ -114,6 +120,7 @@ function findSnapPoint(
   visibleMeshes: THREE.Object3D[],
   camera: THREE.Camera
 ): { point: THREE.Vector3; type: SnapType } | null {
+  (raycaster as any).firstHitOnly = true;
   const intersects = raycaster.intersectObjects(visibleMeshes, false);
   if (intersects.length === 0) return null;
 
@@ -242,6 +249,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const measurePreviewGroupRef = useRef<THREE.Group | null>(null);
   const measureGroupRef = useRef<THREE.Group | null>(null);
 
+  // Performance Engine Refs: Shared Materials & Damped Rendering
+  const categoryMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
+  const disciplineMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
+  const diffMaterialsRef = useRef<{ added: THREE.MeshStandardMaterial; modified: THREE.MeshStandardMaterial; unchanged: THREE.MeshStandardMaterial } | null>(null);
+  const needsRenderRef = useRef(true);
+  const isNavigatingRef = useRef(false);
+  const navSettleTimerRef = useRef<number | null>(null);
+  const lastScreenMeasureUpdateRef = useRef<MeasurementRecord[]>([]);
+
   // 1. Initialize Scene & Renderer
   useEffect(() => {
     const container = containerRef.current;
@@ -270,6 +286,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false; // Freeze shadow auto-update during navigation
+    renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.localClippingEnabled = true; // Phase 4: Local Clipping Planes
@@ -284,6 +302,31 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
+    // Dynamic Resolution Scaling (DRS) & Shadow Freeze Event Handlers
+    controls.addEventListener('start', () => {
+      isNavigatingRef.current = true;
+      if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
+      // Adaptive Dynamic Resolution Scaling: drop to lower pixel ratio during fast camera orbit
+      const fastRatio = Math.max(0.75, Math.min(window.devicePixelRatio * 0.75, 1.0));
+      renderer.setPixelRatio(fastRatio);
+      needsRenderRef.current = true;
+    });
+
+    controls.addEventListener('change', () => {
+      needsRenderRef.current = true;
+    });
+
+    controls.addEventListener('end', () => {
+      if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
+      navSettleTimerRef.current = window.setTimeout(() => {
+        isNavigatingRef.current = false;
+        // Restore native sharp resolution when camera motion settles
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.needsUpdate = true;
+        needsRenderRef.current = true;
+      }, 120);
+    });
+
     // TransformControls
     const tControls = new TransformControls(camera, renderer.domElement);
     tControls.size = 0.75;
@@ -294,23 +337,37 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const isDragging = Boolean(event.value);
       isDraggingGizmoRef.current = isDragging;
       controls.enabled = !isDragging;
+      needsRenderRef.current = true;
 
       if (!isDragging && tControls.object) {
         const mesh = tControls.object as THREE.Mesh;
         const expressID = mesh.userData.expressID as number;
         mesh.updateMatrixWorld();
+        if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+          mesh.userData.batchedMesh.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+          mesh.userData.batchedMesh.instanceMatrix.needsUpdate = true;
+        }
         const matrixArray = mesh.matrixWorld.toArray();
+        renderer.shadowMap.needsUpdate = true;
         onTransformEnd(expressID, matrixArray);
       }
     });
 
     tControls.addEventListener('objectChange', () => {
-      if (tControls.object && onTransformChange) {
+      needsRenderRef.current = true;
+      if (tControls.object) {
         const mesh = tControls.object as THREE.Mesh;
-        const expressID = mesh.userData.expressID as number;
-        const pos = mesh.position.toArray() as [number, number, number];
-        const rot = [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z] as [number, number, number];
-        onTransformChange(expressID, pos, rot);
+        mesh.updateMatrixWorld();
+        if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+          mesh.userData.batchedMesh.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+          mesh.userData.batchedMesh.instanceMatrix.needsUpdate = true;
+        }
+        if (onTransformChange) {
+          const expressID = mesh.userData.expressID as number;
+          const pos = mesh.position.toArray() as [number, number, number];
+          const rot = [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z] as [number, number, number];
+          onTransformChange(expressID, pos, rot);
+        }
       }
     });
 
@@ -424,10 +481,28 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(previewGroup);
     measurePreviewGroupRef.current = previewGroup;
 
-    // Animate & Dynamic 3D Projection
+    // Expose renderer stats for automated performance benchmarking
+    (window as any).__THREE_VIEWPORT_STATS__ = {
+      getRendererInfo: () => ({
+        drawCalls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+        points: renderer.info.render.points,
+        lines: renderer.info.render.lines,
+        geometries: renderer.info.memory.geometries,
+        textures: renderer.info.memory.textures
+      }),
+      requestRender: () => {
+        needsRenderRef.current = true;
+      }
+    };
+
+    // Animate & Dynamic 3D Projection with Damped On-Demand Rendering
     const animate = () => {
       animFrameIdRef.current = requestAnimationFrame(animate);
-      controls.update();
+      const cameraMoved = controls.update();
+      if (cameraMoved) {
+        needsRenderRef.current = true;
+      }
 
       // Update snap indicator orientation and camera distance compensation
       if (snapGroup.visible && camera) {
@@ -435,22 +510,32 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const dist = camera.position.distanceTo(snapGroup.position);
         const s = Math.max(0.005, dist * 0.035);
         snapGroup.scale.set(s, s, s);
+        needsRenderRef.current = true;
       }
 
-      renderer.render(scene, camera);
+      // Render only when camera moves, animations play, or scene changes
+      if (needsRenderRef.current) {
+        renderer.render(scene, camera);
+        needsRenderRef.current = false;
 
-      // Project 3D vector midpoints to 2D screen coordinates
-      if (measurementsRef.current.length > 0 && container) {
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-        const projected = measurementsRef.current.map((m) => {
-          const vec = new THREE.Vector3(...m.midpoint).project(camera);
-          const x = (vec.x * 0.5 + 0.5) * width;
-          const y = (-(vec.y * 0.5) + 0.5) * height;
-          const visible = vec.z < 1.0 && x >= 0 && x <= width && y >= 0 && y <= height;
-          return { id: m.id, x, y, visible, distance: m.distance };
-        });
-        setScreenMeasurements(projected);
+        // Project 3D vector midpoints to 2D screen coordinates only when camera moved or measurements changed
+        if (
+          measurementsRef.current.length > 0 &&
+          container &&
+          (cameraMoved || lastScreenMeasureUpdateRef.current !== measurementsRef.current)
+        ) {
+          lastScreenMeasureUpdateRef.current = measurementsRef.current;
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+          const projected = measurementsRef.current.map((m) => {
+            const vec = new THREE.Vector3(...m.midpoint).project(camera);
+            const x = (vec.x * 0.5 + 0.5) * width;
+            const y = (-(vec.y * 0.5) + 0.5) * height;
+            const visible = vec.z < 1.0 && x >= 0 && x <= width && y >= 0 && y <= height;
+            return { id: m.id, x, y, visible, distance: m.distance };
+          });
+          setScreenMeasurements(projected);
+        }
       }
     };
     animate();
@@ -461,6 +546,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
+      needsRenderRef.current = true;
     };
     window.addEventListener('resize', handleResize);
 
@@ -473,6 +559,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
+      delete (window as any).__THREE_VIEWPORT_STATS__;
+
       tControls.dispose();
       controls.dispose();
       renderer.dispose();
@@ -525,9 +614,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     while (group.children.length > 0) {
       const child = group.children[0] as THREE.Mesh;
       group.remove(child);
-      if (child.geometry) child.geometry.dispose();
-      if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-      else if (child.material) child.material.dispose();
+      if (child.geometry) {
+        (child.geometry as any).disposeBoundsTree?.();
+        child.geometry.dispose();
+      }
     }
     meshMapRef.current.clear();
 
@@ -538,56 +628,183 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (geometries.length === 0) return;
 
+    // Clear previous category materials
+    const catMats = categoryMaterialsRef.current;
+    catMats.forEach((m) => m.dispose());
+    catMats.clear();
+
     const box = new THREE.Box3();
+    const isLargeModel = geometries.length > 150;
 
-    geometries.forEach((geom) => {
-      const bufferGeometry = new THREE.BufferGeometry();
-      bufferGeometry.setAttribute('position', new THREE.BufferAttribute(geom.positions, 3));
-      bufferGeometry.setAttribute('normal', new THREE.BufferAttribute(geom.normals, 3));
-      bufferGeometry.setIndex(new THREE.BufferAttribute(geom.indices, 1));
-      bufferGeometry.computeBoundingBox();
-
-      const config = CATEGORY_COLORS[geom.type] || DEFAULT_MATERIAL_CONFIG;
-      const isTransparent = Boolean(config.opacity && config.opacity < 1.0);
-
-      const material = new THREE.MeshStandardMaterial({
-        color: config.color,
-        roughness: config.roughness,
-        metalness: config.metalness,
-        transparent: isTransparent,
-        opacity: config.opacity ?? 1.0,
-        side: THREE.DoubleSide,
-        clippingPlanes: [clipPlaneRef.current],
-        clipShadows: true
+    if (isLargeModel) {
+      // High-performance BatchedMesh engine: Consolidate geometries by category into single draw calls
+      const categoryMap = new Map<string, GeometryData[]>();
+      geometries.forEach((g) => {
+        let list = categoryMap.get(g.type);
+        if (!list) {
+          list = [];
+          categoryMap.set(g.type, list);
+        }
+        list.push(g);
       });
 
-      const mesh = new THREE.Mesh(bufferGeometry, material);
-      mesh.castShadow = !isTransparent;
-      mesh.receiveShadow = true;
+      categoryMap.forEach((catGeoms, category) => {
+        let totalVerts = 0;
+        let totalIndices = 0;
+        catGeoms.forEach((g) => {
+          totalVerts += g.positions.length / 3;
+          totalIndices += g.indices.length;
+        });
 
-      if (geom.matrix && geom.matrix.length === 16) {
-        const mat = new THREE.Matrix4().fromArray(geom.matrix);
-        mesh.applyMatrix4(mat);
-      }
+        // Get or create shared category material
+        let material = catMats.get(category);
+        if (!material) {
+          const config = CATEGORY_COLORS[category] || DEFAULT_MATERIAL_CONFIG;
+          const isTransparent = Boolean(config.opacity && config.opacity < 1.0);
+          material = new THREE.MeshStandardMaterial({
+            color: config.color,
+            roughness: config.roughness,
+            metalness: config.metalness,
+            transparent: isTransparent,
+            opacity: config.opacity ?? 1.0,
+            side: THREE.DoubleSide,
+            clippingPlanes: [clipPlaneRef.current],
+            clipShadows: true
+          });
+          catMats.set(category, material);
+        }
 
-      mesh.userData = {
-        expressID: geom.expressID,
-        type: geom.type,
-        modelId: geom.modelId || 'main',
-        discipline: geom.discipline || inferDiscipline(geom.type)
-      };
-      group.add(mesh);
+        const batchedMesh = new THREE.BatchedMesh(catGeoms.length, totalVerts, totalIndices, material);
+        batchedMesh.castShadow = !material.transparent;
+        batchedMesh.receiveShadow = true;
+        batchedMesh.frustumCulled = true;
 
-      const existing = meshMapRef.current.get(geom.expressID) || [];
-      existing.push(mesh);
-      meshMapRef.current.set(geom.expressID, existing);
+        const instanceDataList: { expressID: number; type: string; discipline: string; modelId: string }[] = [];
 
-      mesh.geometry.computeBoundingBox();
-      if (mesh.geometry.boundingBox) {
-        const transformedBox = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
-        box.union(transformedBox);
-      }
-    });
+        catGeoms.forEach((geom) => {
+          const bg = new THREE.BufferGeometry();
+          bg.setAttribute('position', new THREE.BufferAttribute(geom.positions, 3));
+          bg.setAttribute('normal', new THREE.BufferAttribute(geom.normals, 3));
+          bg.setIndex(new THREE.BufferAttribute(geom.indices, 1));
+          bg.computeBoundingBox();
+
+          const gid = batchedMesh.addGeometry(bg);
+          const iid = batchedMesh.addInstance(gid);
+
+          const mat = geom.matrix && geom.matrix.length === 16
+            ? new THREE.Matrix4().fromArray(geom.matrix)
+            : new THREE.Matrix4();
+          batchedMesh.setMatrixAt(iid, mat);
+
+          const disc = geom.discipline || inferDiscipline(geom.type);
+          const modelId = geom.modelId || 'main';
+
+          instanceDataList.push({
+            expressID: geom.expressID,
+            type: geom.type,
+            discipline: disc,
+            modelId
+          });
+
+          // Lightweight selection and transform proxy
+          const proxy = new THREE.Mesh(bg, material);
+          proxy.applyMatrix4(mat);
+          proxy.visible = false;
+          proxy.userData = {
+            expressID: geom.expressID,
+            type: geom.type,
+            discipline: disc,
+            modelId,
+            batchedMesh,
+            batchId: iid
+          };
+
+          const existing = meshMapRef.current.get(geom.expressID) || [];
+          existing.push(proxy);
+          meshMapRef.current.set(geom.expressID, existing);
+
+          if (bg.boundingBox) {
+            const transformedBox = bg.boundingBox.clone().applyMatrix4(mat);
+            box.union(transformedBox);
+          }
+        });
+
+        batchedMesh.userData = {
+          category,
+          instances: instanceDataList
+        };
+        batchedMesh.computeBoundingBox();
+        batchedMesh.computeBoundingSphere();
+        group.add(batchedMesh);
+      });
+    } else {
+      // Standard separate mesh mode for small models (< 150 elements)
+      geometries.forEach((geom) => {
+        const bufferGeometry = new THREE.BufferGeometry();
+        bufferGeometry.setAttribute('position', new THREE.BufferAttribute(geom.positions, 3));
+        bufferGeometry.setAttribute('normal', new THREE.BufferAttribute(geom.normals, 3));
+        bufferGeometry.setIndex(new THREE.BufferAttribute(geom.indices, 1));
+        bufferGeometry.computeBoundingBox();
+        bufferGeometry.computeBoundingSphere();
+
+        // Compute BVH bounds tree for sub-millisecond accelerated raycasting
+        try {
+          (bufferGeometry as any).computeBoundsTree?.();
+        } catch (err) {
+          console.warn('BVH computation failed on geom:', err);
+        }
+
+        let material = catMats.get(geom.type);
+        if (!material) {
+          const config = CATEGORY_COLORS[geom.type] || DEFAULT_MATERIAL_CONFIG;
+          const isTransparent = Boolean(config.opacity && config.opacity < 1.0);
+          material = new THREE.MeshStandardMaterial({
+            color: config.color,
+            roughness: config.roughness,
+            metalness: config.metalness,
+            transparent: isTransparent,
+            opacity: config.opacity ?? 1.0,
+            side: THREE.DoubleSide,
+            clippingPlanes: [clipPlaneRef.current],
+            clipShadows: true
+          });
+          catMats.set(geom.type, material);
+        }
+
+        const isTransparent = material.transparent;
+        const mesh = new THREE.Mesh(bufferGeometry, material);
+        mesh.castShadow = !isTransparent;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = true;
+
+        if (geom.matrix && geom.matrix.length === 16) {
+          const mat = new THREE.Matrix4().fromArray(geom.matrix);
+          mesh.applyMatrix4(mat);
+        }
+
+        mesh.userData = {
+          expressID: geom.expressID,
+          type: geom.type,
+          modelId: geom.modelId || 'main',
+          discipline: geom.discipline || inferDiscipline(geom.type)
+        };
+        group.add(mesh);
+
+        const existing = meshMapRef.current.get(geom.expressID) || [];
+        existing.push(mesh);
+        meshMapRef.current.set(geom.expressID, existing);
+
+        if (bufferGeometry.boundingBox) {
+          const transformedBox = bufferGeometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+          box.union(transformedBox);
+        }
+      });
+    }
+
+    if (rendererRef.current) {
+      rendererRef.current.shadowMap.needsUpdate = true;
+    }
+    needsRenderRef.current = true;
 
     if (!box.isEmpty() && cameraRef.current && controlsRef.current) {
       const center = box.getCenter(new THREE.Vector3());
@@ -626,58 +843,107 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         mesh.visible = visible;
       });
     });
+    needsRenderRef.current = true;
   }, [hiddenCategories, isolatedExpressID, hiddenModelIds]);
 
-  // 4. Update Render Style (Shaded, Wireframe, Ghost, Discipline)
+  // 4. Update Render Style (Shaded, Wireframe, Ghost, Discipline, Diff) via Shared Material Pool
   useEffect(() => {
-    meshMapRef.current.forEach((meshes) => {
-      meshes.forEach((mesh) => {
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        if (!mat) return;
+    const catMats = categoryMaterialsRef.current;
+    const discMats = disciplineMaterialsRef.current;
+    const clipPlane = clipPlaneRef.current;
 
-        if (renderStyle === 'wireframe') {
-          mat.wireframe = true;
-          mat.opacity = 1.0;
-          mat.transparent = false;
-        } else if (renderStyle === 'ghost') {
-          mat.wireframe = false;
-          mat.transparent = true;
-          mat.opacity = 0.25;
-        } else if (renderStyle === 'diff') {
-          mat.wireframe = false;
+    const getDiscMat = (disc: string) => {
+      let m = discMats.get(disc);
+      if (!m) {
+        const discColor = DISCIPLINE_COLORS[disc] || DISCIPLINE_COLORS.ARCH;
+        m = new THREE.MeshStandardMaterial({
+          color: discColor.color,
+          roughness: discColor.roughness,
+          metalness: discColor.metalness,
+          transparent: false,
+          opacity: 1.0,
+          side: THREE.DoubleSide,
+          clippingPlanes: [clipPlane],
+          clipShadows: true
+        });
+        discMats.set(disc, m);
+      }
+      return m;
+    };
+
+    if (renderStyle === 'wireframe') {
+      catMats.forEach((mat) => {
+        mat.wireframe = true;
+        mat.opacity = 1.0;
+        mat.transparent = false;
+        mat.needsUpdate = true;
+      });
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const type = mesh.userData.type as string;
+          const targetMat = catMats.get(type);
+          if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
+        });
+      });
+    } else if (renderStyle === 'ghost') {
+      catMats.forEach((mat) => {
+        mat.wireframe = false;
+        mat.transparent = true;
+        mat.opacity = 0.25;
+        mat.needsUpdate = true;
+      });
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const type = mesh.userData.type as string;
+          const targetMat = catMats.get(type);
+          if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
+        });
+      });
+    } else if (renderStyle === 'discipline') {
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const disc = (mesh.userData.discipline as string) || inferDiscipline(mesh.userData.type as string);
+          mesh.material = getDiscMat(disc);
+        });
+      });
+    } else if (renderStyle === 'diff') {
+      if (!diffMaterialsRef.current) {
+        diffMaterialsRef.current = {
+          added: new THREE.MeshStandardMaterial({ color: 0x10b981, transparent: false, opacity: 1.0, clippingPlanes: [clipPlane] }),
+          modified: new THREE.MeshStandardMaterial({ color: 0xf59e0b, transparent: false, opacity: 1.0, clippingPlanes: [clipPlane] }),
+          unchanged: new THREE.MeshStandardMaterial({ color: 0x64748b, transparent: true, opacity: 0.2, clippingPlanes: [clipPlane] })
+        };
+      }
+      const dm = diffMaterialsRef.current;
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
           const expressId = mesh.userData.expressID as number;
           const isAdded = auditDiff?.added?.includes(expressId);
           const isModified = auditDiff?.modified?.includes(expressId);
-          if (isAdded) {
-            mat.transparent = false;
-            mat.opacity = 1.0;
-            mat.color.setHex(0x10b981); // Emerald green for newly added entities
-          } else if (isModified) {
-            mat.transparent = false;
-            mat.opacity = 1.0;
-            mat.color.setHex(0xf59e0b); // Amber for modified entities
-          } else {
-            mat.transparent = true;
-            mat.opacity = 0.2;
-            mat.color.setHex(0x64748b); // Ghost translucent slate for unchanged entities
-          }
-        } else if (renderStyle === 'discipline') {
-          mat.wireframe = false;
-          mat.transparent = false;
-          mat.opacity = 1.0;
-          const disc = (mesh.userData.discipline as string) || inferDiscipline(mesh.userData.type as string);
-          const discColor = DISCIPLINE_COLORS[disc] || DISCIPLINE_COLORS.ARCH;
-          mat.color.setHex(discColor.color);
-        } else {
-          mat.wireframe = false;
-          const config = CATEGORY_COLORS[mesh.userData.type] || DEFAULT_MATERIAL_CONFIG;
-          mat.transparent = Boolean(config.opacity && config.opacity < 1.0);
-          mat.opacity = config.opacity ?? 1.0;
-          mat.color.setHex(config.color);
-        }
+          if (isAdded) mesh.material = dm.added;
+          else if (isModified) mesh.material = dm.modified;
+          else mesh.material = dm.unchanged;
+        });
+      });
+    } else {
+      // Standard shaded
+      catMats.forEach((mat, type) => {
+        const config = CATEGORY_COLORS[type] || DEFAULT_MATERIAL_CONFIG;
+        mat.wireframe = false;
+        mat.transparent = Boolean(config.opacity && config.opacity < 1.0);
+        mat.opacity = config.opacity ?? 1.0;
+        mat.color.setHex(config.color);
         mat.needsUpdate = true;
       });
-    });
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const type = mesh.userData.type as string;
+          const targetMat = catMats.get(type);
+          if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
+        });
+      });
+    }
+    needsRenderRef.current = true;
   }, [renderStyle, auditDiff]);
 
   // 4b. Render 3D Clash Collision Marker & Wireframe Box
@@ -734,6 +1000,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       cam.lookAt(center);
       controlsRef.current.update();
     }
+    needsRenderRef.current = true;
   }, [activeClash]);
 
   // 5. Handle Camera Presets (Iso, Top, Front, Side)
@@ -763,6 +1030,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     camera.lookAt(target);
     controls.update();
+    needsRenderRef.current = true;
   }, [cameraPresetTrigger]);
 
   // 6. Render Measurements in 3D (Markers & Dimension Lines)
@@ -808,6 +1076,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       pendingSphere.position.copy(pendingStartPoint);
       group.add(pendingSphere);
     }
+    needsRenderRef.current = true;
   }, [measurements, pendingStartPoint]);
 
   // 7. Handle Selection & TransformControls
@@ -852,6 +1121,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         onTransformChange(selectedExpressID, pos, rot);
       }
     }
+    needsRenderRef.current = true;
   }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive]);
 
   const lockHelpersRef = useRef<Map<number, THREE.BoxHelper>>(new Map());
@@ -877,10 +1147,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         lockHelpersRef.current.set(expId, helper);
       }
     });
+    needsRenderRef.current = true;
 
     return () => {
       lockHelpersRef.current.forEach((helper) => scene.remove(helper));
       lockHelpersRef.current.clear();
+      needsRenderRef.current = true;
     };
   }, [elementLocks, selectedExpressID]);
 
@@ -897,6 +1169,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const lockHelper = lockHelpersRef.current.get(remoteTransform.expressID);
     if (lockHelper) lockHelper.update();
+    needsRenderRef.current = true;
   }, [remoteTransform]);
 
   // Reset snap and preview when measure tool is deactivated
@@ -909,6 +1182,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       currentSnapTypeRef.current = null;
       if (snapIndicatorGroupRef.current) snapIndicatorGroupRef.current.visible = false;
       if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
+      needsRenderRef.current = true;
     }
   }, [isMeasureActive]);
 
@@ -924,6 +1198,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           if ('material' in c && c.material instanceof THREE.Material) c.material.dispose();
         }
       }
+      needsRenderRef.current = true;
     }
   }, [cadToolMode]);
 
@@ -982,6 +1257,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       );
 
       const raycaster = new THREE.Raycaster();
+      (raycaster as any).firstHitOnly = true;
       raycaster.setFromCamera(mouse, camera);
 
       // CAD Preview handling
@@ -1118,8 +1394,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (previewGroup) previewGroup.visible = false;
         setPreviewMeasure(null);
       }
+      needsRenderRef.current = true;
     },
-    [isMeasureActive, pendingStartPoint]
+    [isMeasureActive, pendingStartPoint, cadToolMode, cadStartPoint]
   );
 
   const handlePointerLeave = useCallback(() => {
@@ -1127,6 +1404,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
     setActiveSnap(null);
     setPreviewMeasure(null);
+    needsRenderRef.current = true;
   }, []);
 
   // Click Handler for Raycasting (Selection OR Measurement)
@@ -1146,6 +1424,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       );
 
       const raycaster = new THREE.Raycaster();
+      (raycaster as any).firstHitOnly = true;
       raycaster.setFromCamera(mouse, camera);
 
       const visibleMeshes = group.children.filter((c) => c.visible);
@@ -1216,10 +1495,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
         if (cadToolMode === 'door' || cadToolMode === 'window') {
           if (intersects.length > 0 && onCadDrawOpening) {
-            const hit = intersects[0].object as THREE.Mesh;
-            const expId = hit.userData.expressID as number;
-            const offset = Math.max(0.5, hit.position.distanceTo(intersects[0].point));
-            onCadDrawOpening(expId, offset);
+            const hit = intersects[0];
+            let expId: number | null = null;
+            if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
+              const instances = (hit.object.userData as any)?.instances;
+              if (instances && instances[hit.batchId]) expId = instances[hit.batchId].expressID;
+            } else if (hit.object.userData?.expressID) {
+              expId = hit.object.userData.expressID as number;
+            }
+            if (expId !== null) {
+              const meshes = meshMapRef.current.get(expId);
+              const offset = meshes && meshes[0] ? Math.max(0.5, meshes[0].position.distanceTo(hit.point)) : 1.0;
+              onCadDrawOpening(expId, offset);
+            }
           }
           return;
         }
@@ -1228,13 +1516,27 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       // Normal Selection
       if (intersects.length > 0) {
-        const hit = intersects[0].object as THREE.Mesh;
-        const expressID = hit.userData.expressID as number;
-        onSelectElement(expressID);
-        if (onTransformChange) {
-          const pos = hit.position.toArray() as [number, number, number];
-          const rot = [hit.rotation.x, hit.rotation.y, hit.rotation.z] as [number, number, number];
-          onTransformChange(expressID, pos, rot);
+        const hit = intersects[0];
+        let expressID: number | null = null;
+        if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
+          const instances = (hit.object.userData as any)?.instances;
+          if (instances && instances[hit.batchId]) {
+            expressID = instances[hit.batchId].expressID;
+          }
+        } else if (hit.object.userData && hit.object.userData.expressID !== undefined) {
+          expressID = hit.object.userData.expressID as number;
+        }
+
+        if (expressID !== null) {
+          onSelectElement(expressID);
+          const meshes = meshMapRef.current.get(expressID);
+          if (meshes && meshes[0] && onTransformChange) {
+            const pos = meshes[0].position.toArray() as [number, number, number];
+            const rot = [meshes[0].rotation.x, meshes[0].rotation.y, meshes[0].rotation.z] as [number, number, number];
+            onTransformChange(expressID, pos, rot);
+          }
+        } else {
+          onSelectElement(null);
         }
       } else {
         onSelectElement(null);

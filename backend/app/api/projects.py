@@ -49,6 +49,14 @@ SAMPLES_METADATA = [
         "schema_version": "IFC4",
         "element_count": 12,
         "file_name": "office_pavilion.ifc"
+    },
+    {
+        "id": "sample_castle",
+        "name": "Historical Castle Benchmark (IFC2X3)",
+        "description": "High-complexity 47MB benchmark model with 3,822 IFC elements for testing spatial performance and navigation.",
+        "schema_version": "IFC2X3",
+        "element_count": 3822,
+        "file_name": "Ifc2x3_SampleCastle.ifc"
     }
 ]
 
