@@ -116,6 +116,8 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
     return (
       <div key={`${node.express_id}-${node.global_id}`} className="select-none text-xs">
         <div
+          data-qa="tree-node"
+          data-express-id={node.express_id}
           onClick={() => onSelectElement(node.express_id)}
           className={`group flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors ${
             isSelected
@@ -126,6 +128,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
         >
           {hasChildren ? (
             <button
+              data-qa="tree-node-chevron"
               onClick={(e) => toggleExpand(node.express_id, e)}
               className="p-0.5 text-slate-500 hover:text-slate-300 focus:outline-none"
             >
@@ -147,6 +150,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
 
           {node.type !== 'IfcProject' && node.type !== 'IfcSite' && (
             <button
+              data-qa="tree-node-isolate"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleIsolate(isIsolated ? null : node.express_id);
@@ -174,6 +178,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
 
   return (
     <div
+      data-qa="spatial-tree-drawer"
       style={{ width: `${width}px` }}
       className="fixed left-4 top-16 bottom-6 z-20 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-left-4"
     >
@@ -192,6 +197,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
           </span>
         </div>
         <button
+          data-qa="tree-collapse-btn"
           onClick={onToggleOpen}
           className="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded hover:bg-[var(--control-hover)] transition-colors"
           title="Close Hierarchy Drawer"
@@ -207,6 +213,7 @@ export const SpatialTree: React.FC<SpatialTreeProps> = ({
           <input
             id="hierarchy-search-input"
             name="hierarchySearch"
+            data-qa="tree-search-input"
             type="text"
             aria-label="Search hierarchy"
             placeholder="Search hierarchy (#124, Wall, Slab)..."

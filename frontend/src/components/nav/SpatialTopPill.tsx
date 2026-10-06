@@ -18,8 +18,10 @@ import {
   AlertTriangle,
   PenTool,
   ClipboardList,
-  History
+  History,
+  GripVertical
 } from 'lucide-react';
+import { useDraggableHud } from '../hud/HudLayoutContext';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
 
@@ -114,8 +116,34 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
 
   const breadcrumbs = findBreadcrumbPath(spatialTree, selectedExpressID);
 
+  const initialWidth = 1100;
+  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 60;
+  const { ref, style, dragProps, isDragging } = useDraggableHud('top-pill', {
+    x: initialX,
+    y: 12,
+    width: initialWidth,
+    height: 46
+  });
+
   return (
-    <header className="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none text-xs text-slate-200">
+    <header
+      ref={ref}
+      style={style}
+      {...dragProps}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none text-xs text-slate-200 transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      }`}
+      data-qa="spatial-top-pill"
+    >
+      {/* Draggable Grip Handle */}
+      <div
+        data-drag-handle="true"
+        className="flex items-center text-slate-500 hover:text-slate-300 pr-1 py-1 cursor-grab active:cursor-grabbing"
+        title="Drag to reposition Top Bar"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </div>
+
       {/* Brand & Project Selector */}
       <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-subtle)]">
         <div className="w-6 h-6 rounded-md bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
@@ -125,6 +153,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
+              data-qa="pill-project-trigger"
               className="flex items-center gap-1.5 text-xs text-slate-200 hover:text-white px-2 py-1 rounded-md hover:bg-[var(--control-hover)] transition-colors focus:outline-none focus:ring-1 focus:ring-cyan-400"
               title="Switch active IFC project"
             >
@@ -225,6 +254,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
 
       {/* Omnibar / Command Palette Trigger */}
       <button
+        data-qa="pill-omnibar-trigger"
         onClick={onOpenOmnibar}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
         title="Open Command Palette (Ctrl+K)"
@@ -239,6 +269,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
+            data-qa="pill-filter-trigger"
             className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
               hiddenCategories.size > 0
                 ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
@@ -268,6 +299,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
               return (
                 <DropdownMenu.Item
                   key={cat.key}
+                  data-qa={`category-filter-${cat.key}`}
                   onSelect={(e) => {
                     e.preventDefault();
                     if (onToggleCategory) onToggleCategory(cat.key);
@@ -291,6 +323,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
 
       {/* Federation Button */}
       <button
+        data-qa="pill-federation-toggle"
         onClick={onToggleFederation}
         className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
           isFederationOpen
@@ -310,6 +343,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
 
       {/* Clashes Button */}
       <button
+        data-qa="pill-clashes-toggle"
         onClick={onToggleClash}
         className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
           isClashOpen
@@ -387,6 +421,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
       {/* Drawer Toggle Controls */}
       <div className="flex items-center gap-1">
         <button
+          data-qa="pill-tree-toggle"
           onClick={onToggleTree}
           className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
             isTreeOpen
@@ -400,6 +435,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
         </button>
 
         <button
+          data-qa="pill-inspect-toggle"
           onClick={onToggleProperty}
           className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
             isPropertyOpen
@@ -413,6 +449,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
         </button>
 
         <button
+          data-qa="pill-copilot-toggle"
           onClick={onToggleCopilot}
           className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
             isCopilotOpen
@@ -446,6 +483,7 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
 
       {/* Quick Action: Export IFC */}
       <button
+        data-qa="pill-export-btn"
         onClick={onDownloadProject}
         disabled={!currentProject}
         className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${

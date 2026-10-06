@@ -51,7 +51,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
+      <div
+        data-qa="upload-modal"
+        className="w-full max-w-md bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2">
@@ -60,6 +63,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           </div>
           {!isLoading && (
             <button
+              data-qa="upload-close-btn"
               onClick={onClose}
               className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[var(--control-hover)] transition-colors"
             >
@@ -89,6 +93,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <>
               {/* Drop area */}
               <div
+                data-qa="upload-dropzone"
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}

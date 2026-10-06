@@ -175,11 +175,15 @@ export const SpatialOmnibar: React.FC<SpatialOmnibarProps> = ({
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-in fade-in-50" />
-        <Dialog.Content className="fixed top-24 left-1/2 -translate-x-1/2 w-full max-w-lg bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] p-2 z-50 text-slate-200 outline-none animate-in fade-in-70 zoom-in-95">
+        <Dialog.Content
+          data-qa="omnibar-dialog"
+          className="fixed top-24 left-1/2 -translate-x-1/2 w-full max-w-lg bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] p-2 z-50 text-slate-200 outline-none animate-in fade-in-70 zoom-in-95"
+        >
           {/* Search Input Bar */}
           <div className="flex items-center gap-3 px-3 py-2.5 border-b border-[var(--border-subtle)]">
             <Search className="w-4 h-4 text-cyan-400" />
             <input
+              data-qa="omnibar-input"
               type="text"
               autoFocus
               placeholder="Search elements (#124, IfcWall), storeys, or tools..."
@@ -200,6 +204,7 @@ export const SpatialOmnibar: React.FC<SpatialOmnibarProps> = ({
               filtered.map((item, idx) => (
                 <div
                   key={item.id}
+                  data-qa="omnibar-item"
                   onClick={() => {
                     item.action();
                     onClose();

@@ -102,6 +102,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
     <div
       role="dialog"
       aria-label="Federated Model Coordination"
+      data-qa="federation-modal"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div className="relative w-full max-w-xl bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] backdrop-blur-xl p-5 text-slate-100 flex flex-col gap-4">
@@ -124,6 +125,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
             </div>
           </div>
           <button
+            data-qa="federation-close-btn"
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
             title="Close dialog"
@@ -200,6 +202,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
 
                 <div className="flex items-center gap-1.5">
                   <button
+                    data-qa="submodel-eye-toggle"
                     onClick={() => onToggleModelVisibility(sm.id)}
                     className={`p-1.5 rounded-lg transition-colors ${
                       isHidden
@@ -211,6 +214,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
                     {isHidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                   <button
+                    data-qa="submodel-delete-btn"
                     onClick={() => onDeleteSubModel(sm.id)}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     title="Remove Sub-Model"
@@ -232,6 +236,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
               {(['STRUCT', 'MEP', 'CIVIL', 'ARCH'] as DisciplineType[]).map((disc) => (
                 <button
                   key={disc}
+                  data-qa={`submodel-discipline-${disc}`}
                   onClick={() => setSelectedDiscipline(disc)}
                   className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition-colors ${
                     selectedDiscipline === disc
@@ -268,6 +273,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
             {onLoadSampleDiscipline && (
               <div className="flex items-center gap-1.5">
                 <button
+                  data-qa="submodel-load-struct-sample"
                   onClick={() => handleSampleClick('STRUCT')}
                   disabled={isUploading}
                   className="px-2.5 py-2 rounded-xl bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-[11px] font-medium text-blue-300 border border-blue-500/30 transition-colors"
@@ -276,6 +282,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
                   + STR Sample
                 </button>
                 <button
+                  data-qa="submodel-load-mep-sample"
                   onClick={() => handleSampleClick('MEP')}
                   disabled={isUploading}
                   className="px-2.5 py-2 rounded-xl bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-[11px] font-medium text-amber-300 border border-amber-500/30 transition-colors"
@@ -295,6 +302,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
             <span>Shared World Coordinates: WGS84 / Local Placement</span>
           </div>
           <button
+            data-qa="federation-done-btn"
             onClick={onClose}
             className="px-3.5 py-1.5 rounded-xl bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-xs font-medium text-white transition-colors"
           >

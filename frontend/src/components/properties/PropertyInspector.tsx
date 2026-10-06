@@ -201,6 +201,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
 
   return (
     <aside
+      data-qa="property-inspector-drawer"
       style={{ width: `${width}px` }}
       className="fixed right-4 top-16 bottom-6 z-30 flex flex-col bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] text-slate-200 overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
     >
@@ -219,6 +220,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
           </span>
         </div>
         <button
+          data-qa="property-close-btn"
           onClick={onClose}
           className="text-slate-400 hover:text-white text-xs p-1 rounded hover:bg-[var(--control-hover)] transition-colors"
           title="Close Inspector"
@@ -307,6 +309,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                   <span>Property Sets</span>
                 </div>
                 <button
+                  data-qa="property-add-btn"
                   onClick={() => setShowAddProp((prev) => !prev)}
                   className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 rounded hover:bg-[var(--control-hover)]"
                 >
@@ -381,7 +384,10 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
               {details.psets && details.psets.length > 0 ? (
                 details.psets.map((pset) => (
                   <div key={pset.name} className="bg-[var(--control-bg)]/60 rounded-xl border border-[var(--border-subtle)] overflow-hidden">
-                    <div className="px-3 py-1.5 bg-[var(--control-bg)] border-b border-[var(--border-subtle)] text-xs font-semibold text-slate-300">
+                    <div
+                      data-qa="pset-header"
+                      className="px-3 py-1.5 bg-[var(--control-bg)] border-b border-[var(--border-subtle)] text-xs font-semibold text-slate-300"
+                    >
                       {pset.name}
                     </div>
                     <div className="divide-y divide-[var(--border-subtle)]/60 text-xs">
@@ -424,6 +430,7 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                                   {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
                                 </span>
                                 <button
+                                  data-qa="property-edit-btn"
                                   onClick={() => handleStartEdit(pset.name, prop)}
                                   className="text-slate-500 hover:text-cyan-400 p-0.5 transition-colors"
                                   title="Edit property"

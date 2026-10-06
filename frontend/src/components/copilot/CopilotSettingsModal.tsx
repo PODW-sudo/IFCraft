@@ -73,7 +73,10 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in duration-200 backdrop-blur-xl">
+      <div
+        data-qa="copilot-settings-modal"
+        className="bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in duration-200 backdrop-blur-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center space-x-2">
@@ -81,6 +84,7 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
             <h2 className="text-sm font-semibold text-white tracking-wide uppercase">AI Copilot Settings</h2>
           </div>
           <button
+            data-qa="copilot-settings-close-btn"
             onClick={onClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
           >
@@ -106,6 +110,7 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
               )}
             </div>
             <input
+              data-qa="copilot-key-gemini"
               type="password"
               placeholder="AIzaSy..."
               value={config.geminiKey}
@@ -181,6 +186,7 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
             Cancel
           </button>
           <button
+            data-qa="copilot-settings-save-btn"
             onClick={handleSave}
             className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-full font-medium text-xs transition-all ${
               savedSuccess
