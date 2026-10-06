@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Slider from '@radix-ui/react-slider';
 import {
@@ -11,10 +11,12 @@ import {
   Camera,
   Layers,
   Trash2,
-  Maximize2
+  Maximize2,
+  GripVertical
 } from 'lucide-react';
 import type { TransformMode } from '../viewer/ThreeViewport';
 import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../tools/BimToolsToolbar';
+import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface SpatialBottomDockProps {
   transformMode: TransformMode;
@@ -47,12 +49,30 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
   renderStyle,
   onSetRenderStyle
 }) => {
-  const [isSectionFlyoutOpen, setIsSectionFlyoutOpen] = useState(false);
+  const initialWidth = 560;
+  const initialHeight = 48;
+  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 440;
+  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 80) : 820;
+
+  const { ref, style, dragProps, isDragging } = useDraggableHud('bottom-dock', {
+    x: initialX,
+    y: initialY,
+    width: initialWidth,
+    height: initialHeight
+  });
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 select-none">
+    <div
+      ref={ref}
+      style={style}
+      {...dragProps}
+      className={`z-30 flex flex-col items-center gap-2 select-none transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      }`}
+      data-qa="spatial-bottom-dock"
+    >
       {/* Section Plane Floating Control Card (when section active or clicked) */}
-      {sectionConfig.enabled && isSectionFlyoutOpen && (
+      {sectionConfig.enabled && (
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-[var(--dock-bg)] border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] text-xs text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2">
           <div className="flex items-center gap-1.5 font-medium text-slate-300">
             <Scissors className="w-3.5 h-3.5 text-rose-400" />
@@ -63,6 +83,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
             {(['x', 'y', 'z'] as const).map((axis) => (
               <button
                 key={axis}
+                data-qa={`section-axis-${axis}`}
                 onClick={() => onUpdateSection({ ...sectionConfig, axis })}
                 className={`px-2 py-0.5 rounded text-[11px] font-mono uppercase transition-colors ${
                   sectionConfig.axis === axis
@@ -77,6 +98,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
 
           <div className="flex items-center gap-2 w-32">
             <Slider.Root
+              data-qa="section-slider"
               className="relative flex items-center select-none touch-none w-full h-4"
               value={[sectionConfig.position]}
               max={15}
@@ -95,6 +117,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
           </div>
 
           <button
+            data-qa="section-flip-btn"
             onClick={() => onUpdateSection({ ...sectionConfig, inverted: !sectionConfig.inverted })}
             className={`text-[10px] px-2 py-1 rounded border transition-colors ${
               sectionConfig.inverted
@@ -109,9 +132,19 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
 
       {/* Main Floating Tool Dock */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] text-xs text-slate-200">
+        {/* Draggable Grip Handle */}
+        <div
+          data-drag-handle="true"
+          className="flex items-center text-slate-500 hover:text-slate-300 pr-1 py-1 cursor-grab active:cursor-grabbing"
+          title="Drag to reposition Bottom Dock"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+
         {/* Transform Mode Group */}
         <div className="flex items-center gap-1 pr-1.5 border-r border-[var(--border-subtle)]">
           <button
+            data-qa="dock-mode-select"
             onClick={() => onSetTransformMode('select')}
             className={`p-2 rounded-full transition-all ${
               transformMode === 'select'
@@ -124,6 +157,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
           </button>
 
           <button
+            data-qa="dock-mode-translate"
             onClick={() => onSetTransformMode('translate')}
             className={`p-2 rounded-full transition-all ${
               transformMode === 'translate'
@@ -136,6 +170,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
           </button>
 
           <button
+            data-qa="dock-mode-rotate"
             onClick={() => onSetTransformMode('rotate')}
             className={`p-2 rounded-full transition-all ${
               transformMode === 'rotate'
@@ -148,6 +183,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
           </button>
 
           <button
+            data-qa="dock-mode-scale"
             onClick={() => onSetTransformMode('scale')}
             className={`p-2 rounded-full transition-all ${
               transformMode === 'scale'
@@ -162,6 +198,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
 
         {/* Snap Toggle */}
         <button
+          data-qa="dock-snap-toggle"
           onClick={onToggleSnap}
           className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full transition-colors ${
             snapEnabled
@@ -179,10 +216,10 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
         {/* BIM Tools: Section Plane */}
         <div className="flex items-center">
           <button
+            data-qa="dock-section-toggle"
             onClick={() => {
               const nextState = !sectionConfig.enabled;
               onUpdateSection({ ...sectionConfig, enabled: nextState });
-              setIsSectionFlyoutOpen(nextState);
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors ${
               sectionConfig.enabled
@@ -199,6 +236,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
         {/* BIM Tools: Measurement Ruler */}
         <div className="flex items-center gap-1">
           <button
+            data-qa="dock-measure-toggle"
             onClick={onToggleMeasure}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors ${
               isMeasureActive
@@ -218,6 +256,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
 
           {measurementCount > 0 && (
             <button
+              data-qa="dock-clear-measurements"
               onClick={onClearMeasurements}
               className="p-1 rounded-full text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
               title="Clear all measurements"
@@ -233,6 +272,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
+              data-qa="dock-render-style-trigger"
               className="p-2 rounded-full text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)] transition-colors"
               title={`Render Style: ${renderStyle}`}
             >
@@ -257,6 +297,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
               ].map((style) => (
                 <DropdownMenu.Item
                   key={style.id}
+                  data-qa={`render-style-${style.id}`}
                   onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors outline-none ${
                     renderStyle === style.id
@@ -275,6 +316,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
+              data-qa="dock-camera-preset-trigger"
               className="p-2 rounded-full text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)] transition-colors"
               title="Camera Orientation Presets"
             >
@@ -298,6 +340,7 @@ export const SpatialBottomDock: React.FC<SpatialBottomDockProps> = ({
               ].map((preset) => (
                 <DropdownMenu.Item
                   key={preset.id}
+                  data-qa={`camera-preset-${preset.id}`}
                   onSelect={() => onCameraPreset(preset.id as CameraPreset)}
                   className="px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-[var(--control-hover)] hover:text-white text-slate-300 transition-colors outline-none"
                 >

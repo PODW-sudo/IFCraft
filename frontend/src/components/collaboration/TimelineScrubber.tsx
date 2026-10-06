@@ -7,9 +7,11 @@ import {
   History, 
   X,
   Clock,
-  User
+  User,
+  GripVertical
 } from 'lucide-react';
 import type { AuditTimelineItem } from '../../types/ifc';
+import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface TimelineScrubberProps {
   isOpen: boolean;
@@ -55,6 +57,18 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     };
   }, [isPlaying, timeline, onSelectEvent]);
 
+  const initialWidth = 560;
+  const initialHeight = 120;
+  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 440;
+  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 220) : 680;
+
+  const { ref, style, dragProps, isDragging } = useDraggableHud('timeline-scrubber', {
+    x: initialX,
+    y: initialY,
+    width: initialWidth,
+    height: initialHeight
+  });
+
   if (!isOpen) return null;
 
   const currentEvent = timeline[currentIndex] || null;
@@ -85,14 +99,27 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
   return (
     <div
+      ref={ref}
+      style={style}
+      {...dragProps}
       role="region"
       aria-label="Collaborative Session Playback Scrubber"
       data-qa="timeline-scrubber"
-      className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-xl p-3 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2 select-none animate-in fade-in slide-in-from-bottom-2 text-xs text-text-primary pointer-events-auto"
+      className={`z-40 w-11/12 max-w-xl p-3 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2 select-none text-xs text-text-primary pointer-events-auto transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      }`}
     >
       {/* Top Header & Event Info */}
       <div className="flex items-center justify-between border-b border-border-subtle pb-1.5">
         <div className="flex items-center gap-2">
+          {/* Draggable Grip Handle */}
+          <div
+            data-drag-handle="true"
+            className="flex items-center text-text-secondary hover:text-text-primary pr-0.5 cursor-grab active:cursor-grabbing"
+            title="Drag to reposition Timeline Scrubber"
+          >
+            <GripVertical size={14} />
+          </div>
           <History className="w-3.5 h-3.5 text-action-primary-text" />
           <span className="font-semibold text-text-primary text-[11px] uppercase tracking-wider">
             Audit Playback Scrubber

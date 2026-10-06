@@ -6,10 +6,12 @@ import {
   Target,
   CheckCircle2,
   Sliders,
-  ArrowRight
+  ArrowRight,
+  GripVertical
 } from 'lucide-react';
 import * as Slider from '@radix-ui/react-slider';
 import type { ClashRecord, ClashCheckResponse } from '../../types/ifc';
+import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface ClashInspectorProps {
   isOpen: boolean;
@@ -33,6 +35,18 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
   const [tolerance, setTolerance] = useState(0.01); // 1cm = 0.01m
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'hard' | 'clearance'>('all');
 
+  const initialWidth = 384;
+  const initialHeight = 480;
+  const initialX = 24;
+  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 560) : 340;
+
+  const { ref, style, dragProps, isDragging } = useDraggableHud('clash-inspector', {
+    x: initialX,
+    y: initialY,
+    width: initialWidth,
+    height: initialHeight
+  });
+
   if (!isOpen) return null;
 
   const clashes = clashResult?.clashes || [];
@@ -43,13 +57,27 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
 
   return (
     <div
+      ref={ref}
+      style={style}
+      {...dragProps}
+      data-qa="clash-inspector-hud"
       role="region"
       aria-label="Spatial Clash Detection Inspector"
-      className="fixed bottom-20 left-4 z-40 w-96 max-h-[520px] bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] backdrop-blur-xl p-4 text-slate-100 flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200"
+      className={`z-40 w-96 max-h-[520px] bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] backdrop-blur-xl p-4 text-slate-100 flex flex-col gap-3 duration-200 transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
         <div className="flex items-center gap-2">
+          {/* Draggable Grip Handle */}
+          <div
+            data-drag-handle="true"
+            className="flex items-center text-slate-500 hover:text-slate-300 pr-0.5 cursor-grab active:cursor-grabbing"
+            title="Drag to reposition Clash Inspector"
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </div>
           <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
             <AlertTriangle className="w-4 h-4" />
           </div>
@@ -68,6 +96,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
           </div>
         </div>
         <button
+          data-qa="clash-close-btn"
           onClick={onClose}
           className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
           title="Close Inspector"
@@ -89,6 +118,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
         </div>
 
         <Slider.Root
+          data-qa="clash-tolerance-slider"
           value={[tolerance]}
           min={0.001}
           max={0.1}
@@ -103,6 +133,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
         </Slider.Root>
 
         <button
+          data-qa="clash-run-btn"
           onClick={() => onRunClashCheck(tolerance)}
           disabled={isLoading}
           className={`w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold transition-colors ${
@@ -120,6 +151,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
       {clashResult && (
         <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
           <button
+            data-qa="clash-tab-all"
             onClick={() => setFilterSeverity('all')}
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors ${
               filterSeverity === 'all'
@@ -130,6 +162,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
             All ({clashResult.total_clashes})
           </button>
           <button
+            data-qa="clash-tab-hard"
             onClick={() => setFilterSeverity('hard')}
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors ${
               filterSeverity === 'hard'
@@ -140,6 +173,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
             Hard ({clashResult.hard_clashes})
           </button>
           <button
+            data-qa="clash-tab-clearance"
             onClick={() => setFilterSeverity('clearance')}
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors ${
               filterSeverity === 'clearance'

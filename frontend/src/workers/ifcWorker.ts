@@ -138,8 +138,54 @@ function buildSpatialTree(modelID: number, fallbackName: string): SpatialNode {
       };
     }
 
+    // Build parent-to-children relationship map in a single O(N) pass
+    const childrenMap = new Map<number, number[]>();
+
+    const addChild = (parentId: number, childId: number) => {
+      let list = childrenMap.get(parentId);
+      if (!list) {
+        list = [];
+        childrenMap.set(parentId, list);
+      }
+      list.push(childId);
+    };
+
+    // 1. Index RelAggregates (Spatial decomposition: Project -> Site -> Building -> Storey)
+    try {
+      const relAggregates = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCRELAGGREGATES);
+      for (let i = 0; i < relAggregates.size(); i++) {
+        const relID = relAggregates.get(i);
+        const rel = ifcApi.GetLine(modelID, relID);
+        if (rel?.RelatingObject?.value && Array.isArray(rel.RelatedObjects)) {
+          const parentId = rel.RelatingObject.value;
+          for (const item of rel.RelatedObjects) {
+            if (item?.value) addChild(parentId, item.value);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to index IFCRELAGGREGATES:', e);
+    }
+
+    // 2. Index RelContainedInSpatialStructure (Storey -> Elements)
+    try {
+      const relContained = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+      for (let i = 0; i < relContained.size(); i++) {
+        const relID = relContained.get(i);
+        const rel = ifcApi.GetLine(modelID, relID);
+        if (rel?.RelatingStructure?.value && Array.isArray(rel.RelatedElements)) {
+          const parentId = rel.RelatingStructure.value;
+          for (const item of rel.RelatedElements) {
+            if (item?.value) addChild(parentId, item.value);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to index IFCRELCONTAINEDINSPATIALSTRUCTURE:', e);
+    }
+
     const projectID = projects.get(0);
-    return parseNodeRecursive(modelID, projectID);
+    return parseNodeRecursive(modelID, projectID, childrenMap, new Set());
   } catch {
     return {
       express_id: 0,
@@ -151,7 +197,23 @@ function buildSpatialTree(modelID: number, fallbackName: string): SpatialNode {
   }
 }
 
-function parseNodeRecursive(modelID: number, expressID: number): SpatialNode {
+function parseNodeRecursive(
+  modelID: number,
+  expressID: number,
+  childrenMap: Map<number, number[]>,
+  visited: Set<number>
+): SpatialNode {
+  if (visited.has(expressID)) {
+    return {
+      express_id: expressID,
+      global_id: `id-${expressID}`,
+      name: `Entity #${expressID}`,
+      type: 'IfcProduct',
+      children: []
+    };
+  }
+  visited.add(expressID);
+
   let name = `Entity #${expressID}`;
   let type = 'IfcProduct';
   let globalId = `id-${expressID}`;
@@ -159,8 +221,8 @@ function parseNodeRecursive(modelID: number, expressID: number): SpatialNode {
   try {
     const line = ifcApi.GetLine(modelID, expressID);
     if (line) {
-      if (line.Name && line.Name.value) name = line.Name.value;
-      if (line.GlobalId && line.GlobalId.value) globalId = line.GlobalId.value;
+      if (line.Name?.value) name = line.Name.value;
+      if (line.GlobalId?.value) globalId = line.GlobalId.value;
       const typeCode = ifcApi.GetLineType(modelID, expressID);
       type = ifcApi.GetNameFromTypeCode(typeCode) || type;
     }
@@ -168,46 +230,10 @@ function parseNodeRecursive(modelID: number, expressID: number): SpatialNode {
     // fallback
   }
 
+  const childIds = childrenMap.get(expressID) || [];
   const children: SpatialNode[] = [];
-
-  // 1. Check IsDecomposedBy (RelAggregates)
-  try {
-    const relAggregates = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCRELAGGREGATES);
-    for (let i = 0; i < relAggregates.size(); i++) {
-      const relID = relAggregates.get(i);
-      const rel = ifcApi.GetLine(modelID, relID);
-      if (rel && rel.RelatingObject && rel.RelatingObject.value === expressID) {
-        if (rel.RelatedObjects && Array.isArray(rel.RelatedObjects)) {
-          for (const item of rel.RelatedObjects) {
-            if (item && item.value) {
-              children.push(parseNodeRecursive(modelID, item.value));
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // 2. Check ContainsElements (RelContainedInSpatialStructure)
-  try {
-    const relContained = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
-    for (let i = 0; i < relContained.size(); i++) {
-      const relID = relContained.get(i);
-      const rel = ifcApi.GetLine(modelID, relID);
-      if (rel && rel.RelatingStructure && rel.RelatingStructure.value === expressID) {
-        if (rel.RelatedElements && Array.isArray(rel.RelatedElements)) {
-          for (const item of rel.RelatedElements) {
-            if (item && item.value) {
-              children.push(parseNodeRecursive(modelID, item.value));
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
+  for (const cid of childIds) {
+    children.push(parseNodeRecursive(modelID, cid, childrenMap, visited));
   }
 
   return {

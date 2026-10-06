@@ -241,6 +241,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   return (
     <>
       <div
+        data-qa="copilot-sidebar-drawer"
         style={{ width: `${width}px` }}
         className="fixed top-16 right-4 bottom-6 bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl flex flex-col z-30 shadow-[var(--shadow-hud)] overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4"
       >
@@ -286,6 +287,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
           <div className="flex items-center space-x-1">
             <button
+              data-qa="copilot-settings-btn"
               onClick={() => setSettingsOpen(true)}
               title="Copilot Settings & API Keys"
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
@@ -293,6 +295,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <Settings className="w-3.5 h-3.5" />
             </button>
             <button
+              data-qa="copilot-clear-btn"
               onClick={handleClearHistory}
               title="Clear Chat History"
               className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
@@ -300,6 +303,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
             <button
+              data-qa="copilot-close-btn"
               onClick={onClose}
               title="Close Copilot"
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
@@ -314,6 +318,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           <div className="flex items-center space-x-2">
             {/* Provider Selector */}
             <select
+              data-qa="copilot-provider-select"
               value={selectedProviderId}
               onChange={(e) => setSelectedProviderId(e.target.value)}
               className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none"
@@ -327,6 +332,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
             {/* Model Selector */}
             <select
+              data-qa="copilot-model-select"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-md px-2 py-1 text-[11px] text-slate-200 outline-none"
@@ -453,6 +459,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             {QUICK_PROMPTS.map((prompt, idx) => (
               <button
                 key={idx}
+                data-qa="copilot-quick-prompt"
                 onClick={() => handleSend(prompt)}
                 disabled={isLoading}
                 className="shrink-0 px-2.5 py-1 rounded-full bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] text-[10px] text-slate-300 hover:text-white transition-colors"
@@ -474,6 +481,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           >
             <input
               ref={inputRef}
+              data-qa="copilot-input"
               type="text"
               placeholder="Ask Copilot or type a command..."
               value={input}
@@ -482,6 +490,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
             />
             <button
+              data-qa="copilot-send-btn"
               type="submit"
               disabled={!input.trim() || isLoading}
               className="p-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 disabled:opacity-40 disabled:hover:bg-cyan-400 text-slate-950 font-bold transition-colors shadow-sm"

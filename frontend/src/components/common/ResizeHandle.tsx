@@ -22,6 +22,8 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       onDoubleClick={onDoubleClick}
       role="separator"
       aria-orientation="vertical"
+      data-qa="resize-handle"
+      data-qa-position={position}
       title="Drag to resize panel (Double-click to reset width)"
       className={`group absolute top-0 bottom-0 z-40 flex items-center justify-center cursor-col-resize select-none touch-none w-4 transition-colors ${
         position === 'left' ? '-left-2' : '-right-2'

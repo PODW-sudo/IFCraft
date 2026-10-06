@@ -9,9 +9,11 @@ import {
   Redo2, 
   History, 
   X,
-  Sliders
+  Sliders,
+  GripVertical
 } from 'lucide-react';
 import type { CadToolMode, CadHistoryItem } from '../../types/ifc';
+import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface CadToolbarProps {
   activeMode: CadToolMode;
@@ -73,13 +75,39 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
     }
   };
 
+  const initialWidth = 540;
+  const initialHeight = 48;
+  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 450;
+  const initialY = 72;
+
+  const { ref, style, dragProps, isDragging } = useDraggableHud('cad-toolbar', {
+    x: initialX,
+    y: initialY,
+    width: initialWidth,
+    height: initialHeight
+  });
+
   return (
     <div
+      ref={ref}
+      style={style}
+      {...dragProps}
       data-qa="cad-toolbar"
-      className="fixed top-20 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2 pointer-events-auto select-none"
+      className={`z-40 flex flex-col items-center gap-2 pointer-events-auto select-none transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      }`}
     >
       {/* Primary Toolbar Pill */}
       <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-surface-dock/90 backdrop-blur-xl border border-border-subtle shadow-dock">
+        {/* Draggable Grip Handle */}
+        <div
+          data-drag-handle="true"
+          className="flex items-center text-text-secondary hover:text-text-primary px-1 py-1 cursor-grab active:cursor-grabbing"
+          title="Drag to reposition CAD Toolbar"
+        >
+          <GripVertical size={16} />
+        </div>
+
         {/* Tool Palette */}
         <div className="flex items-center gap-1 pr-1.5 border-r border-border-subtle">
           {tools.map((t) => {
@@ -196,6 +224,7 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-text-secondary">Wall Height (m):</span>
             <input
+              data-qa="cad-wall-height-input"
               type="number"
               step="0.1"
               min="0.5"
@@ -208,6 +237,7 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-text-secondary">Wall Thickness (m):</span>
             <input
+              data-qa="cad-wall-thickness-input"
               type="number"
               step="0.05"
               min="0.05"

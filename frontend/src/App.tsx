@@ -9,6 +9,9 @@ import { PropertyInspector } from './components/properties/PropertyInspector';
 import { SpatialTopPill } from './components/nav/SpatialTopPill';
 import { SpatialBottomDock } from './components/dock/SpatialBottomDock';
 import { CoordinateHud } from './components/hud/CoordinateHud';
+import { DimensionInfoHud } from './components/hud/DimensionInfoHud';
+import { HudLayoutProvider } from './components/hud/HudLayoutContext';
+import { ViewControlsHud } from './components/hud/ViewControlsHud';
 import { SpatialOmnibar } from './components/omnibar/SpatialOmnibar';
 import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './components/tools/BimToolsToolbar';
 import { UploadModal } from './components/modals/UploadModal';
@@ -65,6 +68,7 @@ export const App: React.FC = () => {
   // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
   const [isMeasureActive, setIsMeasureActive] = useState(false);
   const [measurements, setMeasurements] = useState<MeasurementRecord[]>([]);
+  const [activeDimension, setActiveDimension] = useState<MeasurementRecord | null>(null);
   const [sectionConfig, setSectionConfig] = useState<SectionPlaneConfig>({
     enabled: false,
     axis: 'y',
@@ -389,7 +393,12 @@ export const App: React.FC = () => {
       try {
         const list = await refreshProjects();
         if (list.length > 0) {
-          await loadProject(list[0]);
+          // Prefer a responsive starter project (Duplex/Villa) over a 47MB performance benchmark on initial mount
+          const starter = list.find((p) => {
+            const n = p.name.toLowerCase();
+            return !n.includes('castle') && !n.includes('benchmark') && (p.element_count || 0) > 0;
+          }) || list[0];
+          await loadProject(starter);
         } else {
           const newProj = await api.createProject(
             'Starter Architectural Villa',
@@ -503,10 +512,17 @@ export const App: React.FC = () => {
   // Measurement Handlers
   const handleAddMeasurement = useCallback((record: MeasurementRecord) => {
     setMeasurements((prev) => [...prev, record]);
+    setActiveDimension(record);
   }, []);
 
   const handleClearMeasurements = useCallback(() => {
     setMeasurements([]);
+    setActiveDimension(null);
+  }, []);
+
+  const handleDeleteMeasurement = useCallback((id: string) => {
+    setMeasurements((prev) => prev.filter((m) => m.id !== id));
+    setActiveDimension((prev) => (prev?.id === id ? null : prev));
   }, []);
 
   // Camera Preset Handler
@@ -742,6 +758,55 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleCadUndo, handleCadRedo]);
 
+  // Global ESC Key Handling: Clear selection, close floating HUDs, cancel tools
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
+        // If modals or command palette are open, let their own handlers manage dismissal
+        if (isOmnibarOpen || isUploadModalOpen || isNewProjectModalOpen || isBcfOpen || isFederationOpen) {
+          return;
+        }
+
+        // Priority 1: Clear selected elements if any are selected
+        if (selectedExpressID !== null) {
+          handleSelectElement(null);
+          return;
+        }
+
+        // Priority 2: Close Dimension Info HUD if open
+        if (activeDimension !== null) {
+          setActiveDimension(null);
+          return;
+        }
+
+        // Priority 3: Cancel active measurement mode
+        if (isMeasureActive) {
+          setIsMeasureActive(false);
+          return;
+        }
+
+        // Priority 4: Revert CAD tool mode to select
+        if (cadToolMode !== 'select') {
+          setCadToolMode('select');
+          return;
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isOmnibarOpen,
+    isUploadModalOpen,
+    isNewProjectModalOpen,
+    isBcfOpen,
+    isFederationOpen,
+    selectedExpressID,
+    handleSelectElement,
+    activeDimension,
+    isMeasureActive,
+    cadToolMode
+  ]);
+
   // Phase 12 Handlers: BCF 2.1 Issues & Audit Playback
   const refreshBcfTopics = useCallback(async () => {
     if (!currentProject) {
@@ -809,51 +874,65 @@ export const App: React.FC = () => {
   }, []);
 
   // Dev-only QA Bridge for Live Agent Browser Automation
+  const latestStateRef = useRef<Record<string, unknown>>({});
+  latestStateRef.current = {
+    currentProject,
+    selectedExpressID,
+    isTreeOpen,
+    isPropertyOpen,
+    isCopilotOpen,
+    isMeasureActive,
+    measurementCount: measurements.length,
+    activeDimension: activeDimension
+      ? {
+          id: activeDimension.id,
+          distance: activeDimension.distance,
+          dx: Math.abs(activeDimension.end[0] - activeDimension.start[0]),
+          dy: Math.abs(activeDimension.end[1] - activeDimension.start[1]),
+          dz: Math.abs(activeDimension.end[2] - activeDimension.start[2])
+        }
+      : null,
+    sectionConfig,
+    transformMode,
+    renderStyle,
+    snapEnabled,
+    hiddenCategories: Array.from(hiddenCategories),
+    isolatedExpressID,
+    loadingStage,
+    loadingPercent,
+    isLoading,
+    isOmnibarOpen,
+    isUploadModalOpen,
+    isNewProjectModalOpen,
+    projectsCount: projects.length,
+    geometriesCount: geometries.length,
+    subModelsCount: subModels.length,
+    subModels,
+    isFederationOpen,
+    isClashInspectorOpen,
+    clashResult,
+    activeClash,
+    isCadOpen,
+    cadToolMode,
+    cadCanUndo,
+    cadCanRedo,
+    cadHistoryCount: cadHistory.length,
+    cadHistory,
+    isBcfOpen,
+    bcfTopicsCount: bcfTopics.length,
+    bcfTopics,
+    isTimelineOpen,
+    auditTimelineCount: auditTimeline.length,
+    auditTimeline,
+    auditDiff,
+    firstExpressID: geometries.length > 0 ? geometries[0].expressID : 128
+  };
+
   useEffect(() => {
     if (import.meta.env.DEV) {
       (window as any).__IFC_QA_BRIDGE__ = {
-        getState: () => ({
-          currentProject,
-          selectedExpressID,
-          isTreeOpen,
-          isPropertyOpen,
-          isCopilotOpen,
-          isMeasureActive,
-          measurementCount: measurements.length,
-          sectionConfig,
-          transformMode,
-          renderStyle,
-          snapEnabled,
-          hiddenCategories: Array.from(hiddenCategories),
-          isolatedExpressID,
-          loadingStage,
-          loadingPercent,
-          isLoading,
-          isOmnibarOpen,
-          isUploadModalOpen,
-          isNewProjectModalOpen,
-          projectsCount: projects.length,
-          geometriesCount: geometries.length,
-          subModelsCount: subModels.length,
-          subModels,
-          isFederationOpen,
-          isClashInspectorOpen,
-          clashResult,
-          activeClash,
-          isCadOpen,
-          cadToolMode,
-          cadCanUndo,
-          cadCanRedo,
-          cadHistoryCount: cadHistory.length,
-          cadHistory,
-          isBcfOpen,
-          bcfTopicsCount: bcfTopics.length,
-          bcfTopics,
-          isTimelineOpen,
-          auditTimelineCount: auditTimeline.length,
-          auditTimeline,
-          auditDiff
-        }),
+        getState: () => latestStateRef.current,
+        getFirstExpressId: () => (geometries.length > 0 ? geometries[0].expressID : 128),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
         setSectionConfig: (config: Partial<SectionPlaneConfig>) => setSectionConfig((prev) => ({ ...prev, ...config })),
@@ -866,7 +945,17 @@ export const App: React.FC = () => {
         toggleCopilot: (open?: boolean) => setIsCopilotOpen((prev) => (open !== undefined ? open : !prev)),
         openOmnibar: () => setIsOmnibarOpen(true),
         closeOmnibar: () => setIsOmnibarOpen(false),
-        clearMeasurements: () => setMeasurements([]),
+        clearMeasurements: () => {
+          setMeasurements([]);
+          setActiveDimension(null);
+        },
+        closeDimensionInfo: () => setActiveDimension(null),
+        selectDimension: (id: string) => {
+          const f = measurements.find((m) => m.id === id);
+          if (f) setActiveDimension(f);
+        },
+        setMeasureActive: (active: boolean) => setIsMeasureActive(active),
+        triggerCameraPreset: (preset: CameraPreset) => handleCameraPreset(preset),
         openFederationModal: () => setIsFederationOpen(true),
         closeFederationModal: () => setIsFederationOpen(false),
         openClashInspector: () => setIsClashInspectorOpen(true),
@@ -921,20 +1010,29 @@ export const App: React.FC = () => {
             (start[1] + end[1]) / 2,
             (start[2] + end[2]) / 2
           ];
-          setMeasurements((prev) => [
-            ...prev,
-            {
-              id: `measure_${Date.now()}`,
-              start,
-              end,
-              distance: dist,
-              midpoint: mid
-            }
-          ]);
+          const record: MeasurementRecord = {
+            id: `measure_${Date.now()}`,
+            start,
+            end,
+            distance: dist,
+            midpoint: mid
+          };
+          handleAddMeasurement(record);
         },
         loadProjectById: (projectId: string) => {
           const p = projects.find((item) => item.id === projectId);
           if (p) loadProject(p);
+        },
+        openUploadModal: () => setIsUploadModalOpen(true),
+        closeUploadModal: () => setIsUploadModalOpen(false),
+        openNewProjectModal: () => setIsNewProjectModalOpen(true),
+        closeNewProjectModal: () => setIsNewProjectModalOpen(false),
+        triggerSoftLock: (expressId: number, userName: string) =>
+          setLockNotification({ expressID: expressId, userName, userColor: undefined }),
+        dismissSoftLock: () => setLockNotification(null),
+        setCadWallParams: (params: { height?: number; thickness?: number }) => {
+          if (params.height !== undefined) setCadWallHeight(params.height);
+          if (params.thickness !== undefined) setCadWallThickness(params.thickness);
         }
       };
     }
@@ -946,6 +1044,8 @@ export const App: React.FC = () => {
     isCopilotOpen,
     isMeasureActive,
     measurements,
+    activeDimension,
+    handleAddMeasurement,
     sectionConfig,
     transformMode,
     renderStyle,
@@ -1038,6 +1138,7 @@ export const App: React.FC = () => {
           isMeasureActive={isMeasureActive}
           measurements={measurements}
           onAddMeasurement={handleAddMeasurement}
+          onSelectMeasurement={setActiveDimension}
           onCancelMeasure={() => setIsMeasureActive(false)}
           sectionConfig={sectionConfig}
           cameraPresetTrigger={cameraPresetTrigger}
@@ -1056,47 +1157,54 @@ export const App: React.FC = () => {
         />
       </div>
 
-      {/* 2. Floating Top Pill Navigation */}
-      <SpatialTopPill
-        currentProject={currentProject}
-        projects={projects}
-        onSelectProject={loadProject}
-        onOpenUploadModal={() => setIsUploadModalOpen(true)}
-        onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
-        onDownloadProject={handleDownloadProject}
-        isTreeOpen={isTreeOpen}
-        onToggleTree={() => setIsTreeOpen((prev) => !prev)}
-        isPropertyOpen={isPropertyOpen}
-        onToggleProperty={handleToggleProperty}
-        isCopilotOpen={isCopilotOpen}
-        onToggleCopilot={handleToggleCopilot}
-        onOpenOmnibar={() => setIsOmnibarOpen(true)}
-        selectedExpressID={selectedExpressID}
-        spatialTree={spatialTree}
-        collaborators={collaborators}
-        hiddenCategories={hiddenCategories}
-        onToggleCategory={toggleCategoryVisibility}
-        isFederationOpen={isFederationOpen}
-        onToggleFederation={() => setIsFederationOpen((prev) => !prev)}
-        subModelCount={subModels.length}
-        isClashOpen={isClashInspectorOpen}
-        onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
-        clashCount={clashResult?.total_clashes ?? 0}
-        isCadOpen={isCadOpen}
-        onToggleCad={handleToggleCad}
-        isBcfOpen={isBcfOpen}
-        onToggleBcf={() => {
-          setIsBcfOpen((prev) => !prev);
-          if (!isBcfOpen) refreshBcfTopics();
-        }}
-        bcfTopicCount={bcfTopics.length}
-        isTimelineOpen={isTimelineOpen}
-        onToggleTimeline={() => {
-          setIsTimelineOpen((prev) => !prev);
-          if (!isTimelineOpen) refreshAuditData();
-        }}
-        auditCount={auditTimeline.length}
-      />
+      <HudLayoutProvider>
+        {/* 2. Floating Top Pill Navigation */}
+        <SpatialTopPill
+          currentProject={currentProject}
+          projects={projects}
+          onSelectProject={loadProject}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
+          onDownloadProject={handleDownloadProject}
+          isTreeOpen={isTreeOpen}
+          onToggleTree={() => setIsTreeOpen((prev) => !prev)}
+          isPropertyOpen={isPropertyOpen}
+          onToggleProperty={handleToggleProperty}
+          isCopilotOpen={isCopilotOpen}
+          onToggleCopilot={handleToggleCopilot}
+          onOpenOmnibar={() => setIsOmnibarOpen(true)}
+          selectedExpressID={selectedExpressID}
+          spatialTree={spatialTree}
+          collaborators={collaborators}
+          hiddenCategories={hiddenCategories}
+          onToggleCategory={toggleCategoryVisibility}
+          isFederationOpen={isFederationOpen}
+          onToggleFederation={() => setIsFederationOpen((prev) => !prev)}
+          subModelCount={subModels.length}
+          isClashOpen={isClashInspectorOpen}
+          onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
+          clashCount={clashResult?.total_clashes ?? 0}
+          isCadOpen={isCadOpen}
+          onToggleCad={handleToggleCad}
+          isBcfOpen={isBcfOpen}
+          onToggleBcf={() => {
+            setIsBcfOpen((prev) => !prev);
+            if (!isBcfOpen) refreshBcfTopics();
+          }}
+          bcfTopicCount={bcfTopics.length}
+          isTimelineOpen={isTimelineOpen}
+          onToggleTimeline={() => {
+            setIsTimelineOpen((prev) => !prev);
+            if (!isTimelineOpen) refreshAuditData();
+          }}
+          auditCount={auditTimeline.length}
+        />
+
+        {/* 2a. Floating View Orientation Controls */}
+        <ViewControlsHud
+          onCameraPreset={handleCameraPreset}
+          activePreset={cameraPresetTrigger?.preset ?? null}
+        />
 
       {/* 2b. Floating CAD Modeling Toolbar */}
       {isCadOpen && (
@@ -1177,6 +1285,15 @@ export const App: React.FC = () => {
         treeWidth={treeWidth}
       />
 
+      {/* 7a. Floating Dimension Info HUD with exact XYZ Deltas */}
+      {activeDimension && (
+        <DimensionInfoHud
+          measurement={activeDimension}
+          onClose={() => setActiveDimension(null)}
+          onDelete={handleDeleteMeasurement}
+        />
+      )}
+
       {/* 8. Command Palette / Spatial Omnibar (Ctrl+K) */}
       <SpatialOmnibar
         isOpen={isOmnibarOpen}
@@ -1215,7 +1332,9 @@ export const App: React.FC = () => {
 
       {/* Non-blocking Soft Lock Alert Notification */}
       {lockNotification && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--dock-bg)] border border-amber-500/40 text-amber-200 text-xs shadow-[var(--shadow-hud)] backdrop-blur-md transition-all duration-200 select-none animate-in fade-in-50 slide-in-from-top-2 ${
+        <div
+          data-qa="soft-lock-notification"
+          className={`fixed left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--dock-bg)] border border-amber-500/40 text-amber-200 text-xs shadow-[var(--shadow-hud)] backdrop-blur-md transition-all duration-200 select-none animate-in fade-in-50 slide-in-from-top-2 ${
           isMeasureActive ? 'top-28' : 'top-16'
         }`}>
           <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -1224,6 +1343,7 @@ export const App: React.FC = () => {
             <span className="font-semibold text-amber-300">{lockNotification.userName}</span>
           </span>
           <button
+            data-qa="soft-lock-dismiss-btn"
             onClick={() => setLockNotification(null)}
             className="ml-1 text-slate-400 hover:text-slate-200 p-0.5 rounded cursor-pointer transition-colors"
             title="Dismiss notification"
@@ -1305,6 +1425,7 @@ export const App: React.FC = () => {
           }
         }}
       />
+      </HudLayoutProvider>
     </div>
   );
 };

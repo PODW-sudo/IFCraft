@@ -56,7 +56,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
+      <div
+        data-qa="new-project-modal"
+        className="w-full max-w-md bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2">
@@ -65,6 +68,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
           {!isLoading && (
             <button
+              data-qa="new-project-close-btn"
               onClick={onClose}
               className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[var(--control-hover)] transition-colors"
             >
@@ -77,6 +81,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         <div className="flex border-b border-[var(--border-subtle)] bg-[var(--canvas-bg)]">
           <button
             type="button"
+            data-qa="new-project-tab-blank"
             onClick={() => setActiveTab('blank')}
             className={`flex-1 py-2.5 text-xs font-medium text-center border-b-2 transition-colors ${
               activeTab === 'blank'
@@ -88,6 +93,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </button>
           <button
             type="button"
+            data-qa="new-project-tab-sample"
             onClick={() => setActiveTab('sample')}
             className={`flex-1 py-2.5 text-xs font-medium text-center border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'sample'
@@ -111,6 +117,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <input
                   type="text"
                   required
+                  data-qa="new-project-name-input"
                   placeholder="e.g. Modern Residential Villa"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -124,6 +131,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 </label>
                 <textarea
                   rows={2}
+                  data-qa="new-project-desc-input"
                   placeholder="Project description, location, or notes..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -137,6 +145,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 </label>
                 <select
                   value={schema}
+                  data-qa="new-project-schema-select"
                   onChange={(e) => setSchema(e.target.value)}
                   className="w-full bg-[var(--control-bg)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-[var(--border-subtle)] focus:outline-none focus:border-cyan-400/60"
                 >
@@ -159,6 +168,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   return (
                     <div
                       key={s.id}
+                      data-qa={`sample-item-${s.id}`}
                       onClick={() => setSelectedSampleId(s.id)}
                       className={`p-3 rounded-xl border cursor-pointer transition-all ${
                         isSelected
@@ -197,6 +207,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </button>
             <button
               type="submit"
+              data-qa="new-project-submit-btn"
               disabled={isLoading || (activeTab === 'blank' && !name.trim())}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-cyan-400 hover:bg-cyan-300 text-slate-950 disabled:opacity-50 transition-colors shadow-sm"
             >
