@@ -5,6 +5,9 @@ on:
     branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
+  schedule:
+    # Nightly audit at 02:00 UTC running the full 323 test cases milestone suite
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       test_tier:
@@ -39,6 +42,10 @@ jobs:
         run: |
           python -c "import fastapi, ifcopenshell, aiosqlite, uvicorn; print('Backend core imports OK')"
 
+      - name: Backend Unit & Integration Tests (pytest)
+        run: |
+          pytest backend/tests -v
+
       - name: Set up Node.js 20 & pnpm
         uses: pnpm/action-setup@v3
         with:
@@ -56,6 +63,10 @@ jobs:
       - name: Frontend Strict Typecheck
         working-directory: ./frontend
         run: pnpm exec tsc -b
+
+      - name: Frontend Unit & Math Tests (Vitest)
+        working-directory: ./frontend
+        run: pnpm test
 
       - name: Frontend Production Bundle Build
         working-directory: ./frontend
@@ -135,11 +146,21 @@ jobs:
 
       - name: Execute QA Harness Browser Tests
         run: |
-          tier="${{ github.event.inputs.test_tier || 'key' }}"
-          if [ "$tier" = "milestone" ]; then
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.test_tier }}" = "milestone" ]; then
             python scripts/qa_runner.py run --milestone --browser
           else
             python scripts/qa_runner.py run --tier key --browser
+          fi
+
+      - name: Publish Test Report to GitHub Step Summary
+        if: always()
+        run: |
+          latest_report=$(ls -t test_report_*.md 2>/dev/null | head -n 1)
+          if [ -n "$latest_report" ] && [ -f "$latest_report" ]; then
+            echo "## 📊 Agent QA Harness Live Verification Summary" >> $GITHUB_STEP_SUMMARY
+            cat "$latest_report" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No test report generated." >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload Test Results Artifacts
