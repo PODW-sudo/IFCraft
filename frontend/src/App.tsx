@@ -7,6 +7,7 @@ import {
 import { SpatialTree } from './components/tree/SpatialTree';
 import { PropertyInspector } from './components/properties/PropertyInspector';
 import { SpatialTopPill } from './components/nav/SpatialTopPill';
+import { ContextualModifyBar } from './components/nav/ContextualModifyBar';
 import { SpatialBottomDock } from './components/dock/SpatialBottomDock';
 import { CoordinateHud } from './components/hud/CoordinateHud';
 import { DimensionInfoHud } from './components/hud/DimensionInfoHud';
@@ -81,6 +82,10 @@ export const App: React.FC = () => {
   });
   const [cameraPresetTrigger, setCameraPresetTrigger] = useState<{
     preset: CameraPreset;
+    timestamp: number;
+  } | null>(null);
+  const [focusTrigger, setFocusTrigger] = useState<{
+    expressId: number;
     timestamp: number;
   } | null>(null);
   const [renderStyle, setRenderStyle] = useState<RenderStyle>('shaded');
@@ -1508,6 +1513,7 @@ export const App: React.FC = () => {
           onMirrorElement={handleMirrorElement}
           onArrayElement={handleArrayElement}
           onAlignElement={handleAlignElement}
+          focusTrigger={focusTrigger}
         />
       </div>
 
@@ -1554,6 +1560,30 @@ export const App: React.FC = () => {
           auditCount={auditTimeline.length}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
         />
+
+        {/* 2b. Contextual Modification Tab (Revit-Style Contextual Modify Tab Below Top Pill) */}
+        {selectedExpressID !== null && (
+          <ContextualModifyBar
+            expressId={selectedExpressID}
+            elementDetails={selectedElementDetails}
+            storeys={storeys}
+            isPinned={pinnedExpressIds.has(selectedExpressID)}
+            onTogglePin={handleTogglePin}
+            onMove={handleMoveElement}
+            onRotate={handleRotateElement}
+            onMirror={handleMirrorElement}
+            onArray={handleArrayElement}
+            onAlign={handleAlignElement}
+            onClone={handleCloneElement}
+            onDelete={handleDeleteElement}
+            onUpdateGeometry={handleUpdateGeometry}
+            onAssignStorey={handleAssignStorey}
+            onAssignMaterial={handleAssignMaterial}
+            onFocus={(id) => setFocusTrigger({ expressId: id, timestamp: Date.now() })}
+            onOpenInspector={() => setIsPropertyOpen(true)}
+            onDeselect={() => handleSelectElement(null)}
+          />
+        )}
 
         {/* 2a. Floating View Orientation Controls */}
         <ViewControlsHud

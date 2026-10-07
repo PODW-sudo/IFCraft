@@ -4,8 +4,8 @@
 
 | Platform | Pass | Fail | Skip | Unable | Total |
 |---|---|---|---|---|---|
-| http://localhost:5173 | 1278 | 13 | 0 | 0 | 1291 |
-| **TOTAL** | **1278** | **13** | **0** | **0** | **1291** |
+| http://localhost:5173 | 1308 | 13 | 0 | 0 | 1321 |
+| **TOTAL** | **1308** | **13** | **0** | **0** | **1321** |
 
 ## Results Matrix
 
@@ -1302,6 +1302,36 @@
 | TC-MOD-06 | key | Parametric CAD | Revit Modification Tool - Align (AL) | pass | Element #27 aligned along Z axis to ground level (0.0m). |
 | TC-MOD-07 | key | Parametric CAD | Revit Modification Tool - Pin and Unpin (PN/UP) | pass | Pin/Unpin toggle verified for element #27 with DB & IFC persistence. |
 | TC-MOD-08 | key | Parametric CAD | Autodesk Revit Two-Letter Keyboard Shortcut Sequences | pass | Revit two-letter keyboard shortcut sequences (RO, MM, AR, AL, PN, UP, MV, CO) operational. |
+| TC-MOD-01 | key | Parametric CAD | Camera Rotation Snappy Damping and Adaptive Large-Model Glide | pass | Camera rotation snappy damping configuration verified. |
+| TC-MOD-02 | key | Parametric CAD | Revit Modification Tool - Move (MV) | pass | Element #27 translated by delta vector [1.0, 0.0, 0.0] and persisted. |
+| TC-MOD-03 | key | Parametric CAD | Revit Modification Tool - Rotate (RO) | pass | Element #27 rotated 90 degrees around Z axis and persisted. |
+| TC-MOD-04 | key | Parametric CAD | Revit Modification Tool - Mirror (MM) | pass | Element #27 mirrored along X axis with symmetric placement. |
+| TC-MOD-05 | key | Parametric CAD | Revit Modification Tool - Linear Array (AR) | pass | Linear array created 3 duplicates of #27 at 2.0m offsets. |
+| TC-MOD-06 | key | Parametric CAD | Revit Modification Tool - Align (AL) | pass | Element #27 aligned along Z axis to ground level (0.0m). |
+| TC-MOD-07 | key | Parametric CAD | Revit Modification Tool - Pin and Unpin (PN/UP) | pass | Pin/Unpin toggle verified for element #27 with DB & IFC persistence. |
+| TC-MOD-08 | key | Parametric CAD | Autodesk Revit Two-Letter Keyboard Shortcut Sequences | pass | Revit two-letter keyboard shortcut sequences (RO, MM, AR, AL, PN, UP, MV, CO) operational. |
+| TC-MOD-09 | key | Parametric CAD | Minimal In-Canvas Overlay with Extend/Collapse Toggle | pass | Minimal in-canvas overlay verified: collapsed (242px), expands to full palette (708px), collapses back smoothly. |
+| TC-MOD-10 | key | Parametric CAD | Contextual Modify Ribbon Tab Mounted Below Top Bar | pass | Contextual modify ribbon tab mounts directly below top pill with complete Revit modification suite and unmounts cleanly on deselect. |
+| TC-CAD-01 | key | Parametric CAD | In-Situ Selection Context Overlay Floating Above Element | pass | SelectionContextOverlay verified in component tree. |
+| TC-CAD-02 | key | Parametric CAD | Element Cloning via Context Overlay and Ctrl+D | pass | Element clone action verified on context overlay and global Ctrl+D handler. |
+| TC-CAD-03 | key | Parametric CAD | Element Deletion via Context Overlay and Del Key | pass | Element deletion action verified on context overlay with action.danger styling. |
+| TC-CAD-04 | full | Parametric CAD | In-Situ Storey Containment Reassignment Flyout | pass | In-situ building storey containment flyout verified. |
+| TC-CAD-05 | full | Parametric CAD | In-Situ Material & Color Palette Flyout | pass | In-situ architectural material palette verified. |
+| TC-CAD-06 | key | Parametric CAD | Spatial 3D Right-Click Context Menu | pass | Spatial 3D context menu mounted and handled right-click event. |
+| TC-CAD-07 | key | Parametric CAD | Dynamic Drafting HUD with Ortho Lock and Type-Ahead Input | pass | Dynamic drafting input HUD verified with distance, angle, and type-ahead support. |
+| TC-CAD-08 | key | Parametric CAD | Unified Spatial Bottom Dock Tool Switching | pass | Unified spatial bottom dock verified with mode switching and snapping controls. |
+| TC-NAV-01 | key | UI Navigation | Camera Orbit Drag Selection Suppression | pass | Camera orbit drag selection suppression verified: no random element selected on navigation release. |
+| TC-SEL-01 | key | Core Features | Visible Surface Pre-Selection Hover Highlight | pass | Visible surface pre-selection hover highlight verified with responsive raycasting. |
+| TC-SEL-02 | key | Core Features | Tab Key Depth Candidate Surface Cycling | pass | Tab key depth candidate surface cycling verified along ray line of sight. |
+| TC-SET-01 | key | Core Features | Open Settings Modal via Top Pill Button and Shortcut | pass | Settings modal mounts cleanly via top pill button and keyboard shortcut. |
+| TC-SET-02 | key | Core Features | Customize Selection and Hover Highlight Colors | pass | Customization of selection and hover highlight colors verified. |
+| TC-SET-03 | key | 3D Viewport Controls | Customize 3D Viewport Theme and Canvas Background | pass | Customization of viewport environment theme and ground grid verified. |
+| TC-NAV-02 | key | UI Navigation | CAD Navigation Controls Invariant | pass | CAD navigation controls invariant verified: Scroll zooms, MMB pans, Shift+MMB orbits, Left click free. |
+| TC-SEL-03 | key | Core Features | Direct Click Selection and Deselection on Visible Surface | pass | Direct click selection on visible surface and empty-space deselection verified. |
+| TC-SEL-04 | key | Core Features | BatchedMesh Distance-Ordered Pre-Highlight and Depth Cycling | pass | BatchedMesh distance-ordered pre-highlight and depth cycling verified. |
+| TC-NAV-03 | key | UI Navigation | Pre-Selection Hover Active Immediately Post-Orbit Without Zoom | pass | Pre-selection hover immediately active post-orbit without requiring zoom intervention. |
+| TC-NAV-04 | key | UI Navigation | Direct Left-Click Selection Immediately Post-Orbit | pass | Direct left-click selection verified immediately post-orbit: expressID 51 selected. |
+| TC-099 | key | Draggable Canvas Bars | Native Anti-Overlap Collision Repulsion & Boundary Clamping | pass | Anti-overlap separation verified: View Controls HUD (top: 72px) cleanly separated below Top Pill (bottom: 57px) without occlusion. |
 
 Legend: pass | fail | skip | unable_to_test
 

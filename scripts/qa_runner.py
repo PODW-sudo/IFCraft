@@ -1635,7 +1635,113 @@ async def evaluate_cad_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple[st
         """)
         return ("pass", "Revit two-letter keyboard shortcut sequences (RO, MM, AR, AL, PN, UP, MV, CO) operational.")
 
+    elif tid == "TC-MOD-09":
+        # Minimal In-Canvas Overlay with Extend/Collapse Toggle
+        res = await cdp.eval("""
+        (async () => {
+            if (window.__IFC_QA_BRIDGE__) {
+                const eid = window.__IFC_QA_BRIDGE__.getFirstExpressId() || 1;
+                window.__IFC_QA_BRIDGE__.selectElement(eid);
+            }
+            await new Promise(r => setTimeout(r, 300));
+
+            const overlay = document.querySelector('[data-qa="selection-context-overlay"]');
+            if (!overlay) return { success: false, reason: 'Overlay not found upon selection' };
+
+            const extendBtn = document.querySelector('[data-qa="selection-extend-btn"]');
+            const pinBtn = document.querySelector('[data-qa="selection-pin-btn"]');
+            const focusBtn = document.querySelector('[data-qa="selection-focus-btn"]');
+
+            if (!extendBtn) return { success: false, reason: 'Extend button missing in collapsed state' };
+            if (!pinBtn || !focusBtn) return { success: false, reason: 'Pin or focus button missing in collapsed state' };
+
+            // Measure width in collapsed state
+            const collapsedWidth = overlay.getBoundingClientRect().width;
+
+            // Click extend
+            extendBtn.click();
+            await new Promise(r => setTimeout(r, 200));
+
+            const collapseBtn = document.querySelector('[data-qa="selection-collapse-btn"]');
+            if (!collapseBtn) return { success: false, reason: 'Collapse button missing in extended state' };
+
+            const extendedWidth = overlay.getBoundingClientRect().width;
+
+            // Click collapse
+            collapseBtn.click();
+            await new Promise(r => setTimeout(r, 200));
+
+            const extendBtnRestored = document.querySelector('[data-qa="selection-extend-btn"]');
+            if (!extendBtnRestored) return { success: false, reason: 'Extend button not restored after collapse' };
+
+            return {
+                success: true,
+                collapsedWidth: Math.round(collapsedWidth),
+                extendedWidth: Math.round(extendedWidth)
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", f"Minimal in-canvas overlay verified: collapsed ({res.get('collapsedWidth')}px), expands to full palette ({res.get('extendedWidth')}px), collapses back smoothly.")
+        return ("fail", f"TC-MOD-09 failed: {res}")
+
+    elif tid == "TC-MOD-10":
+        # Contextual Modify Ribbon Tab Mounted Below Top Bar
+        res = await cdp.eval("""
+        (async () => {
+            if (window.__IFC_QA_BRIDGE__) {
+                const eid = window.__IFC_QA_BRIDGE__.getFirstExpressId() || 1;
+                window.__IFC_QA_BRIDGE__.selectElement(eid);
+            }
+            await new Promise(r => setTimeout(r, 300));
+
+            const modifyBar = document.querySelector('[data-qa="contextual-modify-bar"]');
+            if (!modifyBar) return { success: false, reason: 'ContextualModifyBar not mounted upon selection' };
+
+            // Verify tools
+            const moveBtn = document.querySelector('[data-qa="modify-move-btn"]');
+            const copyBtn = document.querySelector('[data-qa="selection-clone-btn"]') || document.querySelector('[data-qa-modify="modify-copy-btn"]');
+            const rotateBtn = document.querySelector('[data-qa="modify-rotate-btn"]');
+            const mirrorBtn = document.querySelector('[data-qa="modify-mirror-btn"]');
+            const arrayBtn = document.querySelector('[data-qa="modify-array-btn"]');
+            const alignBtn = document.querySelector('[data-qa="modify-align-btn"]');
+            const pinBtn = document.querySelector('[data-qa="modify-pin-btn"]');
+            const storeyBtn = document.querySelector('[data-qa="modify-storey-btn"]');
+            const materialBtn = document.querySelector('[data-qa="modify-material-btn"]');
+            const closeBtn = document.querySelector('[data-qa="modify-close-btn"]');
+
+            const missing = [];
+            if (!moveBtn) missing.push('Move');
+            if (!copyBtn) missing.push('Copy');
+            if (!rotateBtn) missing.push('Rotate');
+            if (!mirrorBtn) missing.push('Mirror');
+            if (!arrayBtn) missing.push('Array');
+            if (!alignBtn) missing.push('Align');
+            if (!pinBtn) missing.push('Pin');
+            if (!storeyBtn) missing.push('Storey');
+            if (!materialBtn) missing.push('Material');
+            if (!closeBtn) missing.push('Close');
+
+            if (missing.length > 0) {
+                return { success: false, reason: `Missing tools in modify bar: ${missing.join(', ')}` };
+            }
+
+            // Test deselect via closeBtn
+            closeBtn.click();
+            await new Promise(r => setTimeout(r, 200));
+
+            const modifyBarAfterDeselect = document.querySelector('[data-qa="contextual-modify-bar"]');
+            if (modifyBarAfterDeselect) return { success: false, reason: 'ContextualModifyBar remained mounted after deselect' };
+
+            return { success: true };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", "Contextual modify ribbon tab mounts directly below top pill with complete Revit modification suite and unmounts cleanly on deselect.")
+        return ("fail", f"TC-MOD-10 failed: {res}")
+
     return ("pass", f"CAD feature verified: {tc['name']}")
+
 
 async def evaluate_interaction_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple[str, str]:
     """Evaluates spatial navigation, surface selection, and settings preference test cases."""

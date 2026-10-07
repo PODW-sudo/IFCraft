@@ -152,6 +152,10 @@ export const HudLayoutProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 };
 
+export function useHudLayout() {
+  return useContext(HudLayoutContext);
+}
+
 export function useDraggableHud(
   id: string,
   defaultPos: { x: number; y: number; width?: number; height?: number }

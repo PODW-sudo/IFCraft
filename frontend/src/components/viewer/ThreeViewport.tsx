@@ -98,6 +98,7 @@ interface ThreeViewportProps {
   onMirrorElement?: (expressId: number, axis: 'x' | 'y' | 'z', is_copy: boolean) => void;
   onArrayElement?: (expressId: number, count: number, delta: [number, number, number]) => void;
   onAlignElement?: (expressId: number, axis: 'x' | 'y' | 'z', target_value?: number) => void;
+  focusTrigger?: { expressId: number; timestamp: number } | null;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -389,7 +390,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onRotateElement,
   onMirrorElement,
   onArrayElement,
-  onAlignElement
+  onAlignElement,
+  focusTrigger
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -1729,6 +1731,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
     updateSelectionScreenPosition();
   }, [updateSelectionScreenPosition]);
+
+  useEffect(() => {
+    if (focusTrigger && focusTrigger.expressId) {
+      handleFocusElement(focusTrigger.expressId);
+    }
+  }, [focusTrigger, handleFocusElement]);
 
   // Reset view
   const handleResetView = useCallback(() => {

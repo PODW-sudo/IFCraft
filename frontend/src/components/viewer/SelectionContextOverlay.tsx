@@ -17,7 +17,9 @@ import {
   Grid3x3,
   AlignHorizontalJustifyCenter,
   Pin,
-  PinOff
+  PinOff,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import type { ElementDetails } from '../../types/ifc';
 
@@ -75,6 +77,7 @@ export const SelectionContextOverlay: React.FC<SelectionContextOverlayProps> = (
   const [activeToolMenu, setActiveToolMenu] = useState<'rotate' | 'mirror' | 'array' | 'align' | null>(null);
   const [editingParam, setEditingParam] = useState<'height' | 'thickness' | 'elevation' | null>(null);
   const [tempValue, setTempValue] = useState<string>('');
+  const [isExtended, setIsExtended] = useState(false);
 
   // Tool params state
   const [rotateAngle, setRotateAngle] = useState<number>(90);
@@ -154,8 +157,9 @@ export const SelectionContextOverlay: React.FC<SelectionContextOverlayProps> = (
   };
 
   // Clamp screen coordinates so overlay stays within window viewport
-  const posX = Math.max(16, Math.min(window.innerWidth - 380, screenPosition.x - 180));
-  const posY = Math.max(70, Math.min(window.innerHeight - 100, screenPosition.y - 48));
+  const overlayWidth = isExtended ? 420 : 160;
+  const posX = Math.max(16, Math.min(window.innerWidth - overlayWidth - 20, screenPosition.x - overlayWidth / 2));
+  const posY = Math.max(70, Math.min(window.innerHeight - (isExtended ? 140 : 60), screenPosition.y - 42));
 
   return (
     <div
@@ -166,20 +170,99 @@ export const SelectionContextOverlay: React.FC<SelectionContextOverlayProps> = (
       className="fixed z-40 pointer-events-auto select-none flex flex-col items-center animate-in fade-in-50 zoom-in-95 duration-150"
     >
       {/* Primary Floating Capsule */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-surface-dock/95 backdrop-blur-2xl border border-border-subtle shadow-dock text-text-primary text-xs">
-        {/* Entity Identification Badge */}
-        <div
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-canvas/60 border border-border-subtle/60 text-text-primary font-medium"
-          title={`${entityType} #${expressId}`}
-        >
-          {getEntityIcon(entityType)}
-          <span className="font-semibold text-[11px] truncate max-w-[100px]">
-            {entityName}
-          </span>
-          <span className="text-[10px] font-mono text-text-secondary opacity-70">
-            #{expressId}
-          </span>
+      {!isExtended ? (
+        /* Minimal In-Canvas Capsule (Default) */
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-dock/95 backdrop-blur-2xl border border-border-subtle shadow-dock text-text-primary text-xs">
+          {/* Entity Identification Badge */}
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-canvas/60 border border-border-subtle/60 text-text-primary font-medium"
+            title={`${entityType} #${expressId}`}
+          >
+            {getEntityIcon(entityType)}
+            <span className="font-semibold text-[11px] truncate max-w-[85px]">
+              {entityName}
+            </span>
+            <span className="text-[10px] font-mono text-text-secondary opacity-70">
+              #{expressId}
+            </span>
+          </div>
+
+          {/* Pinned Indicator Badge */}
+          {isPinned && (
+            <div
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium text-[10px]"
+              title="Element is pinned (UP to unpin)"
+            >
+              <Pin size={10} className="text-amber-400" />
+            </div>
+          )}
+
+          {/* Pin / Unpin button */}
+          <button
+            data-qa="selection-pin-btn"
+            onClick={() => onTogglePin && onTogglePin(expressId)}
+            className={`p-1 rounded-full transition-colors ${
+              isPinned
+                ? 'text-amber-300 bg-amber-500/20 border border-amber-500/40'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60'
+            }`}
+            title={isPinned ? "Unpin element (UP)" : "Pin element (PN)"}
+          >
+            {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+          </button>
+
+          {/* Focus button */}
+          <button
+            data-qa="selection-focus-btn"
+            onClick={() => onFocus(expressId)}
+            className="p-1 rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60 transition-colors"
+            title="Focus camera on element (F)"
+          >
+            <Focus size={11} />
+          </button>
+
+          {/* Extend Toggle Button */}
+          <button
+            data-qa="selection-extend-btn"
+            onClick={() => setIsExtended(true)}
+            className="p-1 rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60 transition-colors"
+            title="Extend in-canvas controls"
+          >
+            <ChevronDown size={11} />
+          </button>
         </div>
+      ) : (
+        /* Extended State */
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-surface-dock/95 backdrop-blur-2xl border border-border-subtle shadow-dock text-text-primary text-xs">
+          {/* Entity Identification Badge */}
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-canvas/60 border border-border-subtle/60 text-text-primary font-medium"
+            title={`${entityType} #${expressId}`}
+          >
+            {getEntityIcon(entityType)}
+            <span className="font-semibold text-[11px] truncate max-w-[100px]">
+              {entityName}
+            </span>
+            <span className="text-[10px] font-mono text-text-secondary opacity-70">
+              #{expressId}
+            </span>
+          </div>
+
+          {/* Collapse Button */}
+          <button
+            data-qa="selection-collapse-btn"
+            onClick={() => {
+              setIsExtended(false);
+              setActiveToolMenu(null);
+              setShowStoreyMenu(false);
+              setShowMaterialMenu(false);
+              setEditingParam(null);
+            }}
+            className="p-1 rounded-full text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60 transition-colors"
+            title="Collapse in-canvas controls"
+          >
+            <ChevronUp size={11} />
+          </button>
 
         {/* Pinned Indicator Badge */}
         {isPinned && (
@@ -511,9 +594,13 @@ export const SelectionContextOverlay: React.FC<SelectionContextOverlayProps> = (
           </button>
         </div>
       </div>
+      )}
 
-      {/* Storey Selector Flyout */}
-      {showStoreyMenu && (
+      {/* Flyout Submenus (only when extended) */}
+      {isExtended && (
+        <>
+          {/* Storey Selector Flyout */}
+          {showStoreyMenu && (
         <div
           data-qa="selection-storey-menu"
           className="absolute top-full mt-2 w-48 rounded-xl bg-surface-dock/95 backdrop-blur-2xl border border-border-subtle shadow-hud p-1.5 flex flex-col gap-0.5 text-xs text-text-primary animate-in fade-in-50 zoom-in-95"
@@ -805,6 +892,8 @@ export const SelectionContextOverlay: React.FC<SelectionContextOverlayProps> = (
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
