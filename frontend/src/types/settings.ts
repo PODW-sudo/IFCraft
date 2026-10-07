@@ -25,7 +25,8 @@ export interface NavigationCameraSettings {
   zoomSensitivity: number;         // 0.2 - 2.5 (default 1.0)
   invertZoom: boolean;             // Invert mouse wheel direction
   enableDamping: boolean;          // Inertial camera smoothing
-  dampingFactor: number;           // 0.01 - 0.15 (default 0.05)
+  dampingFactor: number;           // 0.02 - 0.35 (default 0.18 snappy settle)
+  adaptiveLargeModelDamping?: boolean; // Automatically enforce snappier settle on models > 150 elements
   dragThresholdPx: number;         // Pixels before drag classified (default 4)
 }
 
@@ -111,7 +112,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
     zoomSensitivity: 1.0,
     invertZoom: false,
     enableDamping: true,
-    dampingFactor: 0.05,
+    dampingFactor: 0.18,
+    adaptiveLargeModelDamping: true,
     dragThresholdPx: 4
   },
   viewport: {

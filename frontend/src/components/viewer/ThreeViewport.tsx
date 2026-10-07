@@ -91,6 +91,13 @@ interface ThreeViewportProps {
   onAssignMaterial?: (expressId: number, materialName: string, colorHex?: string) => void;
   onOpenInspector?: () => void;
   onSelectCadTool?: (tool: import('../../types/ifc').CadToolMode) => void;
+  pinnedExpressIds?: Set<number>;
+  onTogglePin?: (expressId: number) => void;
+  onMoveElement?: (expressId: number, delta: [number, number, number]) => void;
+  onRotateElement?: (expressId: number, angle_degrees: number, axis: 'x' | 'y' | 'z') => void;
+  onMirrorElement?: (expressId: number, axis: 'x' | 'y' | 'z', is_copy: boolean) => void;
+  onArrayElement?: (expressId: number, count: number, delta: [number, number, number]) => void;
+  onAlignElement?: (expressId: number, axis: 'x' | 'y' | 'z', target_value?: number) => void;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -280,7 +287,7 @@ function findVisibleCandidates(
     let type = '';
     let modelId = 'main';
 
-    if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
+    if (((hit.object as any).isBatchedMesh || hit.object instanceof THREE.BatchedMesh) && hit.batchId !== undefined) {
       const instances = (hit.object.userData as any)?.instances;
       if (instances && instances[hit.batchId]) {
         const inst = instances[hit.batchId];
@@ -312,6 +319,24 @@ function findVisibleCandidates(
   candidates.sort((a, b) => a.distance - b.distance);
 
   return candidates;
+}
+
+function disposeHighlightGroup(group: THREE.Group | null, scene: THREE.Scene | null): void {
+  if (!group) return;
+  if (scene) scene.remove(group);
+  group.traverse((obj) => {
+    if ((obj as any).geometry) {
+      (obj as any).geometry.dispose();
+    }
+    if ((obj as any).material) {
+      if (Array.isArray((obj as any).material)) {
+        (obj as any).material.forEach((m: any) => m?.dispose?.());
+      } else {
+        (obj as any).material.dispose();
+      }
+    }
+  });
+  group.clear();
 }
 
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
@@ -357,7 +382,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onAssignStorey,
   onAssignMaterial,
   onOpenInspector,
-  onSelectCadTool
+  onSelectCadTool,
+  pinnedExpressIds,
+  onTogglePin,
+  onMoveElement: _onMoveElement,
+  onRotateElement,
+  onMirrorElement,
+  onArrayElement,
+  onAlignElement
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -367,8 +399,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const transformControlsRef = useRef<TransformControls | null>(null);
   const meshesGroupRef = useRef<THREE.Group | null>(null);
   const meshMapRef = useRef<Map<number, THREE.Mesh[]>>(new Map());
-  const bboxHelperRef = useRef<THREE.BoxHelper | null>(null);
-  const selectedLinesRef = useRef<THREE.LineSegments | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
   const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
@@ -405,10 +435,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const updateHoverAtScreenCoordsRef = useRef<((clientX: number, clientY: number) => void) | null>(null);
 
   // Hover & Selection Highlight Mesh Helper Refs
-  const hoverBboxHelperRef = useRef<THREE.BoxHelper | null>(null);
-  const hoverLinesRef = useRef<THREE.LineSegments | null>(null);
-  const hoverOverlayMeshRef = useRef<THREE.Mesh | null>(null);
-  const selectedOverlayMeshRef = useRef<THREE.Mesh | null>(null);
+  const hoverHighlightGroupRef = useRef<THREE.Group | null>(null);
+  const selectedHighlightGroupRef = useRef<THREE.Group | null>(null);
 
   const hoveredElementName = React.useMemo(() => {
     if (hoveredExpressId === null) return '';
@@ -508,8 +536,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     rendererRef.current = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
+
+    const isLargeModel = geometries.length > 150;
+    const baseDamping = settings.navigation?.dampingFactor ?? 0.18;
+    const effectiveDamping = (isLargeModel && (settings.navigation?.adaptiveLargeModelDamping ?? true))
+      ? Math.max(baseDamping, 0.25)
+      : baseDamping;
     controls.enableDamping = settings.navigation?.enableDamping ?? true;
-    controls.dampingFactor = settings.navigation?.dampingFactor ?? 0.05;
+    controls.dampingFactor = effectiveDamping;
     controls.rotateSpeed = settings.navigation?.orbitSensitivity ?? 1.0;
     controls.panSpeed = settings.navigation?.panSensitivity ?? 1.0;
     controls.zoomSpeed = settings.navigation?.zoomSensitivity ?? 1.0;
@@ -600,6 +634,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           mesh.userData.batchedMesh.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
           mesh.userData.batchedMesh.instanceMatrix.needsUpdate = true;
         }
+        if (selectedHighlightGroupRef.current) {
+          selectedHighlightGroupRef.current.children.forEach((child) => {
+            const sourceMesh = (child.userData as any)?.sourceMesh;
+            if (sourceMesh) {
+              child.matrix.copy(sourceMesh.matrixWorld);
+            }
+          });
+        }
         const matrixArray = mesh.matrixWorld.toArray();
         renderer.shadowMap.needsUpdate = true;
         onTransformEnd(expressID, matrixArray);
@@ -614,6 +656,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
           mesh.userData.batchedMesh.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
           mesh.userData.batchedMesh.instanceMatrix.needsUpdate = true;
+        }
+        if (selectedHighlightGroupRef.current) {
+          selectedHighlightGroupRef.current.children.forEach((child) => {
+            const sourceMesh = (child.userData as any)?.sourceMesh;
+            if (sourceMesh) {
+              child.matrix.copy(sourceMesh.matrixWorld);
+            }
+          });
         }
         if (onTransformChange) {
           const expressID = mesh.userData.expressID as number;
@@ -766,8 +816,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       renderer,
       getElementScreenPos: (expressId: number) => {
         const meshes = meshMapRef.current.get(expressId);
-        if (!meshes || !meshes[0] || !cameraRef.current || !containerRef.current) return null;
-        const box = new THREE.Box3().setFromObject(meshes[0]);
+        if (!meshes || meshes.length === 0 || !cameraRef.current || !containerRef.current) return null;
+        const box = new THREE.Box3();
+        meshes.forEach((m) => {
+          box.union(new THREE.Box3().setFromObject(m));
+        });
         const center = new THREE.Vector3();
         box.getCenter(center);
         center.project(cameraRef.current);
@@ -921,9 +974,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     meshMapRef.current.clear();
 
-    if (bboxHelperRef.current) {
-      scene.remove(bboxHelperRef.current);
-      bboxHelperRef.current = null;
+    if (selectedHighlightGroupRef.current) {
+      disposeHighlightGroup(selectedHighlightGroupRef.current, scene);
+      selectedHighlightGroupRef.current = null;
+    }
+    if (hoverHighlightGroupRef.current) {
+      disposeHighlightGroup(hoverHighlightGroupRef.current, scene);
+      hoverHighlightGroupRef.current = null;
     }
 
     if (geometries.length === 0) return;
@@ -987,6 +1044,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           bg.setAttribute('normal', new THREE.BufferAttribute(geom.normals, 3));
           bg.setIndex(new THREE.BufferAttribute(geom.indices, 1));
           bg.computeBoundingBox();
+          bg.computeBoundingSphere();
 
           const gid = batchedMesh.addGeometry(bg);
           const iid = batchedMesh.addInstance(gid);
@@ -1009,6 +1067,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           // Lightweight selection and transform proxy
           const proxy = new THREE.Mesh(bg, material);
           proxy.applyMatrix4(mat);
+          proxy.updateMatrixWorld(true);
           proxy.visible = false;
           proxy.userData = {
             expressID: geom.expressID,
@@ -1081,6 +1140,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           const mat = new THREE.Matrix4().fromArray(geom.matrix);
           mesh.applyMatrix4(mat);
         }
+        mesh.updateMatrixWorld(true);
 
         mesh.userData = {
           expressID: geom.expressID,
@@ -1385,23 +1445,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const tControls = transformControlsRef.current;
     if (!scene || !tControls) return;
 
-    if (bboxHelperRef.current) {
-      scene.remove(bboxHelperRef.current);
-      if ('geometry' in bboxHelperRef.current) (bboxHelperRef.current.geometry as any).dispose();
-      bboxHelperRef.current = null;
-    }
-    if (selectedLinesRef.current) {
-      scene.remove(selectedLinesRef.current);
-      if (selectedLinesRef.current.geometry) selectedLinesRef.current.geometry.dispose();
-      if (selectedLinesRef.current.material instanceof THREE.Material) selectedLinesRef.current.material.dispose();
-      selectedLinesRef.current = null;
-    }
-    if (selectedOverlayMeshRef.current) {
-      scene.remove(selectedOverlayMeshRef.current);
-      if (selectedOverlayMeshRef.current.material instanceof THREE.Material) {
-        selectedOverlayMeshRef.current.material.dispose();
-      }
-      selectedOverlayMeshRef.current = null;
+    if (selectedHighlightGroupRef.current) {
+      disposeHighlightGroup(selectedHighlightGroupRef.current, scene);
+      selectedHighlightGroupRef.current = null;
     }
 
     if (selectedExpressID === null || isMeasureActive) {
@@ -1419,61 +1465,76 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const primaryMesh = meshes[0];
     const highlightConfig = settings?.highlighting ?? DEFAULT_EDITOR_SETTINGS.highlighting;
+    const selGroup = new THREE.Group();
+    selGroup.name = 'selection-highlight-group';
 
-    // High-visibility Architectural Contours or Bounding Box
-    if (highlightConfig.highlightStyle === 'contours' && primaryMesh.geometry) {
-      try {
-        const edgesGeom = new THREE.EdgesGeometry(primaryMesh.geometry, 24);
-        const edgeColor = new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor);
-        const edgeMat = new THREE.LineBasicMaterial({
-          color: edgeColor,
-          transparent: highlightConfig.selectionEdgeOpacity < 1,
-          opacity: highlightConfig.selectionEdgeOpacity ?? 1.0,
-          depthTest: !highlightConfig.xrayHighlight,
-          depthWrite: false
-        });
-        const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
-        lineSegs.matrixAutoUpdate = false;
-        lineSegs.matrix.copy(primaryMesh.matrixWorld);
-        scene.add(lineSegs);
-        selectedLinesRef.current = lineSegs;
-      } catch {
-        const bbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor).getHex());
-        scene.add(bbox);
-        bboxHelperRef.current = bbox;
+    const edgeColor = new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor);
+    const edgeOpacity = highlightConfig.selectionEdgeOpacity ?? 1.0;
+    const isContours = highlightConfig.highlightStyle === 'contours';
+
+    meshes.forEach((mesh) => {
+      if (!mesh.geometry) return;
+      mesh.updateMatrixWorld(true);
+
+      // High-visibility Architectural Contours or Bounding Box
+      if (isContours) {
+        try {
+          const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 24);
+          const edgeMat = new THREE.LineBasicMaterial({
+            color: edgeColor,
+            transparent: edgeOpacity < 1,
+            opacity: edgeOpacity,
+            depthTest: !highlightConfig.xrayHighlight,
+            depthWrite: false
+          });
+          const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
+          lineSegs.matrixAutoUpdate = false;
+          lineSegs.matrix.copy(mesh.matrixWorld);
+          lineSegs.userData = { sourceMesh: mesh };
+          selGroup.add(lineSegs);
+        } catch {
+          const bbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
+          bbox.userData = { sourceMesh: mesh };
+          selGroup.add(bbox);
+        }
+      } else {
+        const bbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
+        const boxMat = bbox.material as THREE.LineBasicMaterial;
+        boxMat.transparent = edgeOpacity < 1;
+        boxMat.opacity = edgeOpacity;
+        boxMat.depthWrite = false;
+        bbox.userData = { sourceMesh: mesh };
+        selGroup.add(bbox);
       }
-    } else {
-      const bbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor).getHex());
-      const boxMat = bbox.material as THREE.LineBasicMaterial;
-      boxMat.transparent = highlightConfig.selectionEdgeOpacity < 1;
-      boxMat.opacity = highlightConfig.selectionEdgeOpacity ?? 1.0;
-      scene.add(bbox);
-      bboxHelperRef.current = bbox;
-    }
 
-    // Distinct active selection surface wash
-    if (primaryMesh.geometry && (highlightConfig.selectionFillOpacity ?? 0.28) > 0) {
-      const fillColor = new THREE.Color(highlightConfig.selectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionColor);
-      const selOverlayMat = new THREE.MeshBasicMaterial({
-        color: fillColor,
-        transparent: true,
-        opacity: highlightConfig.selectionFillOpacity ?? 0.28,
-        depthTest: !highlightConfig.xrayHighlight,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
-        side: THREE.DoubleSide,
-        clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
-      });
-      const selMesh = new THREE.Mesh(primaryMesh.geometry, selOverlayMat);
-      selMesh.matrixAutoUpdate = false;
-      selMesh.matrix.copy(primaryMesh.matrixWorld);
-      scene.add(selMesh);
-      selectedOverlayMeshRef.current = selMesh;
-    }
+      // Distinct active selection surface wash
+      if ((highlightConfig.selectionFillOpacity ?? 0.28) > 0) {
+        const fillColor = new THREE.Color(highlightConfig.selectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionColor);
+        const selOverlayMat = new THREE.MeshBasicMaterial({
+          color: fillColor,
+          transparent: true,
+          opacity: highlightConfig.selectionFillOpacity ?? 0.28,
+          depthTest: !highlightConfig.xrayHighlight,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+          side: THREE.DoubleSide,
+          clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
+        });
+        const selMesh = new THREE.Mesh(mesh.geometry, selOverlayMat);
+        selMesh.matrixAutoUpdate = false;
+        selMesh.matrix.copy(mesh.matrixWorld);
+        selMesh.userData = { sourceMesh: mesh };
+        selGroup.add(selMesh);
+      }
+    });
 
-    if (transformMode === 'select') {
+    scene.add(selGroup);
+    selectedHighlightGroupRef.current = selGroup;
+
+    const isElementPinned = Boolean(selectedExpressID && pinnedExpressIds?.has(selectedExpressID));
+    if (transformMode === 'select' || isElementPinned) {
       tControls.detach();
     } else {
       tControls.attach(primaryMesh);
@@ -1491,23 +1552,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
 
     return () => {
-      if (bboxHelperRef.current && scene) {
-        scene.remove(bboxHelperRef.current);
-        if ('geometry' in bboxHelperRef.current) (bboxHelperRef.current.geometry as any).dispose();
-        bboxHelperRef.current = null;
-      }
-      if (selectedLinesRef.current && scene) {
-        scene.remove(selectedLinesRef.current);
-        if (selectedLinesRef.current.geometry) selectedLinesRef.current.geometry.dispose();
-        if (selectedLinesRef.current.material instanceof THREE.Material) selectedLinesRef.current.material.dispose();
-        selectedLinesRef.current = null;
-      }
-      if (selectedOverlayMeshRef.current && scene) {
-        scene.remove(selectedOverlayMeshRef.current);
-        if (selectedOverlayMeshRef.current.material instanceof THREE.Material) {
-          selectedOverlayMeshRef.current.material.dispose();
-        }
-        selectedOverlayMeshRef.current = null;
+      if (selectedHighlightGroupRef.current && scene) {
+        disposeHighlightGroup(selectedHighlightGroupRef.current, scene);
+        selectedHighlightGroupRef.current = null;
       }
     };
   }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive, sectionConfig.enabled, settings]);
@@ -1517,23 +1564,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const scene = sceneRef.current;
     if (!scene) return;
 
-    if (hoverBboxHelperRef.current) {
-      scene.remove(hoverBboxHelperRef.current);
-      if ('geometry' in hoverBboxHelperRef.current) (hoverBboxHelperRef.current.geometry as any).dispose();
-      hoverBboxHelperRef.current = null;
-    }
-    if (hoverLinesRef.current) {
-      scene.remove(hoverLinesRef.current);
-      if (hoverLinesRef.current.geometry) hoverLinesRef.current.geometry.dispose();
-      if (hoverLinesRef.current.material instanceof THREE.Material) hoverLinesRef.current.material.dispose();
-      hoverLinesRef.current = null;
-    }
-    if (hoverOverlayMeshRef.current) {
-      scene.remove(hoverOverlayMeshRef.current);
-      if (hoverOverlayMeshRef.current.material instanceof THREE.Material) {
-        hoverOverlayMeshRef.current.material.dispose();
-      }
-      hoverOverlayMeshRef.current = null;
+    if (hoverHighlightGroupRef.current) {
+      disposeHighlightGroup(hoverHighlightGroupRef.current, scene);
+      hoverHighlightGroupRef.current = null;
     }
 
     if (
@@ -1552,83 +1585,77 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       return;
     }
 
-    const primaryMesh = meshes[0];
     const highlightConfig = settings?.highlighting ?? DEFAULT_EDITOR_SETTINGS.highlighting;
+    const hoverGroup = new THREE.Group();
+    hoverGroup.name = 'hover-highlight-group';
 
-    // Hover Contours or Bounding Box
-    if (highlightConfig.highlightStyle === 'contours' && primaryMesh.geometry) {
-      try {
-        const edgesGeom = new THREE.EdgesGeometry(primaryMesh.geometry, 24);
-        const edgeColor = new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor);
-        const edgeMat = new THREE.LineBasicMaterial({
-          color: edgeColor,
-          transparent: true,
-          opacity: highlightConfig.preselectionEdgeOpacity ?? 0.65,
-          depthTest: !highlightConfig.xrayHighlight,
-          depthWrite: false
-        });
-        const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
-        lineSegs.matrixAutoUpdate = false;
-        lineSegs.matrix.copy(primaryMesh.matrixWorld);
-        scene.add(lineSegs);
-        hoverLinesRef.current = lineSegs;
-      } catch {
-        const hoverBbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor).getHex());
-        scene.add(hoverBbox);
-        hoverBboxHelperRef.current = hoverBbox;
+    const edgeColor = new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor);
+    const edgeOpacity = highlightConfig.preselectionEdgeOpacity ?? 0.65;
+    const isContours = highlightConfig.highlightStyle === 'contours';
+
+    meshes.forEach((mesh) => {
+      if (!mesh.geometry) return;
+      mesh.updateMatrixWorld(true);
+
+      // Hover Contours or Bounding Box
+      if (isContours) {
+        try {
+          const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 24);
+          const edgeMat = new THREE.LineBasicMaterial({
+            color: edgeColor,
+            transparent: true,
+            opacity: edgeOpacity,
+            depthTest: !highlightConfig.xrayHighlight,
+            depthWrite: false
+          });
+          const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
+          lineSegs.matrixAutoUpdate = false;
+          lineSegs.matrix.copy(mesh.matrixWorld);
+          hoverGroup.add(lineSegs);
+        } catch {
+          const hoverBbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
+          hoverGroup.add(hoverBbox);
+        }
+      } else {
+        const hoverBbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
+        const boxMat = hoverBbox.material as THREE.LineBasicMaterial;
+        boxMat.transparent = true;
+        boxMat.opacity = edgeOpacity;
+        boxMat.depthWrite = false;
+        hoverGroup.add(hoverBbox);
       }
-    } else {
-      const hoverBbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor).getHex());
-      const boxMat = hoverBbox.material as THREE.LineBasicMaterial;
-      boxMat.transparent = true;
-      boxMat.opacity = highlightConfig.preselectionEdgeOpacity ?? 0.65;
-      boxMat.depthWrite = false;
-      scene.add(hoverBbox);
-      hoverBboxHelperRef.current = hoverBbox;
-    }
 
-    // Subtle surface tint wash
-    if (primaryMesh.geometry && (highlightConfig.preselectionFillOpacity ?? 0.14) > 0) {
-      const fillColor = new THREE.Color(highlightConfig.preselectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionColor);
-      const hoverOverlayMat = new THREE.MeshBasicMaterial({
-        color: fillColor,
-        transparent: true,
-        opacity: highlightConfig.preselectionFillOpacity ?? 0.14,
-        depthTest: !highlightConfig.xrayHighlight,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
-        side: THREE.DoubleSide,
-        clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
-      });
-      const hoverMesh = new THREE.Mesh(primaryMesh.geometry, hoverOverlayMat);
-      hoverMesh.matrixAutoUpdate = false;
-      hoverMesh.matrix.copy(primaryMesh.matrixWorld);
-      scene.add(hoverMesh);
-      hoverOverlayMeshRef.current = hoverMesh;
-    }
+      // Subtle surface tint wash
+      if ((highlightConfig.preselectionFillOpacity ?? 0.14) > 0) {
+        const fillColor = new THREE.Color(highlightConfig.preselectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionColor);
+        const hoverOverlayMat = new THREE.MeshBasicMaterial({
+          color: fillColor,
+          transparent: true,
+          opacity: highlightConfig.preselectionFillOpacity ?? 0.14,
+          depthTest: !highlightConfig.xrayHighlight,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+          side: THREE.DoubleSide,
+          clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
+        });
+        const hoverMesh = new THREE.Mesh(mesh.geometry, hoverOverlayMat);
+        hoverMesh.matrixAutoUpdate = false;
+        hoverMesh.matrix.copy(mesh.matrixWorld);
+        hoverGroup.add(hoverMesh);
+      }
+    });
+
+    scene.add(hoverGroup);
+    hoverHighlightGroupRef.current = hoverGroup;
 
     needsRenderRef.current = true;
 
     return () => {
-      if (hoverBboxHelperRef.current && scene) {
-        scene.remove(hoverBboxHelperRef.current);
-        if ('geometry' in hoverBboxHelperRef.current) (hoverBboxHelperRef.current.geometry as any).dispose();
-        hoverBboxHelperRef.current = null;
-      }
-      if (hoverLinesRef.current && scene) {
-        scene.remove(hoverLinesRef.current);
-        if (hoverLinesRef.current.geometry) hoverLinesRef.current.geometry.dispose();
-        if (hoverLinesRef.current.material instanceof THREE.Material) hoverLinesRef.current.material.dispose();
-        hoverLinesRef.current = null;
-      }
-      if (hoverOverlayMeshRef.current && scene) {
-        scene.remove(hoverOverlayMeshRef.current);
-        if (hoverOverlayMeshRef.current.material instanceof THREE.Material) {
-          hoverOverlayMeshRef.current.material.dispose();
-        }
-        hoverOverlayMeshRef.current = null;
+      if (hoverHighlightGroupRef.current && scene) {
+        disposeHighlightGroup(hoverHighlightGroupRef.current, scene);
+        hoverHighlightGroupRef.current = null;
       }
     };
   }, [hoveredExpressId, selectedExpressID, isMeasureActive, cadToolMode, sectionConfig.enabled, settings]);
@@ -1644,8 +1671,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       setSelectionScreenPos(null);
       return;
     }
-    const primaryMesh = meshes[0];
-    const box = new THREE.Box3().setFromObject(primaryMesh);
+    const box = new THREE.Box3();
+    meshes.forEach((m) => {
+      box.union(new THREE.Box3().setFromObject(m));
+    });
+    if (box.isEmpty()) {
+      setSelectionScreenPos(null);
+      return;
+    }
     const centerTop = new THREE.Vector3(
       (box.min.x + box.max.x) / 2,
       box.max.y,
@@ -1676,8 +1709,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!cameraRef.current || !controlsRef.current) return;
     const meshes = meshMapRef.current.get(expressId);
     if (!meshes || meshes.length === 0) return;
-    const primaryMesh = meshes[0];
-    const box = new THREE.Box3().setFromObject(primaryMesh);
+    const box = new THREE.Box3();
+    meshes.forEach((m) => {
+      box.union(new THREE.Box3().setFromObject(m));
+    });
+    if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z, 2.0);
@@ -1800,8 +1836,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     );
 
     if (settings?.navigation) {
+      const isLargeModel = geometries.length > 150;
+      const baseDamping = settings.navigation.dampingFactor ?? 0.18;
+      const effectiveDamping = (isLargeModel && (settings.navigation.adaptiveLargeModelDamping ?? true))
+        ? Math.max(baseDamping, 0.25)
+        : baseDamping;
       controls.enableDamping = settings.navigation.enableDamping;
-      controls.dampingFactor = settings.navigation.dampingFactor;
+      controls.dampingFactor = effectiveDamping;
       controls.rotateSpeed = settings.navigation.orbitSensitivity;
       controls.panSpeed = settings.navigation.panSensitivity;
       controls.zoomSpeed = settings.navigation.zoomSensitivity;
@@ -2506,7 +2547,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           if (intersects.length > 0 && onCadDrawOpening) {
             const hit = intersects[0];
             let expId: number | null = null;
-            if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
+            if (((hit.object as any).isBatchedMesh || hit.object instanceof THREE.BatchedMesh) && hit.batchId !== undefined) {
               const instances = (hit.object.userData as any)?.instances;
               if (instances && instances[hit.batchId]) expId = instances[hit.batchId].expressID;
             } else if (hit.object.userData?.expressID) {
@@ -2777,6 +2818,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           elementDetails={elementDetails || null}
           screenPosition={selectionScreenPos}
           storeys={storeys}
+          isPinned={Boolean(selectedExpressID && pinnedExpressIds?.has(selectedExpressID))}
           onClone={(id) => onCloneElement && onCloneElement(id)}
           onDelete={(id) => onDeleteElement && onDeleteElement(id)}
           onUpdateGeometry={(id, params) => onUpdateGeometry && onUpdateGeometry(id, params)}
@@ -2784,6 +2826,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           onAssignMaterial={(id, mat, col) => onAssignMaterial && onAssignMaterial(id, mat, col)}
           onFocus={(id) => handleFocusElement(id)}
           onOpenInspector={() => onOpenInspector && onOpenInspector()}
+          onRotate={(id, angle, axis) => onRotateElement && onRotateElement(id, angle, axis)}
+          onMirror={(id, axis, copy) => onMirrorElement && onMirrorElement(id, axis, copy)}
+          onArray={(id, count, delta) => onArrayElement && onArrayElement(id, count, delta)}
+          onAlign={(id, axis, val) => onAlignElement && onAlignElement(id, axis, val)}
+          onTogglePin={(id) => onTogglePin && onTogglePin(id)}
         />
       )}
 
@@ -2792,6 +2839,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         <SpatialContextMenu
           position={{ x: contextMenu.x, y: contextMenu.y }}
           expressId={contextMenu.expressId}
+          isPinned={Boolean(contextMenu.expressId && pinnedExpressIds?.has(contextMenu.expressId))}
           onClose={() => setContextMenu(null)}
           onFocus={(id) => handleFocusElement(id)}
           onClone={(id) => onCloneElement && onCloneElement(id)}
@@ -2800,6 +2848,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           onSelectTool={(tool) => onSelectCadTool && onSelectCadTool(tool)}
           onResetView={handleResetView}
           onClearSelection={() => onSelectElement(null)}
+          onRotate={(id, angle, axis) => onRotateElement && onRotateElement(id, angle, axis)}
+          onMirror={(id, axis, copy) => onMirrorElement && onMirrorElement(id, axis, copy)}
+          onArray={(id, count, delta) => onArrayElement && onArrayElement(id, count, delta)}
+          onAlign={(id, axis, val) => onAlignElement && onAlignElement(id, axis, val)}
+          onTogglePin={(id) => onTogglePin && onTogglePin(id)}
         />
       )}
 

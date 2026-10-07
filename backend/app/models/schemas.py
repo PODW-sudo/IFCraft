@@ -235,6 +235,30 @@ class CadCloneRequest(BaseModel):
     delta: list[float] = Field(default=[1.0, 0.0, 0.0], description="Translation delta offset [dx, dy, dz] in meters")
     storey_id: Optional[int] = None
 
+class CadMoveRequest(BaseModel):
+    delta: list[float] = Field(default=[0.0, 0.0, 0.0], description="Translation delta offset [dx, dy, dz] in meters")
+
+class CadRotateRequest(BaseModel):
+    angle_degrees: float = Field(default=90.0, description="Rotation angle in degrees")
+    axis: str = Field(default="z", description="Rotation axis: 'x', 'y', or 'z'")
+
+class CadMirrorRequest(BaseModel):
+    axis: str = Field(default="x", description="Mirror axis: 'x' or 'z'")
+    is_copy: bool = Field(default=False, description="If True, create a mirrored duplicate; if False, mirror/flip in-place")
+
+class CadArrayRequest(BaseModel):
+    count: int = Field(default=3, ge=2, le=50, description="Total number of elements in array (including original)")
+    delta: list[float] = Field(default=[2.0, 0.0, 0.0], description="Offset spacing [dx, dy, dz] per copy in meters")
+
+class CadAlignRequest(BaseModel):
+    align_type: str = Field(default="origin", description="Alignment type: 'origin', 'storey', 'reference'")
+    target_express_id: Optional[int] = Field(default=None, description="Reference element Express ID when align_type is 'reference'")
+    axis: str = Field(default="z", description="Axis to align along ('x', 'y', 'z')")
+    target_value: Optional[float] = Field(default=None, description="Explicit coordinate value to align to")
+
+class CadPinRequest(BaseModel):
+    is_pinned: bool = Field(default=True, description="Pin / lock status")
+
 class CadGeometryUpdateRequest(BaseModel):
     height: Optional[float] = Field(None, description="Updated height in meters")
     thickness: Optional[float] = Field(None, description="Updated thickness in meters")

@@ -9,6 +9,12 @@ from ..models.schemas import (
     CadUndoRedoResponse,
     CadHistoryResponse,
     CadCloneRequest,
+    CadMoveRequest,
+    CadRotateRequest,
+    CadMirrorRequest,
+    CadArrayRequest,
+    CadAlignRequest,
+    CadPinRequest,
     CadGeometryUpdateRequest,
     CadAssignStoreyRequest,
     CadMaterialRequest,
@@ -187,3 +193,121 @@ async def assign_element_material(
     except Exception as e:
         logger.exception("Failed to assign material for #%d: %s", express_id, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/move", response_model=CadElementResponse)
+async def move_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadMoveRequest = ...
+):
+    """Translate an element by offset delta vector [dx, dy, dz]."""
+    try:
+        return await CADService.move_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to move element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/rotate", response_model=CadElementResponse)
+async def rotate_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadRotateRequest = ...
+):
+    """Rotate an element around local origin along axis ('x', 'y', 'z')."""
+    try:
+        return await CADService.rotate_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to rotate element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/mirror", response_model=CadElementResponse)
+async def mirror_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadMirrorRequest = ...
+):
+    """Mirror an element across axis, either in-place or creating duplicate."""
+    try:
+        return await CADService.mirror_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to mirror element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/array", response_model=list[CadElementResponse])
+async def array_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadArrayRequest = ...
+):
+    """Create a linear array of N elements spaced by delta vector."""
+    try:
+        return await CADService.array_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to array element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/align", response_model=CadElementResponse)
+async def align_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadAlignRequest = ...
+):
+    """Align an element along an axis to target elevation, origin, or reference element."""
+    try:
+        return await CADService.align_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to align element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/pin")
+async def pin_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadPinRequest = ...
+):
+    """Pin or unpin an element to prevent accidental transforms or deletions."""
+    try:
+        return await CADService.pin_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to pin element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.get("/elements/{express_id}/pinned")
+async def is_element_pinned(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID")
+):
+    """Check if an element is pinned."""
+    is_pinned = await CADService.is_element_pinned(id, express_id)
+    return {"express_id": express_id, "is_pinned": is_pinned}
+
+@cad_router.get("/pinned")
+async def get_pinned_elements(
+    id: str = Path(..., description="Project ID")
+):
+    """Get all pinned element Express IDs in the project."""
+    pinned_ids = await CADService.get_pinned_elements(id)
+    return {"project_id": id, "pinned_ids": pinned_ids}
+

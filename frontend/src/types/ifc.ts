@@ -247,6 +247,36 @@ export interface CadCloneRequest {
   storey_id?: number;
 }
 
+export interface CadMoveRequest {
+  delta: [number, number, number];
+}
+
+export interface CadRotateRequest {
+  angle_degrees: number;
+  axis: 'x' | 'y' | 'z';
+}
+
+export interface CadMirrorRequest {
+  axis: 'x' | 'y' | 'z';
+  is_copy: boolean;
+}
+
+export interface CadArrayRequest {
+  count: number;
+  delta: [number, number, number];
+}
+
+export interface CadAlignRequest {
+  align_type: 'origin' | 'storey' | 'reference';
+  target_express_id?: number;
+  axis: 'x' | 'y' | 'z';
+  target_value?: number;
+}
+
+export interface CadPinRequest {
+  is_pinned: boolean;
+}
+
 export interface CadGeometryUpdateRequest {
   height?: number;
   thickness?: number;

@@ -138,6 +138,9 @@ export const App: React.FC = () => {
   const [cadCanUndo, setCadCanUndo] = useState(false);
   const [cadCanRedo, setCadCanRedo] = useState(false);
   const [cadHistory, setCadHistory] = useState<CadHistoryItem[]>([]);
+  const [pinnedExpressIds, setPinnedExpressIds] = useState<Set<number>>(new Set());
+  const pinnedExpressIdsRef = useRef<Set<number>>(pinnedExpressIds);
+  pinnedExpressIdsRef.current = pinnedExpressIds;
 
   // Phase 12 State: BCF 2.1 Issues & Collaborative Change Playback Scrubber
   const [isBcfOpen, setIsBcfOpen] = useState(false);
@@ -388,6 +391,13 @@ export const App: React.FC = () => {
       const arrayBuffer = await res.arrayBuffer();
 
       parseBufferInWorker(arrayBuffer, project.file_name);
+
+      // Fetch pinned element constraints
+      api.fetchPinnedElements(project.id).then((r) => {
+        setPinnedExpressIds(new Set(r.pinned_ids || []));
+      }).catch((e) => {
+        console.warn('Could not fetch pinned elements:', e);
+      });
     } catch (err: unknown) {
       console.error('Failed to load project:', err);
       setIsLoading(false);
@@ -789,8 +799,13 @@ export const App: React.FC = () => {
   }, [spatialTree]);
 
   // Modern BIM Element Handlers
+  // Modern BIM Element Handlers
   const handleDeleteElement = useCallback(async (expressId: number) => {
     if (!currentProject) return;
+    if (pinnedExpressIdsRef.current.has(expressId)) {
+      console.warn(`Element #${expressId} is pinned. Unpin (UP) to delete.`);
+      return;
+    }
     try {
       await api.deleteElement(currentProject.id, expressId);
       setSelectedExpressID(null);
@@ -799,6 +814,105 @@ export const App: React.FC = () => {
       await loadProject(currentProject);
     } catch (err) {
       console.error('Failed to delete element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleTogglePin = useCallback(async (expressId: number) => {
+    if (!currentProject) return;
+    const isCurrentlyPinned = pinnedExpressIdsRef.current.has(expressId);
+    try {
+      await api.pinElement(currentProject.id, expressId, { is_pinned: !isCurrentlyPinned });
+      const next = new Set(pinnedExpressIdsRef.current);
+      if (isCurrentlyPinned) {
+        next.delete(expressId);
+      } else {
+        next.add(expressId);
+      }
+      pinnedExpressIdsRef.current = next;
+      setPinnedExpressIds(next);
+      if (selectedExpressID === expressId) {
+        const details = await api.getElementDetails(currentProject.id, expressId);
+        setSelectedElementDetails(details);
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin status:', err);
+    }
+  }, [currentProject, selectedExpressID]);
+
+  const handleMoveElement = useCallback(async (expressId: number, delta: [number, number, number]) => {
+    if (!currentProject) return;
+    if (pinnedExpressIdsRef.current.has(expressId)) {
+      console.warn(`Element #${expressId} is pinned. Unpin (UP) to move.`);
+      return;
+    }
+    try {
+      await api.moveElement(currentProject.id, expressId, { delta });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to move element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleRotateElement = useCallback(async (expressId: number, angleDegrees: number = 90, axis: 'x' | 'y' | 'z' = 'z') => {
+    if (!currentProject) return;
+    if (pinnedExpressIdsRef.current.has(expressId)) {
+      console.warn(`Element #${expressId} is pinned. Unpin (UP) to rotate.`);
+      return;
+    }
+    try {
+      await api.rotateElement(currentProject.id, expressId, { angle_degrees: angleDegrees, axis });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to rotate element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleMirrorElement = useCallback(async (expressId: number, axis: 'x' | 'y' | 'z' = 'x', isCopy: boolean = false) => {
+    if (!currentProject) return;
+    if (!isCopy && pinnedExpressIdsRef.current.has(expressId)) {
+      console.warn(`Element #${expressId} is pinned. Unpin (UP) to mirror.`);
+      return;
+    }
+    try {
+      const res = await api.mirrorElement(currentProject.id, expressId, { axis, is_copy: isCopy });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+      if (res.express_id) {
+        setSelectedExpressID(res.express_id);
+      }
+    } catch (err) {
+      console.error('Failed to mirror element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleArrayElement = useCallback(async (expressId: number, count: number = 3, delta: [number, number, number] = [2.0, 0, 0]) => {
+    if (!currentProject) return;
+    try {
+      const res = await api.arrayElement(currentProject.id, expressId, { count, delta });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+      if (res.length > 0 && res[0].express_id) {
+        setSelectedExpressID(res[0].express_id);
+      }
+    } catch (err) {
+      console.error('Failed to array element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleAlignElement = useCallback(async (expressId: number, axis: 'x' | 'y' | 'z' = 'z', targetValue: number = 0.0) => {
+    if (!currentProject) return;
+    if (pinnedExpressIdsRef.current.has(expressId)) {
+      console.warn(`Element #${expressId} is pinned. Unpin (UP) to align.`);
+      return;
+    }
+    try {
+      await api.alignElement(currentProject.id, expressId, { align_type: 'origin', axis, target_value: targetValue });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to align element:', err);
     }
   }, [currentProject, refreshCadHistory, loadProject]);
 
@@ -849,7 +963,11 @@ export const App: React.FC = () => {
     }
   }, [currentProject]);
 
-  // Global Keyboard Shortcuts for CAD & BIM Editing (Ctrl+Z, Ctrl+Y, Delete, Ctrl+D)
+  // Two-key sequence buffer for Revit standard shortcuts (RO, MM, DM, AR, AL, PN, UP, MV, CO)
+  const revitKeyBufferRef = useRef<string>('');
+  const revitKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Global Keyboard Shortcuts for CAD & BIM Editing (Ctrl+Z, Ctrl+Y, Delete, Ctrl+D, Revit RO/MM/AR/AL/PN/UP)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
@@ -861,27 +979,98 @@ export const App: React.FC = () => {
         } else {
           handleCadUndo();
         }
+        return;
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleCadRedo();
+        return;
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedExpressID !== null) {
           e.preventDefault();
           handleDeleteElement(selectedExpressID);
         }
+        return;
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         if (selectedExpressID !== null) {
           e.preventDefault();
           handleCloneElement(selectedExpressID);
         }
+        return;
       } else if ((e.ctrlKey || e.metaKey) && (e.key === ',' || e.key === '<')) {
         e.preventDefault();
         setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+
+      // Autodesk Revit 2-letter Sequence Shortcuts
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+        const char = e.key.toLowerCase();
+        revitKeyBufferRef.current += char;
+
+        if (revitKeyTimerRef.current) clearTimeout(revitKeyTimerRef.current);
+        revitKeyTimerRef.current = setTimeout(() => {
+          revitKeyBufferRef.current = '';
+        }, 800);
+
+        const seq = revitKeyBufferRef.current;
+        if (seq === 'ro') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null) {
+            handleRotateElement(selectedExpressID, 90, 'z');
+          }
+        } else if (seq === 'mm' || seq === 'dm') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null) {
+            handleMirrorElement(selectedExpressID, 'x', true);
+          }
+        } else if (seq === 'ar') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null) {
+            handleArrayElement(selectedExpressID, 3, [2.0, 0, 0]);
+          }
+        } else if (seq === 'al') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null) {
+            handleAlignElement(selectedExpressID, 'z', 0.0);
+          }
+        } else if (seq === 'pn') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null && !pinnedExpressIds.has(selectedExpressID)) {
+            handleTogglePin(selectedExpressID);
+          }
+        } else if (seq === 'up') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null && pinnedExpressIds.has(selectedExpressID)) {
+            handleTogglePin(selectedExpressID);
+          }
+        } else if (seq === 'mv') {
+          revitKeyBufferRef.current = '';
+          setTransformMode('translate');
+        } else if (seq === 'co' || seq === 'cc') {
+          revitKeyBufferRef.current = '';
+          if (selectedExpressID !== null) {
+            handleCloneElement(selectedExpressID);
+          }
+        } else if (seq.length >= 2) {
+          revitKeyBufferRef.current = '';
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCadUndo, handleCadRedo, handleDeleteElement, handleCloneElement, selectedExpressID]);
+  }, [
+    handleCadUndo,
+    handleCadRedo,
+    handleDeleteElement,
+    handleCloneElement,
+    handleRotateElement,
+    handleMirrorElement,
+    handleArrayElement,
+    handleAlignElement,
+    handleTogglePin,
+    selectedExpressID,
+    pinnedExpressIds
+  ]);
 
   // Global ESC Key Handling: Clear selection, close floating HUDs, cancel tools
   useEffect(() => {
@@ -1051,7 +1240,10 @@ export const App: React.FC = () => {
     auditTimelineCount: auditTimeline.length,
     auditTimeline,
     auditDiff,
-    firstExpressID: geometries.length > 0 ? geometries[0].expressID : 128
+    pinnedExpressIds: Array.from(pinnedExpressIds),
+    firstExpressID: geometries.length > 0 ? geometries[0].expressID : 128,
+    settings,
+    isSettingsOpen
   };
 
   useEffect(() => {
@@ -1059,6 +1251,10 @@ export const App: React.FC = () => {
       (window as any).__IFC_QA_BRIDGE__ = {
         getState: () => latestStateRef.current,
         getFirstExpressId: () => (geometries.length > 0 ? geometries[0].expressID : 128),
+        openSettingsModal: () => setIsSettingsOpen(true),
+        closeSettingsModal: () => setIsSettingsOpen(false),
+        updateSettings: (s: EditorSettings) => handleUpdateSettings(s),
+        resetSettings: () => handleResetSettings(),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
         setSectionConfig: (config: Partial<SectionPlaneConfig>) => setSectionConfig((prev) => ({ ...prev, ...config })),
@@ -1102,6 +1298,14 @@ export const App: React.FC = () => {
         drawCadColumn: (pos: [number, number]) => handleCadDrawColumn(pos),
         drawCadOpening: (wallId: number, offset: number, type?: 'door' | 'window') => handleCadDrawOpening(wallId, offset, type),
         getCadHistory: () => cadHistory,
+        // Revit Modification Tools
+        moveElement: async (id: number, delta: [number, number, number]) => handleMoveElement(id, delta),
+        rotateElement: async (id: number, deg: number = 90, axis: 'x' | 'y' | 'z' = 'z') => handleRotateElement(id, deg, axis),
+        mirrorElement: async (id: number, axis: 'x' | 'y' | 'z' = 'x', isCopy: boolean = false) => handleMirrorElement(id, axis, isCopy),
+        arrayElement: async (id: number, count: number = 3, delta: [number, number, number] = [2.0, 0, 0]) => handleArrayElement(id, count, delta),
+        alignElement: async (id: number, axis: 'x' | 'y' | 'z' = 'z', val: number = 0.0) => handleAlignElement(id, axis, val),
+        togglePin: async (id: number) => handleTogglePin(id),
+        getPinnedIds: () => Array.from(pinnedExpressIdsRef.current),
         openBcfModal: () => {
           setIsBcfOpen(true);
           refreshBcfTopics();
@@ -1165,6 +1369,13 @@ export const App: React.FC = () => {
   }, [
     currentProject,
     selectedExpressID,
+    pinnedExpressIds,
+    handleMoveElement,
+    handleRotateElement,
+    handleMirrorElement,
+    handleArrayElement,
+    handleAlignElement,
+    handleTogglePin,
     isTreeOpen,
     isPropertyOpen,
     isCopilotOpen,
@@ -1290,6 +1501,13 @@ export const App: React.FC = () => {
           onAssignMaterial={handleAssignMaterial}
           onOpenInspector={() => setIsPropertyOpen(true)}
           onSelectCadTool={(mode) => setCadToolMode(mode)}
+          pinnedExpressIds={pinnedExpressIds}
+          onTogglePin={handleTogglePin}
+          onMoveElement={handleMoveElement}
+          onRotateElement={handleRotateElement}
+          onMirrorElement={handleMirrorElement}
+          onArrayElement={handleArrayElement}
+          onAlignElement={handleAlignElement}
         />
       </div>
 

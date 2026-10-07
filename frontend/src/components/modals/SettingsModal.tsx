@@ -539,7 +539,95 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Camera Damping & Rotation Drag Threshold */}
-                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                <div className="space-y-4 pt-3 border-t border-slate-800/60">
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.navigation.enableDamping}
+                        onChange={(e) => updateNavigation({ enableDamping: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-700 text-sky-500 focus:ring-0 bg-slate-950 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs text-slate-200 font-medium">Inertial Damping Glide</span>
+                        <p className="text-[10px] text-slate-500">Uncheck for instant stop (Autodesk Revit standard)</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.navigation.adaptiveLargeModelDamping ?? true}
+                        onChange={(e) => updateNavigation({ adaptiveLargeModelDamping: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-700 text-sky-500 focus:ring-0 bg-slate-950 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs text-slate-200 font-medium">Adaptive Large-Model Damping</span>
+                        <p className="text-[10px] text-slate-500">Snaps quickly on models with &gt;150 elements</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Damping Presets & Custom Slider */}
+                  {settings.navigation.enableDamping && (
+                    <div className="p-3 rounded-lg bg-slate-950/40 border border-slate-800/80 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Glide Deceleration Mode</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => updateNavigation({ dampingFactor: 0.28 })}
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                              settings.navigation.dampingFactor >= 0.25
+                                ? 'border-sky-400 bg-sky-500/20 text-sky-300'
+                                : 'border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            Crisp (Fast)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateNavigation({ dampingFactor: 0.18 })}
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                              settings.navigation.dampingFactor >= 0.16 && settings.navigation.dampingFactor < 0.25
+                                ? 'border-sky-400 bg-sky-500/20 text-sky-300'
+                                : 'border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            Snappy (~150ms)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateNavigation({ dampingFactor: 0.08 })}
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                              settings.navigation.dampingFactor < 0.16
+                                ? 'border-sky-400 bg-sky-500/20 text-sky-300'
+                                : 'border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            Smooth
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] mb-1">
+                          <span className="text-slate-400">Deceleration Factor</span>
+                          <span className="font-mono text-sky-300">{(settings.navigation.dampingFactor * 100).toFixed(0)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.05"
+                          max="0.35"
+                          step="0.01"
+                          value={settings.navigation.dampingFactor}
+                          onChange={(e) => updateNavigation({ dampingFactor: parseFloat(e.target.value) })}
+                          className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <div className="flex justify-between text-[11px] mb-1.5">
                       <span className="text-slate-400">Rotation Drag Threshold</span>
@@ -555,23 +643,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                     />
                     <p className="text-[10px] text-slate-500 mt-1">Pointer travel required before camera orbit is initiated</p>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[11px] mb-1.5">
-                      <span className="text-slate-400">Inertial Damping Glide</span>
-                      <span className="font-mono text-sky-300">{(settings.navigation.dampingFactor * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.01"
-                      max="0.15"
-                      step="0.01"
-                      value={settings.navigation.dampingFactor}
-                      onChange={(e) => updateNavigation({ dampingFactor: parseFloat(e.target.value) })}
-                      className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">Controls smooth glide when releasing camera orbit</p>
                   </div>
                 </div>
               </div>

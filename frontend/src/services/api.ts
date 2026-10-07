@@ -299,6 +299,116 @@ export async function cloneElement(
   return res.json();
 }
 
+export async function moveElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadMoveRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to move element');
+  }
+  return res.json();
+}
+
+export async function rotateElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadRotateRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/rotate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to rotate element');
+  }
+  return res.json();
+}
+
+export async function mirrorElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadMirrorRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/mirror`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to mirror element');
+  }
+  return res.json();
+}
+
+export async function arrayElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadArrayRequest
+): Promise<import('../types/ifc').CadElementResponse[]> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/array`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to array element');
+  }
+  return res.json();
+}
+
+export async function alignElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadAlignRequest
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/align`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to align element');
+  }
+  return res.json();
+}
+
+export async function pinElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadPinRequest
+): Promise<{ success: boolean; express_id: number; is_pinned: boolean }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to pin/unpin element');
+  }
+  return res.json();
+}
+
+export async function fetchPinnedElements(
+  projectId: string
+): Promise<{ project_id: string; pinned_ids: number[] }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/pinned`);
+  if (!res.ok) throw new Error(`Failed to fetch pinned elements: ${res.statusText}`);
+  return res.json();
+}
+
 export async function updateElementGeometry(
   projectId: string,
   expressId: number,

@@ -108,12 +108,24 @@ async def init_db() -> None:
             );
         """)
 
+        # Pinned elements (Revit Pin/Lock constraints)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pinned_elements (
+                project_id TEXT NOT NULL,
+                express_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (project_id, express_id),
+                FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+            );
+        """)
+
         # Indexes for fast lookup
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_edit_history_project ON edit_history (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_project_models_project ON project_models (project_id);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_cad_trans_project ON cad_transactions (project_id, created_at);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_bcf_topics_project ON bcf_topics (project_id, created_at);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_pinned_elements_project ON pinned_elements (project_id);")
         
         await db.commit()
     logger.info("Database schema initialized successfully.")

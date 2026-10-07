@@ -13,6 +13,7 @@ import ifcopenshell.api.feature
 import ifcopenshell.api.spatial
 import ifcopenshell.util.placement
 
+import math
 from ..core.database import get_db_connection
 from ..models.schemas import (
     CadWallRequest,
@@ -24,6 +25,12 @@ from ..models.schemas import (
     CadHistoryItem,
     CadHistoryResponse,
     CadCloneRequest,
+    CadMoveRequest,
+    CadRotateRequest,
+    CadMirrorRequest,
+    CadArrayRequest,
+    CadAlignRequest,
+    CadPinRequest,
     CadGeometryUpdateRequest,
     CadAssignStoreyRequest,
     CadMaterialRequest,
@@ -425,20 +432,44 @@ class CADService:
                 model = ifcopenshell.open(str(file_path))
                 entity = model.by_id(express_id)
                 if entity:
-                    # If this is an opening filling, also remove the opening
-                    if "opening_id" in params:
-                        op_entity = model.by_id(params["opening_id"])
-                        if op_entity:
-                            try:
-                                ifcopenshell.api.run("root.remove_product", model, product=op_entity)
-                            except Exception:
-                                model.remove(op_entity)
-                    try:
-                        ifcopenshell.api.run("root.remove_product", model, product=entity)
-                    except Exception:
-                        model.remove(entity)
-                    model.write(str(file_path))
-                    logger.info("Undone %s #%d in project %s", entity_type, express_id, project_id)
+                    if action_type in ("move_element", "rotate_element", "align_element") or (action_type == "mirror_element" and not params.get("is_copy", False)):
+                        if "old_matrix" in params:
+                            old_mat = np.array(params["old_matrix"])
+                            ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=old_mat)
+                            model.write(str(file_path))
+                            logger.info("Undone %s for #%d: restored placement matrix", action_type, express_id)
+                    elif action_type == "array_element":
+                        for cid in params.get("created_ids", []):
+                            ce = model.by_id(cid)
+                            if ce:
+                                try:
+                                    ifcopenshell.api.run("root.remove_product", model, product=ce)
+                                except Exception:
+                                    model.remove(ce)
+                        model.write(str(file_path))
+                        logger.info("Undone array_element: removed %s", params.get("created_ids", []))
+                    elif action_type == "clone_element" or (action_type == "mirror_element" and params.get("is_copy", False)):
+                        try:
+                            ifcopenshell.api.run("root.remove_product", model, product=entity)
+                        except Exception:
+                            model.remove(entity)
+                        model.write(str(file_path))
+                        logger.info("Undone clone/mirror #%d", express_id)
+                    else:
+                        # If this is an opening filling, also remove the opening
+                        if "opening_id" in params:
+                            op_entity = model.by_id(params["opening_id"])
+                            if op_entity:
+                                try:
+                                    ifcopenshell.api.run("root.remove_product", model, product=op_entity)
+                                except Exception:
+                                    model.remove(op_entity)
+                        try:
+                            ifcopenshell.api.run("root.remove_product", model, product=entity)
+                        except Exception:
+                            model.remove(entity)
+                        model.write(str(file_path))
+                        logger.info("Undone %s #%d in project %s", entity_type, express_id, project_id)
 
             await db.execute(
                 "UPDATE cad_transactions SET status = 'UNDONE' WHERE id = ?",
@@ -489,30 +520,57 @@ class CADService:
 
             trans_id = row["id"]
             action_type = row["action_type"]
+            express_id = row["express_id"]
             params = json.loads(row["parameters"])
 
-        # Re-synthesize based on action_type
+        # Re-synthesize or re-apply based on action_type
         new_res: Optional[CadElementResponse] = None
-        if action_type == "create_wall":
-            req_wall = CadWallRequest(**params)
-            new_res = await cls.create_wall(project_id, req_wall)
-        elif action_type == "create_slab":
-            req_slab = CadSlabRequest(**params)
-            new_res = await cls.create_slab(project_id, req_slab)
-        elif action_type == "create_column":
-            req_col = CadColumnRequest(**params)
-            new_res = await cls.create_column(project_id, req_col)
-        elif action_type in ("create_door", "create_window"):
-            req_op = CadOpeningRequest(**params)
-            new_res = await cls.create_opening(project_id, req_op)
+        if action_type in ("move_element", "rotate_element", "align_element") or (action_type == "mirror_element" and not params.get("is_copy", False)):
+            file_path = ProjectService.get_project_file_path(project_id)
+            if file_path.exists():
+                model = ifcopenshell.open(str(file_path))
+                entity = model.by_id(express_id)
+                if entity and "new_matrix" in params:
+                    new_mat = np.array(params["new_matrix"])
+                    ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=new_mat)
+                    model.write(str(file_path))
+                    logger.info("Redone %s for #%d: applied new placement matrix", action_type, express_id)
+            async with get_db_connection() as db:
+                await db.execute("UPDATE cad_transactions SET status = 'ACTIVE' WHERE id = ?", (trans_id,))
+                await db.commit()
+            affected_id = express_id
+        else:
+            if action_type == "create_wall":
+                req_wall = CadWallRequest(**params)
+                new_res = await cls.create_wall(project_id, req_wall)
+            elif action_type == "create_slab":
+                req_slab = CadSlabRequest(**params)
+                new_res = await cls.create_slab(project_id, req_slab)
+            elif action_type == "create_column":
+                req_col = CadColumnRequest(**params)
+                new_res = await cls.create_column(project_id, req_col)
+            elif action_type in ("create_door", "create_window"):
+                req_op = CadOpeningRequest(**params)
+                new_res = await cls.create_opening(project_id, req_op)
+            elif action_type == "clone_element":
+                req_clone = CadCloneRequest(**params)
+                new_res = await cls.clone_element(project_id, express_id, req_clone)
+            elif action_type == "array_element":
+                req_arr = CadArrayRequest(count=params["count"], delta=params["delta"])
+                arr_res = await cls.array_element(project_id, params["source_express_id"], req_arr)
+                new_res = arr_res[0] if arr_res else None
+            elif action_type == "mirror_element" and params.get("is_copy", False):
+                req_mir = CadMirrorRequest(axis=params["axis"], is_copy=True)
+                new_res = await cls.mirror_element(project_id, params["source_express_id"], req_mir)
 
-        affected_id = new_res.express_id if new_res else 0
+            affected_id = new_res.express_id if new_res else 0
 
-        # Delete the undone entry since create_* inserted a new ACTIVE transaction
+            # Delete the undone entry since create_* inserted a new ACTIVE transaction
+            async with get_db_connection() as db:
+                await db.execute("DELETE FROM cad_transactions WHERE id = ?", (trans_id,))
+                await db.commit()
+
         async with get_db_connection() as db:
-            await db.execute("DELETE FROM cad_transactions WHERE id = ?", (trans_id,))
-            await db.commit()
-
             c_active = await db.execute("SELECT COUNT(*) FROM cad_transactions WHERE project_id = ? AND status = 'ACTIVE'", (project_id,))
             can_undo = (await c_active.fetchone())[0] > 0
             c_undone = await db.execute("SELECT COUNT(*) FROM cad_transactions WHERE project_id = ? AND status = 'UNDONE'", (project_id,))
@@ -525,7 +583,7 @@ class CADService:
             affected_express_id=affected_id,
             can_undo=can_undo,
             can_redo=can_redo,
-            message=f"Successfully redone {action_type}, new element #{affected_id}"
+            message=f"Successfully redone {action_type}, element #{affected_id}"
         )
 
     @classmethod
@@ -581,6 +639,9 @@ class CADService:
         entity = model.by_id(express_id)
         if not entity:
             raise ValueError(f"Entity #{express_id} not found in model.")
+
+        if await cls.is_element_pinned(project_id, express_id):
+            raise ValueError(f"Element #{express_id} is pinned. Unpin (UP) before deleting.")
 
         entity_type = entity.is_a()
         entity_name = getattr(entity, "Name", None) or f"{entity_type} #{express_id}"
@@ -799,3 +860,463 @@ class CADService:
             "color": req.color_hex,
             "transparency": req.transparency
         }
+
+    @classmethod
+    async def is_element_pinned(cls, project_id: str, express_id: int) -> bool:
+        """Check whether element is pinned (locked against accidental edits/deletions)."""
+        async with get_db_connection() as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM pinned_elements WHERE project_id = ? AND express_id = ?",
+                (project_id, express_id)
+            )
+            row = await cursor.fetchone()
+            if row:
+                return True
+        return False
+
+    @classmethod
+    async def get_pinned_elements(cls, project_id: str) -> list[int]:
+        """Fetch all pinned express IDs for a project."""
+        async with get_db_connection() as db:
+            cursor = await db.execute(
+                "SELECT express_id FROM pinned_elements WHERE project_id = ?",
+                (project_id,)
+            )
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+    @classmethod
+    async def pin_element(cls, project_id: str, express_id: int, req: CadPinRequest) -> dict[str, Any]:
+        """Pin or unpin an element."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        async with get_db_connection() as db:
+            if req.is_pinned:
+                now = datetime.now(timezone.utc).isoformat()
+                await db.execute(
+                    "INSERT OR REPLACE INTO pinned_elements (project_id, express_id, created_at) VALUES (?, ?, ?)",
+                    (project_id, express_id, now)
+                )
+            else:
+                await db.execute(
+                    "DELETE FROM pinned_elements WHERE project_id = ? AND express_id = ?",
+                    (project_id, express_id)
+                )
+            await db.commit()
+
+        # Persist Constraints.Pinned property in IFC
+        try:
+            IFCService.update_element_property(
+                file_path, express_id, "Constraints", "Pinned", req.is_pinned, "IfcBoolean"
+            )
+        except Exception as e:
+            logger.warning("Could not persist Constraints.Pinned in IFC: %s", e)
+
+        return {
+            "success": True,
+            "express_id": express_id,
+            "is_pinned": req.is_pinned,
+            "message": f"Element #{express_id} {'pinned' if req.is_pinned else 'unpinned'} successfully"
+        }
+
+    @classmethod
+    async def move_element(cls, project_id: str, express_id: int, req: CadMoveRequest) -> CadElementResponse:
+        """Translate an existing element in 3D space by delta [dx, dy, dz]."""
+        if await cls.is_element_pinned(project_id, express_id):
+            raise ValueError(f"Element #{express_id} is pinned. Unpin (UP) before moving.")
+
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        mat = np.identity(4)
+        try:
+            mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception as e:
+            raise ValueError(f"Cannot get local placement for entity #{express_id}: {e}")
+
+        old_mat = mat.copy()
+        mat[0, 3] += float(req.delta[0])
+        mat[1, 3] += float(req.delta[1])
+        mat[2, 3] += float(req.delta[2])
+
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=mat)
+        model.write(str(file_path))
+        logger.info("Moved %s #%d by delta %s", entity.is_a(), express_id, req.delta)
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        params = {
+            "delta": req.delta,
+            "old_matrix": old_mat.tolist(),
+            "new_matrix": mat.tolist(),
+        }
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'move_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, express_id, entity.is_a(), json.dumps(params), now)
+            )
+            await db.commit()
+
+        return CadElementResponse(
+            success=True,
+            express_id=express_id,
+            global_id=entity.GlobalId,
+            entity_type=entity.is_a(),
+            name=getattr(entity, "Name", "") or entity.is_a(),
+            transaction_id=trans_id,
+            message=f"Element #{express_id} moved by {req.delta}"
+        )
+
+    @classmethod
+    async def rotate_element(cls, project_id: str, express_id: int, req: CadRotateRequest) -> CadElementResponse:
+        """Rotate an existing element around its local origin along axis ('x', 'y', 'z')."""
+        if await cls.is_element_pinned(project_id, express_id):
+            raise ValueError(f"Element #{express_id} is pinned. Unpin (UP) before rotating.")
+
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        mat = np.identity(4)
+        try:
+            mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception as e:
+            raise ValueError(f"Cannot get local placement for entity #{express_id}: {e}")
+
+        old_mat = mat.copy()
+        theta = math.radians(req.angle_degrees)
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
+
+        axis = req.axis.lower()
+        if axis == "z":
+            R = np.array([
+                [cos_t, -sin_t, 0.0],
+                [sin_t,  cos_t, 0.0],
+                [0.0,    0.0,   1.0]
+            ])
+        elif axis == "x":
+            R = np.array([
+                [1.0, 0.0,    0.0],
+                [0.0, cos_t, -sin_t],
+                [0.0, sin_t,  cos_t]
+            ])
+        elif axis == "y":
+            R = np.array([
+                [ cos_t, 0.0, sin_t],
+                [ 0.0,   1.0, 0.0],
+                [-sin_t, 0.0, cos_t]
+            ])
+        else:
+            raise ValueError(f"Invalid rotation axis '{req.axis}'. Expected 'x', 'y', or 'z'.")
+
+        # Rotate orientation columns while preserving origin position
+        mat[:3, :3] = R @ mat[:3, :3]
+
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=mat)
+        model.write(str(file_path))
+        logger.info("Rotated %s #%d by %s deg along %s", entity.is_a(), express_id, req.angle_degrees, req.axis)
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        params = {
+            "angle_degrees": req.angle_degrees,
+            "axis": req.axis,
+            "old_matrix": old_mat.tolist(),
+            "new_matrix": mat.tolist(),
+        }
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'rotate_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, express_id, entity.is_a(), json.dumps(params), now)
+            )
+            await db.commit()
+
+        return CadElementResponse(
+            success=True,
+            express_id=express_id,
+            global_id=entity.GlobalId,
+            entity_type=entity.is_a(),
+            name=getattr(entity, "Name", "") or entity.is_a(),
+            transaction_id=trans_id,
+            message=f"Element #{express_id} rotated {req.angle_degrees}° along {req.axis.upper()}"
+        )
+
+    @classmethod
+    async def mirror_element(cls, project_id: str, express_id: int, req: CadMirrorRequest) -> CadElementResponse:
+        """Mirror element across specified axis. If is_copy is True, clones first."""
+        if not req.is_copy and await cls.is_element_pinned(project_id, express_id):
+            raise ValueError(f"Element #{express_id} is pinned. Unpin (UP) before mirroring.")
+
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        entity_type = entity.is_a()
+        target_entity = entity
+        old_mat = np.identity(4)
+
+        try:
+            old_mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception:
+            pass
+
+        if req.is_copy:
+            cloned = ifcopenshell.api.run("root.create_entity", model, ifc_class=entity_type, name=f"{getattr(entity, 'Name', '') or entity_type} (Mirrored)")
+            if hasattr(entity, "Representation") and entity.Representation:
+                try:
+                    ifcopenshell.api.run("geometry.assign_representation", model, product=cloned, representation=entity.Representation)
+                except Exception:
+                    pass
+            try:
+                for rel in getattr(entity, "ContainedInStructure", []):
+                    ifcopenshell.api.run("spatial.assign_container", model, relating_structure=rel.RelatingStructure, products=[cloned])
+            except Exception:
+                pass
+            target_entity = cloned
+
+        mat = old_mat.copy()
+        axis = req.axis.lower()
+        if axis == "x":
+            R = np.array([
+                [-1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, 1.0]
+            ])
+            mat[:3, :3] = R @ mat[:3, :3]
+            if req.is_copy:
+                mat[0, 3] += 1.0
+        elif axis == "y":
+            R = np.array([
+                [-1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, 1.0]
+            ])
+            mat[:3, :3] = R @ mat[:3, :3]
+            if req.is_copy:
+                mat[1, 3] += 1.0
+        elif axis == "z":
+            R = np.array([
+                [1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, -1.0]
+            ])
+            mat[:3, :3] = R @ mat[:3, :3]
+            if req.is_copy:
+                mat[2, 3] += 1.0
+
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=target_entity, matrix=mat)
+        model.write(str(file_path))
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        params = {
+            "axis": req.axis,
+            "is_copy": req.is_copy,
+            "source_express_id": express_id,
+            "old_matrix": old_mat.tolist(),
+            "new_matrix": mat.tolist(),
+        }
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'mirror_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, target_entity.id(), entity_type, json.dumps(params), now)
+            )
+            await db.commit()
+
+        return CadElementResponse(
+            success=True,
+            express_id=target_entity.id(),
+            global_id=target_entity.GlobalId,
+            entity_type=entity_type,
+            name=getattr(target_entity, "Name", "") or entity_type,
+            transaction_id=trans_id,
+            message=f"Element #{express_id} mirrored {'as new copy #' + str(target_entity.id()) if req.is_copy else 'in place'}"
+        )
+
+    @classmethod
+    async def array_element(cls, project_id: str, express_id: int, req: CadArrayRequest) -> list[CadElementResponse]:
+        """Create a linear array of N elements spaced by delta [dx, dy, dz]."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        entity_type = entity.is_a()
+        base_name = getattr(entity, "Name", "") or entity_type
+
+        base_mat = np.identity(4)
+        try:
+            base_mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception:
+            pass
+
+        container = None
+        for rel in getattr(entity, "ContainedInStructure", []):
+            container = rel.RelatingStructure
+            break
+
+        created_responses: list[CadElementResponse] = []
+        created_ids: list[int] = []
+
+        for i in range(1, req.count):
+            clone_name = f"{base_name} (Array {i+1}/{req.count})"
+            cloned = ifcopenshell.api.run("root.create_entity", model, ifc_class=entity_type, name=clone_name)
+            if hasattr(entity, "Representation") and entity.Representation:
+                try:
+                    ifcopenshell.api.run("geometry.assign_representation", model, product=cloned, representation=entity.Representation)
+                except Exception:
+                    pass
+
+            c_mat = base_mat.copy()
+            c_mat[0, 3] += float(req.delta[0]) * i
+            c_mat[1, 3] += float(req.delta[1]) * i
+            c_mat[2, 3] += float(req.delta[2]) * i
+
+            ifcopenshell.api.run("geometry.edit_object_placement", model, product=cloned, matrix=c_mat)
+            if container:
+                try:
+                    ifcopenshell.api.run("spatial.assign_container", model, relating_structure=container, products=[cloned])
+                except Exception:
+                    pass
+
+            created_ids.append(cloned.id())
+            created_responses.append(
+                CadElementResponse(
+                    success=True,
+                    express_id=cloned.id(),
+                    global_id=cloned.GlobalId,
+                    entity_type=entity_type,
+                    name=clone_name,
+                    transaction_id="",
+                    message=f"Array element #{cloned.id()} created at offset step {i}"
+                )
+            )
+
+        model.write(str(file_path))
+        logger.info("Arrayed %s #%d into %d total elements (created IDs %s)", entity_type, express_id, req.count, created_ids)
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        params = {
+            "source_express_id": express_id,
+            "count": req.count,
+            "delta": req.delta,
+            "created_ids": created_ids,
+        }
+        for resp in created_responses:
+            resp.transaction_id = trans_id
+
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'array_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, express_id, entity_type, json.dumps(params), now)
+            )
+            await db.commit()
+
+        return created_responses
+
+    @classmethod
+    async def align_element(cls, project_id: str, express_id: int, req: CadAlignRequest) -> CadElementResponse:
+        """Align an element along an axis ('x', 'y', 'z') with a target value or another element."""
+        if await cls.is_element_pinned(project_id, express_id):
+            raise ValueError(f"Element #{express_id} is pinned. Unpin (UP) before aligning.")
+
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        mat = np.identity(4)
+        try:
+            mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception as e:
+            raise ValueError(f"Cannot get placement for entity #{express_id}: {e}")
+
+        old_mat = mat.copy()
+        axis_idx = {"x": 0, "y": 1, "z": 2}.get(req.axis.lower(), 2)
+
+        target_coord = 0.0
+        if req.align_type == "reference" and req.target_express_id:
+            ref_entity = model.by_id(req.target_express_id)
+            if not ref_entity:
+                raise ValueError(f"Reference entity #{req.target_express_id} not found.")
+            ref_mat = ifcopenshell.util.placement.get_local_placement(ref_entity.ObjectPlacement)
+            target_coord = float(ref_mat[axis_idx, 3])
+        elif req.target_value is not None:
+            target_coord = float(req.target_value)
+        elif req.align_type == "origin":
+            target_coord = 0.0
+
+        mat[axis_idx, 3] = target_coord
+
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=mat)
+        model.write(str(file_path))
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        params = {
+            "axis": req.axis,
+            "align_type": req.align_type,
+            "target_value": target_coord,
+            "old_matrix": old_mat.tolist(),
+            "new_matrix": mat.tolist(),
+        }
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'align_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, express_id, entity.is_a(), json.dumps(params), now)
+            )
+            await db.commit()
+
+        return CadElementResponse(
+            success=True,
+            express_id=express_id,
+            global_id=entity.GlobalId,
+            entity_type=entity.is_a(),
+            name=getattr(entity, "Name", "") or entity.is_a(),
+            transaction_id=trans_id,
+            message=f"Element #{express_id} aligned along {req.axis.upper()} to {target_coord:.3f}m"
+        )
+
