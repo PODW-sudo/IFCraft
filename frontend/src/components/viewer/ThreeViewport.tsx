@@ -12,6 +12,8 @@ import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/Bim
 import { SelectionContextOverlay } from './SelectionContextOverlay';
 import { SpatialContextMenu } from './SpatialContextMenu';
 import { DraftingInputHud } from './DraftingInputHud';
+import { CadTrackerHud } from './CadTrackerHud';
+import type { InteractiveEditMode, InteractiveEditState, TrackerReadout } from '../../types/cadEditing';
 import { DEFAULT_EDITOR_SETTINGS, THEME_COLOR_MAP, type EditorSettings } from '../../types/settings';
 
 export type TransformMode = 'select' | 'translate' | 'rotate' | 'scale';
@@ -99,6 +101,10 @@ interface ThreeViewportProps {
   onArrayElement?: (expressId: number, count: number, delta: [number, number, number]) => void;
   onAlignElement?: (expressId: number, axis: 'x' | 'y' | 'z', target_value?: number) => void;
   focusTrigger?: { expressId: number; timestamp: number } | null;
+  activeInteractiveMode?: InteractiveEditMode;
+  onActiveInteractiveModeChange?: (mode: InteractiveEditMode) => void;
+  onOpenSpecialModal?: () => void;
+  onSpecialPointsPicked?: (p1: [number, number, number], p2: [number, number, number]) => void;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -340,6 +346,273 @@ function disposeHighlightGroup(group: THREE.Group | null, scene: THREE.Scene | n
   group.clear();
 }
 
+function clearGroupChildren(group: THREE.Group | null): void {
+  if (!group) return;
+  while (group.children.length > 0) {
+    const c = group.children[0];
+    group.remove(c);
+    c.traverse((child) => {
+      if ((child as any).geometry && !(child as any).userData?.isSharedGeometry) {
+        (child as any).geometry.dispose();
+      }
+      if ((child as any).material) {
+        if (Array.isArray((child as any).material)) {
+          (child as any).material.forEach((m: any) => m?.dispose?.());
+        } else {
+          (child as any).material.dispose();
+        }
+      }
+    });
+  }
+}
+
+const GHOST_PREVIEW_LIMIT = 50; // Tekla XS_PREVIEW_LIMIT
+
+function updateInteractiveGuides(
+  guidesGroup: THREE.Group,
+  state: InteractiveEditState,
+  targetPoint: THREE.Vector3,
+  selectedMeshes: THREE.Mesh[] = []
+) {
+  clearGroupChildren(guidesGroup);
+
+  const { mode, step, originPoint, referenceRayPoint } = state;
+  if (mode === 'none') return;
+
+  const cyanLineMat = new THREE.LineBasicMaterial({
+    color: 0x06b6d4,
+    linewidth: 2,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.85
+  });
+  const dashedLineMat = new THREE.LineDashedMaterial({
+    color: 0x22d3ee,
+    dashSize: 0.3,
+    gapSize: 0.15,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9
+  });
+  const originMarkerMat = new THREE.MeshBasicMaterial({
+    color: 0x06b6d4,
+    depthTest: false
+  });
+  const targetMarkerMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    wireframe: true,
+    depthTest: false
+  });
+  const ghostMat = new THREE.MeshStandardMaterial({
+    color: 0x06b6d4,
+    transparent: true,
+    opacity: 0.45,
+    roughness: 0.3,
+    metalness: 0.1,
+    depthTest: true
+  });
+
+  const sphereGeom = new THREE.SphereGeometry(0.08, 16, 16);
+
+  if (step === 1 || !originPoint) {
+    const marker = new THREE.Mesh(sphereGeom, targetMarkerMat);
+    marker.position.copy(targetPoint);
+    marker.renderOrder = 9999;
+    guidesGroup.add(marker);
+    return;
+  }
+
+  const originMarker = new THREE.Mesh(sphereGeom, originMarkerMat);
+  originMarker.position.copy(originPoint);
+  originMarker.renderOrder = 9999;
+  guidesGroup.add(originMarker);
+
+  if (mode === 'move' || mode === 'special_pick') {
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([originPoint, targetPoint]);
+    const line = new THREE.Line(lineGeom, dashedLineMat);
+    line.computeLineDistances();
+    line.renderOrder = 9998;
+    guidesGroup.add(line);
+
+    const targetMarker = new THREE.Mesh(sphereGeom, targetMarkerMat);
+    targetMarker.position.copy(targetPoint);
+    targetMarker.renderOrder = 9999;
+    guidesGroup.add(targetMarker);
+
+    if (mode === 'move' && selectedMeshes.length > 0) {
+      const delta = targetPoint.clone().sub(originPoint);
+      selectedMeshes.forEach((mesh) => {
+        if (!mesh.geometry) return;
+        const ghost = new THREE.Mesh(mesh.geometry, ghostMat);
+        ghost.userData = { isSharedGeometry: true };
+        ghost.matrixAutoUpdate = false;
+        const mat = mesh.matrixWorld.clone();
+        mat.setPosition(
+          mat.elements[12] + delta.x,
+          mat.elements[13] + delta.y,
+          mat.elements[14] + delta.z
+        );
+        ghost.matrix.copy(mat);
+        ghost.renderOrder = 9000;
+        guidesGroup.add(ghost);
+      });
+    }
+  } else if (mode === 'elevate') {
+    const vertTarget = new THREE.Vector3(originPoint.x, targetPoint.y, originPoint.z);
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([originPoint, vertTarget]);
+    const line = new THREE.Line(lineGeom, dashedLineMat);
+    line.computeLineDistances();
+    line.renderOrder = 9998;
+    guidesGroup.add(line);
+
+    const targetMarker = new THREE.Mesh(sphereGeom, targetMarkerMat);
+    targetMarker.position.copy(vertTarget);
+    targetMarker.renderOrder = 9999;
+    guidesGroup.add(targetMarker);
+
+    if (selectedMeshes.length > 0) {
+      const dy = targetPoint.y - originPoint.y;
+      selectedMeshes.forEach((mesh) => {
+        if (!mesh.geometry) return;
+        const ghost = new THREE.Mesh(mesh.geometry, ghostMat);
+        ghost.userData = { isSharedGeometry: true };
+        ghost.matrixAutoUpdate = false;
+        const mat = mesh.matrixWorld.clone();
+        mat.setPosition(mat.elements[12], mat.elements[13] + dy, mat.elements[14]);
+        ghost.matrix.copy(mat);
+        ghost.renderOrder = 9000;
+        guidesGroup.add(ghost);
+      });
+    }
+  } else if (mode === 'rotate') {
+    if (step === 2) {
+      const lineGeom = new THREE.BufferGeometry().setFromPoints([originPoint, targetPoint]);
+      const line = new THREE.Line(lineGeom, dashedLineMat);
+      line.computeLineDistances();
+      line.renderOrder = 9998;
+      guidesGroup.add(line);
+
+      const targetMarker = new THREE.Mesh(sphereGeom, targetMarkerMat);
+      targetMarker.position.copy(targetPoint);
+      targetMarker.renderOrder = 9999;
+      guidesGroup.add(targetMarker);
+    } else if (step === 3 && referenceRayPoint) {
+      const refGeom = new THREE.BufferGeometry().setFromPoints([originPoint, referenceRayPoint]);
+      const refLine = new THREE.Line(refGeom, cyanLineMat);
+      refLine.renderOrder = 9998;
+      guidesGroup.add(refLine);
+
+      const curGeom = new THREE.BufferGeometry().setFromPoints([originPoint, targetPoint]);
+      const curLine = new THREE.Line(curGeom, dashedLineMat);
+      curLine.computeLineDistances();
+      curLine.renderOrder = 9998;
+      guidesGroup.add(curLine);
+
+      const r = Math.min(originPoint.distanceTo(referenceRayPoint), 3.0);
+      const v1 = new THREE.Vector2(referenceRayPoint.x - originPoint.x, referenceRayPoint.z - originPoint.z).normalize();
+      const v2 = new THREE.Vector2(targetPoint.x - originPoint.x, targetPoint.z - originPoint.z).normalize();
+      const startAngle = Math.atan2(v1.y, v1.x);
+      const endAngle = Math.atan2(v2.y, v2.x);
+      const sweep = endAngle - startAngle;
+
+      const arcPoints: THREE.Vector3[] = [];
+      const segments = 24;
+      for (let i = 0; i <= segments; i++) {
+        const theta = startAngle + (sweep * i) / segments;
+        arcPoints.push(new THREE.Vector3(originPoint.x + Math.cos(theta) * r, originPoint.y, originPoint.z + Math.sin(theta) * r));
+      }
+      const arcGeom = new THREE.BufferGeometry().setFromPoints(arcPoints);
+      const arcLine = new THREE.Line(arcGeom, cyanLineMat);
+      arcLine.renderOrder = 9998;
+      guidesGroup.add(arcLine);
+
+      if (selectedMeshes.length > 0) {
+        selectedMeshes.forEach((mesh) => {
+          if (!mesh.geometry) return;
+          const ghost = new THREE.Mesh(mesh.geometry, ghostMat);
+          ghost.userData = { isSharedGeometry: true };
+          ghost.matrixAutoUpdate = false;
+          const rotMat = new THREE.Matrix4().makeRotationY(-sweep);
+          const t1 = new THREE.Matrix4().makeTranslation(-originPoint.x, -originPoint.y, -originPoint.z);
+          const t2 = new THREE.Matrix4().makeTranslation(originPoint.x, originPoint.y, originPoint.z);
+          const fullMat = new THREE.Matrix4().multiply(t2).multiply(rotMat).multiply(t1).multiply(mesh.matrixWorld);
+          ghost.matrix.copy(fullMat);
+          ghost.renderOrder = 9000;
+          guidesGroup.add(ghost);
+        });
+      }
+    }
+  } else if (mode === 'mirror') {
+    const dir = targetPoint.clone().sub(originPoint).normalize();
+    const pStart = originPoint.clone().sub(dir.clone().multiplyScalar(10));
+    const pEnd = originPoint.clone().add(dir.clone().multiplyScalar(10));
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([pStart, pEnd]);
+    const line = new THREE.Line(lineGeom, dashedLineMat);
+    line.computeLineDistances();
+    line.renderOrder = 9998;
+    guidesGroup.add(line);
+
+    const targetMarker = new THREE.Mesh(sphereGeom, targetMarkerMat);
+    targetMarker.position.copy(targetPoint);
+    targetMarker.renderOrder = 9999;
+    guidesGroup.add(targetMarker);
+
+    if (selectedMeshes.length > 0) {
+      const dx = targetPoint.x - originPoint.x;
+      const dz = targetPoint.z - originPoint.z;
+      const axis = Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z';
+
+      selectedMeshes.forEach((mesh) => {
+        if (!mesh.geometry) return;
+        const ghost = new THREE.Mesh(mesh.geometry, ghostMat);
+        ghost.userData = { isSharedGeometry: true };
+        ghost.matrixAutoUpdate = false;
+        const scaleMat = new THREE.Matrix4().makeScale(
+          axis === 'x' ? 1 : -1,
+          1,
+          axis === 'x' ? -1 : 1
+        );
+        const t1 = new THREE.Matrix4().makeTranslation(-originPoint.x, -originPoint.y, -originPoint.z);
+        const t2 = new THREE.Matrix4().makeTranslation(originPoint.x, originPoint.y, originPoint.z);
+        const fullMat = new THREE.Matrix4().multiply(t2).multiply(scaleMat).multiply(t1).multiply(mesh.matrixWorld);
+        ghost.matrix.copy(fullMat);
+        ghost.renderOrder = 9000;
+        guidesGroup.add(ghost);
+      });
+    }
+  } else if (mode === 'multiply') {
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([originPoint, targetPoint]);
+    const line = new THREE.Line(lineGeom, dashedLineMat);
+    line.computeLineDistances();
+    line.renderOrder = 9998;
+    guidesGroup.add(line);
+
+    const delta = targetPoint.clone().sub(originPoint);
+    const count = Math.min(state.multiplyCount || 3, GHOST_PREVIEW_LIMIT);
+
+    if (selectedMeshes.length > 0) {
+      for (let i = 1; i <= count; i++) {
+        const stepDelta = delta.clone().multiplyScalar(i);
+        selectedMeshes.forEach((mesh) => {
+          if (!mesh.geometry) return;
+          const ghost = new THREE.Mesh(mesh.geometry, ghostMat);
+          ghost.userData = { isSharedGeometry: true };
+          ghost.matrixAutoUpdate = false;
+          const mat = mesh.matrixWorld.clone();
+          mat.setPosition(
+            mat.elements[12] + stepDelta.x,
+            mat.elements[13] + stepDelta.y,
+            mat.elements[14] + stepDelta.z
+          );
+          ghost.matrix.copy(mat);
+          ghost.renderOrder = 9000;
+          guidesGroup.add(ghost);
+        });
+      }
+    }
+  }
+}
+
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   settings = DEFAULT_EDITOR_SETTINGS,
   geometries,
@@ -386,12 +659,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onSelectCadTool,
   pinnedExpressIds,
   onTogglePin,
-  onMoveElement: _onMoveElement,
+  onMoveElement,
   onRotateElement,
   onMirrorElement,
   onArrayElement,
   onAlignElement,
-  focusTrigger
+  focusTrigger,
+  activeInteractiveMode = 'none',
+  onActiveInteractiveModeChange,
+  onOpenSpecialModal,
+  onSpecialPointsPicked,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -405,7 +682,26 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const isDraggingGizmoRef = useRef(false);
   const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
   const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
+  const editGuidesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+
+  // Industry-Grade CAD/BIM Interactive Editing State (Archicad 29 & Tekla 2025)
+  const [interactiveEditState, setInteractiveEditState] = useState<InteractiveEditState>({
+    mode: 'none',
+    step: 1,
+    originPoint: null,
+    referenceRayPoint: null,
+    currentPoint: null,
+    isCopyMode: false,
+    isMultiCopy: false,
+    isOrthoLocked: false,
+    multiplyCount: 3,
+    multiplySpacing: 2.0,
+    multiplyMethod: 'increment',
+    rotateAxis: 'z',
+    mirrorPlane: 'x',
+  });
+  const [trackerReadout, setTrackerReadout] = useState<TrackerReadout | null>(null);
 
   // Modern In-Viewport BIM Editing State
   const [selectionScreenPos, setSelectionScreenPos] = useState<{ x: number; y: number } | null>(null);
@@ -716,6 +1012,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const cadGroup = new THREE.Group();
     scene.add(cadGroup);
     cadPreviewGroupRef.current = cadGroup;
+
+    const editGroup = new THREE.Group();
+    editGroup.name = 'edit-guides-group';
+    scene.add(editGroup);
+    editGuidesGroupRef.current = editGroup;
 
     // Snap Indicator Gizmo (High renderOrder, depthTest false for obstruction-free snapping)
     const snapGroup = new THREE.Group();
@@ -1878,32 +2179,50 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
   }, [cadToolMode]);
 
-  // Handle ESC (clear selection / cancel) and TAB (cycle candidate elements)
+  // Synchronize activeInteractiveMode prop with local interactiveEditState & cleanup guides on cancel/switch
+  useEffect(() => {
+    setInteractiveEditState((prev) => {
+      if (prev.mode === activeInteractiveMode) return prev;
+      return {
+        ...prev,
+        mode: activeInteractiveMode,
+        step: 1,
+        originPoint: null,
+        referenceRayPoint: null,
+        currentPoint: null,
+        isCopyMode: false,
+      };
+    });
+
+    if (activeInteractiveMode === 'none') {
+      setTrackerReadout(null);
+      if (editGuidesGroupRef.current) {
+        clearGroupChildren(editGuidesGroupRef.current);
+      }
+      needsRenderRef.current = true;
+    }
+  }, [activeInteractiveMode]);
+
+  // Handle ESC (clear selection / cancel), TAB (cycle candidate elements), and CAD shortcut keys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      // Tab Key: Cycle through candidate elements under the cursor in ascending distance order
-      if (e.key === 'Tab' && !isInput) {
-        if (hoverCandidatesRef.current.length > 1) {
+      // Handle Escape: cancel interactive CAD editing first, then regular deselection
+      if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
+        if (interactiveEditState.mode !== 'none') {
           e.preventDefault();
-          e.stopPropagation();
-          const count = hoverCandidatesRef.current.length;
-          const nextIdx = e.shiftKey
-            ? (hoverCandidateIndexRef.current - 1 + count) % count
-            : (hoverCandidateIndexRef.current + 1) % count;
-          hoverCandidateIndexRef.current = nextIdx;
-          const targetExpressId = hoverCandidatesRef.current[nextIdx];
-          hoveredExpressIdRef.current = targetExpressId;
-          setHoverCandidateIndex(nextIdx);
-          setHoveredExpressId(targetExpressId);
+          setInteractiveEditState((prev) => ({ ...prev, mode: 'none', step: 1 }));
+          setTrackerReadout(null);
+          if (editGuidesGroupRef.current) {
+            clearGroupChildren(editGuidesGroupRef.current);
+          }
+          if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('none');
           needsRenderRef.current = true;
           return;
         }
-      }
 
-      if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
         if (selectedExpressID !== null) {
           onSelectElement(null);
         }
@@ -1930,6 +2249,42 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           } else if (onCancelMeasure) {
             onCancelMeasure();
           }
+        }
+        return;
+      }
+
+      if (isInput) return;
+
+      // Quick Rotate 90 CW / CCW (Ctrl+R / Shift+Ctrl+R)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R') && selectedExpressID !== null) {
+        e.preventDefault();
+        const cw = e.shiftKey;
+        if (onRotateElement) onRotateElement(selectedExpressID, cw ? 90 : -90, 'z');
+        return;
+      }
+
+      // Modifier key toggle during active interactive editing
+      if (e.key === 'Control' && interactiveEditState.mode !== 'none') {
+        setInteractiveEditState((prev) => ({ ...prev, isCopyMode: !prev.isCopyMode }));
+        return;
+      }
+
+      // Tab Key: Cycle through candidate elements under cursor
+      if (e.key === 'Tab') {
+        if (hoverCandidatesRef.current.length > 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          const count = hoverCandidatesRef.current.length;
+          const nextIdx = e.shiftKey
+            ? (hoverCandidateIndexRef.current - 1 + count) % count
+            : (hoverCandidateIndexRef.current + 1) % count;
+          hoverCandidateIndexRef.current = nextIdx;
+          const targetExpressId = hoverCandidatesRef.current[nextIdx];
+          hoveredExpressIdRef.current = targetExpressId;
+          setHoverCandidateIndex(nextIdx);
+          setHoveredExpressId(targetExpressId);
+          needsRenderRef.current = true;
+          return;
         }
       }
     };
@@ -2001,7 +2356,181 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       hiddenModelIds
     ]
   );
-  updateHoverAtScreenCoordsRef.current = updateHoverAtScreenCoords;
+  // Cancel and cleanup interactive CAD editing
+  const handleCancelInteractiveEdit = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'none',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    setTrackerReadout(null);
+    if (editGuidesGroupRef.current) {
+      clearGroupChildren(editGuidesGroupRef.current);
+    }
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('none');
+    needsRenderRef.current = true;
+  }, [onActiveInteractiveModeChange]);
+
+  // Commit value entered in CadTrackerHud
+  const handleCommitTrackerValue = useCallback(
+    (field: 'distance' | 'angle' | 'dx' | 'dy' | 'dz', value: number) => {
+      if (selectedExpressID === null || interactiveEditState.mode === 'none') return;
+
+      if (interactiveEditState.mode === 'move') {
+        let delta: [number, number, number] = [0, 0, 0];
+        if (trackerReadout && interactiveEditState.originPoint) {
+          delta = [trackerReadout.dx, trackerReadout.dy, trackerReadout.dz];
+        }
+        if (field === 'distance') {
+          const curLen = Math.hypot(delta[0], delta[1], delta[2]);
+          if (curLen > 0.001) {
+            const factor = value / curLen;
+            delta = [delta[0] * factor, delta[1] * factor, delta[2] * factor];
+          } else {
+            delta = [value, 0, 0];
+          }
+        } else if (field === 'dx') {
+          delta[0] = value;
+        } else if (field === 'dy') {
+          delta[1] = value;
+        } else if (field === 'dz') {
+          delta[2] = value;
+        }
+        if (onMoveElement) onMoveElement(selectedExpressID, delta);
+        handleCancelInteractiveEdit();
+      } else if (interactiveEditState.mode === 'rotate') {
+        if (onRotateElement) onRotateElement(selectedExpressID, value, 'z');
+        handleCancelInteractiveEdit();
+      } else if (interactiveEditState.mode === 'elevate') {
+        if (onMoveElement) onMoveElement(selectedExpressID, [0, value, 0]);
+        handleCancelInteractiveEdit();
+      } else if (interactiveEditState.mode === 'multiply') {
+        let delta: [number, number, number] = [value, 0, 0];
+        if (trackerReadout && interactiveEditState.originPoint) {
+          const d = [trackerReadout.dx, trackerReadout.dy, trackerReadout.dz] as [number, number, number];
+          const curLen = Math.hypot(d[0], d[1], d[2]);
+          if (curLen > 0.001) {
+            const factor = value / curLen;
+            delta = [d[0] * factor, d[1] * factor, d[2] * factor];
+          }
+        }
+        if (onArrayElement) onArrayElement(selectedExpressID, interactiveEditState.multiplyCount, delta);
+        handleCancelInteractiveEdit();
+      }
+    },
+    [selectedExpressID, interactiveEditState, trackerReadout, onMoveElement, onRotateElement, onArrayElement, handleCancelInteractiveEdit]
+  );
+
+  const handleStartMove = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'move',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('move');
+  }, [onActiveInteractiveModeChange]);
+
+  const handleStartRotate = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'rotate',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('rotate');
+  }, [onActiveInteractiveModeChange]);
+
+  const handleStartMirror = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'mirror',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('mirror');
+  }, [onActiveInteractiveModeChange]);
+
+  const handleStartElevate = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'elevate',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('elevate');
+  }, [onActiveInteractiveModeChange]);
+
+  const handleStartMultiply = useCallback(() => {
+    setInteractiveEditState({
+      mode: 'multiply',
+      step: 1,
+      originPoint: null,
+      referenceRayPoint: null,
+      currentPoint: null,
+      isCopyMode: false,
+      isMultiCopy: false,
+      isOrthoLocked: false,
+      multiplyCount: 3,
+      multiplySpacing: 2.0,
+      multiplyMethod: 'increment',
+      rotateAxis: 'z',
+      mirrorPlane: 'x',
+    });
+    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('multiply');
+  }, [onActiveInteractiveModeChange]);
+
+  const handleQuickRotate = useCallback((cw: boolean) => {
+    if (selectedExpressID !== null && onRotateElement) {
+      onRotateElement(selectedExpressID, cw ? 90 : -90, 'z');
+    }
+  }, [selectedExpressID, onRotateElement]);
 
   // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
   const handlePointerMove = useCallback(
@@ -2039,6 +2568,120 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       // If a button is held down or the camera is actively orbiting via OrbitControls drag, suppress hover
       if (event.buttons !== 0 || isOrbitingRef.current || isPointerDraggingRef.current) {
+        return;
+      }
+
+      // Interactive CAD Editing Mode (Archicad 29 Pet Palette & Tekla 2025 Precision Move/Rotate)
+      if (interactiveEditState.mode !== 'none') {
+        const container = containerRef.current;
+        const camera = cameraRef.current;
+        const group = meshesGroupRef.current;
+        const editGroup = editGuidesGroupRef.current;
+        if (!container || !camera || !editGroup) return;
+
+        const rect = container.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((event.clientX - rect.left) / rect.width) * 2 - 1,
+          -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+
+        let planeElev = 0;
+        if (selectedExpressID !== null) {
+          const sMeshes = meshMapRef.current.get(selectedExpressID);
+          if (sMeshes && sMeshes[0]) {
+            planeElev = sMeshes[0].position.y;
+          }
+        }
+        const workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeElev);
+        const planeHit = new THREE.Vector3();
+        raycaster.ray.intersectPlane(workPlane, planeHit);
+
+        let hitPoint = planeHit.clone();
+        if (snapEnabled && group) {
+          const visibleMeshes = group.children.filter((c) => c.visible);
+          const snap = findSnapPoint(raycaster, visibleMeshes, camera, { x: event.clientX, y: event.clientY }, rect);
+          if (snap) {
+            hitPoint = snap.point.clone();
+            currentSnapPointRef.current = snap.point;
+          } else {
+            currentSnapPointRef.current = null;
+          }
+        }
+
+        const isShift = event.shiftKey;
+        if (isShift && interactiveEditState.originPoint) {
+          const ox = interactiveEditState.originPoint.x;
+          const oz = interactiveEditState.originPoint.z;
+          const dx = hitPoint.x - ox;
+          const dz = hitPoint.z - oz;
+          if (Math.abs(dx) > Math.abs(dz)) {
+            hitPoint.z = oz;
+          } else {
+            hitPoint.x = ox;
+          }
+        }
+
+        let dist = 0;
+        let angle = 0;
+        let dx = 0;
+        let dy = 0;
+        let dz = 0;
+        if (interactiveEditState.originPoint) {
+          const o = interactiveEditState.originPoint;
+          dx = hitPoint.x - o.x;
+          dy = hitPoint.y - o.y;
+          dz = hitPoint.z - o.z;
+          dist = o.distanceTo(hitPoint);
+          if (interactiveEditState.mode === 'rotate' && interactiveEditState.referenceRayPoint) {
+            const v1 = new THREE.Vector2(interactiveEditState.referenceRayPoint.x - o.x, interactiveEditState.referenceRayPoint.z - o.z).normalize();
+            const v2 = new THREE.Vector2(hitPoint.x - o.x, hitPoint.z - o.z).normalize();
+            const rad = Math.atan2(v2.y, v2.x) - Math.atan2(v1.y, v1.x);
+            angle = (rad * 180) / Math.PI;
+          } else {
+            angle = (Math.atan2(dz, dx) * 180) / Math.PI;
+            if (angle < 0) angle += 360;
+          }
+        }
+
+        const screenVec = hitPoint.clone().project(camera);
+        const hudScreenX = ((screenVec.x + 1) / 2) * rect.width + rect.left;
+        const hudScreenY = ((-screenVec.y + 1) / 2) * rect.height + rect.top;
+
+        let prompt = '';
+        if (interactiveEditState.mode === 'move') {
+          prompt = interactiveEditState.step === 1 ? 'Click start point for move vector' : 'Click destination point (or type distance)';
+        } else if (interactiveEditState.mode === 'rotate') {
+          prompt = interactiveEditState.step === 1 ? 'Click rotation center point' : interactiveEditState.step === 2 ? 'Click reference direction ray (0° baseline)' : 'Click new direction ray (or type angle)';
+        } else if (interactiveEditState.mode === 'mirror') {
+          prompt = interactiveEditState.step === 1 ? 'Click first point of mirror axis' : 'Click second point of mirror axis';
+        } else if (interactiveEditState.mode === 'multiply') {
+          prompt = interactiveEditState.step === 1 ? 'Click base point for array' : 'Click displacement / spacing vector';
+        } else if (interactiveEditState.mode === 'elevate') {
+          prompt = interactiveEditState.step === 1 ? 'Click base reference elevation' : 'Move cursor vertically to set new elevation';
+        } else if (interactiveEditState.mode === 'special_pick') {
+          prompt = interactiveEditState.step === 1 ? 'Click Point 1 for vector' : 'Click Point 2 to measure offset';
+        }
+
+        setTrackerReadout({
+          mode: interactiveEditState.mode,
+          step: interactiveEditState.step,
+          distance: dist,
+          angle: angle,
+          dx: dx,
+          dy: dy,
+          dz: dz,
+          isCopyMode: interactiveEditState.isCopyMode,
+          isOrthoLocked: isShift,
+          activeField: interactiveEditState.mode === 'rotate' ? 'angle' : interactiveEditState.mode === 'elevate' ? 'dy' : 'distance',
+          prompt,
+          screenPos: { x: hudScreenX, y: hudScreenY }
+        });
+
+        const selectedMeshes = selectedExpressID !== null ? meshMapRef.current.get(selectedExpressID) || [] : [];
+        updateInteractiveGuides(editGroup, interactiveEditState, hitPoint, selectedMeshes);
+        needsRenderRef.current = true;
         return;
       }
 
@@ -2247,7 +2890,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       sectionConfig.enabled,
       hiddenCategories,
       isolatedExpressID,
-      hiddenModelIds
+      hiddenModelIds,
+      interactiveEditState,
+      selectedExpressID
     ]
   );
 
@@ -2370,6 +3015,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         // Direct and reliable selection on left pointerup: prevents lost selections if browser click is delayed or throttled
         if (
           !isMeasureActive &&
+          interactiveEditState.mode === 'none' &&
           cadToolMode === 'select' &&
           !isDraggingGizmoRef.current &&
           !isOrbitingRef.current &&
@@ -2429,7 +3075,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       sectionConfig.enabled,
       hiddenCategories,
       isolatedExpressID,
-      hiddenModelIds
+      hiddenModelIds,
+      interactiveEditState
     ]
   );
 
@@ -2438,6 +3085,151 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (isDraggingGizmoRef.current) return;
       if (isMeasureActive) return; // Handled reliably via onPointerUp to prevent OrbitControls conflicts
+
+      // Interactive CAD Editing Mode Click Handler (Archicad 29 & Tekla 2025)
+      if (interactiveEditState.mode !== 'none') {
+        const container = containerRef.current;
+        const camera = cameraRef.current;
+        const group = meshesGroupRef.current;
+        if (!container || !camera) return;
+
+        const rect = container.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((event.clientX - rect.left) / rect.width) * 2 - 1,
+          -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+
+        let planeElev = 0;
+        if (selectedExpressID !== null) {
+          const sMeshes = meshMapRef.current.get(selectedExpressID);
+          if (sMeshes && sMeshes[0]) {
+            planeElev = sMeshes[0].position.y;
+          }
+        }
+        const workPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeElev);
+        const planeHit = new THREE.Vector3();
+        raycaster.ray.intersectPlane(workPlane, planeHit);
+
+        let hitPoint = planeHit.clone();
+        if (snapEnabled && group) {
+          const visibleMeshes = group.children.filter((c) => c.visible);
+          const snap = findSnapPoint(raycaster, visibleMeshes, camera, { x: event.clientX, y: event.clientY }, rect);
+          if (snap) {
+            hitPoint = snap.point.clone();
+          }
+        }
+
+        if (event.shiftKey && interactiveEditState.originPoint) {
+          const ox = interactiveEditState.originPoint.x;
+          const oz = interactiveEditState.originPoint.z;
+          const dx = hitPoint.x - ox;
+          const dz = hitPoint.z - oz;
+          if (Math.abs(dx) > Math.abs(dz)) {
+            hitPoint.z = oz;
+          } else {
+            hitPoint.x = ox;
+          }
+        }
+
+        if (interactiveEditState.step === 1) {
+          setInteractiveEditState((prev) => ({
+            ...prev,
+            step: 2,
+            originPoint: hitPoint.clone()
+          }));
+          needsRenderRef.current = true;
+          return;
+        }
+
+        if (interactiveEditState.step === 2) {
+          const origin = interactiveEditState.originPoint;
+          if (!origin) return;
+
+          if (interactiveEditState.mode === 'move') {
+            const delta: [number, number, number] = [
+              hitPoint.x - origin.x,
+              hitPoint.y - origin.y,
+              hitPoint.z - origin.z
+            ];
+            if (selectedExpressID !== null && onMoveElement) {
+              onMoveElement(selectedExpressID, delta);
+            }
+            handleCancelInteractiveEdit();
+            return;
+          }
+
+          if (interactiveEditState.mode === 'rotate') {
+            setInteractiveEditState((prev) => ({
+              ...prev,
+              step: 3,
+              referenceRayPoint: hitPoint.clone()
+            }));
+            needsRenderRef.current = true;
+            return;
+          }
+
+          if (interactiveEditState.mode === 'mirror') {
+            const dx = hitPoint.x - origin.x;
+            const dz = hitPoint.z - origin.z;
+            const axis = Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z';
+            if (selectedExpressID !== null && onMirrorElement) {
+              onMirrorElement(selectedExpressID, axis, interactiveEditState.isCopyMode);
+            }
+            handleCancelInteractiveEdit();
+            return;
+          }
+
+          if (interactiveEditState.mode === 'multiply') {
+            const delta: [number, number, number] = [
+              hitPoint.x - origin.x,
+              hitPoint.y - origin.y,
+              hitPoint.z - origin.z
+            ];
+            if (selectedExpressID !== null && onArrayElement) {
+              onArrayElement(selectedExpressID, interactiveEditState.multiplyCount, delta);
+            }
+            handleCancelInteractiveEdit();
+            return;
+          }
+
+          if (interactiveEditState.mode === 'elevate') {
+            const dy = hitPoint.y - origin.y;
+            if (selectedExpressID !== null && onMoveElement) {
+              onMoveElement(selectedExpressID, [0, dy, 0]);
+            }
+            handleCancelInteractiveEdit();
+            return;
+          }
+
+          if (interactiveEditState.mode === 'special_pick') {
+            if (onSpecialPointsPicked) {
+              onSpecialPointsPicked(
+                [origin.x, origin.y, origin.z],
+                [hitPoint.x, hitPoint.y, hitPoint.z]
+              );
+            }
+            handleCancelInteractiveEdit();
+            return;
+          }
+        }
+
+        if (interactiveEditState.step === 3 && interactiveEditState.mode === 'rotate') {
+          const origin = interactiveEditState.originPoint;
+          const refRay = interactiveEditState.referenceRayPoint;
+          if (origin && refRay && selectedExpressID !== null && onRotateElement) {
+            const v1 = new THREE.Vector2(refRay.x - origin.x, refRay.z - origin.z).normalize();
+            const v2 = new THREE.Vector2(hitPoint.x - origin.x, hitPoint.z - origin.z).normalize();
+            const rad = Math.atan2(v2.y, v2.x) - Math.atan2(v1.y, v1.x);
+            let deg = (rad * 180) / Math.PI;
+            onRotateElement(selectedExpressID, deg, 'z');
+          }
+          handleCancelInteractiveEdit();
+          return;
+        }
+        return;
+      }
 
       const now = Date.now();
       // If handlePointerUp already handled selection on pointerup, skip redundant execution
@@ -2614,7 +3406,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       sectionConfig.enabled,
       hiddenCategories,
       isolatedExpressID,
-      hiddenModelIds
+      hiddenModelIds,
+      interactiveEditState,
+      handleCancelInteractiveEdit,
+      onMoveElement,
+      onRotateElement,
+      onMirrorElement,
+      onArrayElement,
+      onSpecialPointsPicked
     ]
   );
 
@@ -2670,6 +3469,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   ]);
 
   const getCursorClass = () => {
+    if (interactiveEditState.mode !== 'none') return 'cursor-crosshair';
     if (isMeasureActive || cadToolMode !== 'select') return 'cursor-crosshair';
     if (hoveredExpressId !== null || isHoveringInteractiveMesh) return 'cursor-pointer';
     return 'cursor-default';
@@ -2725,6 +3525,47 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           </button>
         </div>
       )}
+
+      {/* Interactive CAD Edit Tool Banner */}
+      {interactiveEditState.mode !== 'none' && (
+        <div
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-[var(--dock-translucent)] border border-cyan-500/40 backdrop-blur-xl px-4 py-1.5 rounded-full text-xs text-cyan-300 flex items-center gap-2.5 shadow-[var(--shadow-hud)] select-none animate-in fade-in slide-in-from-top-1"
+          data-qa="interactive-edit-banner"
+        >
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="font-semibold uppercase tracking-wider text-[11px] text-cyan-400">
+            {interactiveEditState.mode === 'move' ? 'Move' :
+             interactiveEditState.mode === 'rotate' ? 'Rotate' :
+             interactiveEditState.mode === 'mirror' ? 'Mirror' :
+             interactiveEditState.mode === 'multiply' ? 'Multiply' :
+             interactiveEditState.mode === 'elevate' ? 'Elevate' : 'Pick Points'}
+          </span>
+          <span className="text-slate-500">•</span>
+          <span className="font-mono text-slate-200">
+            {trackerReadout?.prompt || `Step ${interactiveEditState.step}`}
+          </span>
+          {interactiveEditState.isCopyMode && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium">
+              Copy
+            </span>
+          )}
+          <button
+            onClick={handleCancelInteractiveEdit}
+            className="text-[10px] text-slate-400 hover:text-slate-200 font-mono ml-2 px-1.5 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
+            title="Cancel tool (Esc)"
+            data-qa="interactive-edit-cancel-btn"
+          >
+            ESC to cancel
+          </button>
+        </div>
+      )}
+
+      {/* Interactive CAD Tracker HUD (Archicad 29 & Tekla 2025 Floating Input) */}
+      <CadTrackerHud
+        readout={trackerReadout}
+        onCommitValue={handleCommitTrackerValue}
+        onCancel={handleCancelInteractiveEdit}
+      />
 
       {/* Hover Snap Point Micro-Badge */}
       {isMeasureActive && activeSnap && (
@@ -2827,6 +3668,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           screenPosition={selectionScreenPos}
           storeys={storeys}
           isPinned={Boolean(selectedExpressID && pinnedExpressIds?.has(selectedExpressID))}
+          activeTool={interactiveEditState.mode}
+          onStartMove={handleStartMove}
+          onStartRotate={handleStartRotate}
+          onQuickRotate={handleQuickRotate}
+          onStartMirror={handleStartMirror}
+          onStartElevate={handleStartElevate}
+          onStartMultiply={handleStartMultiply}
+          onOpenSpecialModal={() => onOpenSpecialModal && onOpenSpecialModal()}
           onClone={(id) => onCloneElement && onCloneElement(id)}
           onDelete={(id) => onDeleteElement && onDeleteElement(id)}
           onUpdateGeometry={(id, params) => onUpdateGeometry && onUpdateGeometry(id, params)}

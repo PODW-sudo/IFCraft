@@ -24,6 +24,8 @@ import { CadToolbar } from './components/cad/CadToolbar';
 import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
 import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
 import { SettingsModal } from './components/modals/SettingsModal';
+import { MoveCopySpecialModal } from './components/cad/MoveCopySpecialModal';
+import type { InteractiveEditMode } from './types/cadEditing';
 import { loadEditorSettings, saveEditorSettings } from './services/settings';
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from './types/settings';
 import type { 
@@ -69,6 +71,11 @@ export const App: React.FC = () => {
     position: [number, number, number];
     rotation: [number, number, number];
   } | null>(null);
+
+  // Industry-Standard CAD Interactive Editing (Archicad 29 & Tekla 2025)
+  const [activeInteractiveMode, setActiveInteractiveMode] = useState<InteractiveEditMode>('none');
+  const [isMoveCopySpecialOpen, setIsMoveCopySpecialOpen] = useState(false);
+  const [specialPickedPoints, setSpecialPickedPoints] = useState<{ p1: [number, number, number]; p2: [number, number, number] } | null>(null);
 
   // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
   const [isMeasureActive, setIsMeasureActive] = useState(false);
@@ -485,6 +492,7 @@ export const App: React.FC = () => {
         setSelectedExpressID(null);
         setTransformInfo(null);
         setTransformMode('select');
+        setActiveInteractiveMode('none');
       }
     },
     [selectedExpressID, elementLocks, transformMode, collaborators]
@@ -1514,6 +1522,13 @@ export const App: React.FC = () => {
           onArrayElement={handleArrayElement}
           onAlignElement={handleAlignElement}
           focusTrigger={focusTrigger}
+          activeInteractiveMode={activeInteractiveMode}
+          onActiveInteractiveModeChange={setActiveInteractiveMode}
+          onOpenSpecialModal={() => setIsMoveCopySpecialOpen(true)}
+          onSpecialPointsPicked={(p1, p2) => {
+            setSpecialPickedPoints({ p1, p2 });
+            setIsMoveCopySpecialOpen(true);
+          }}
         />
       </div>
 
@@ -1561,24 +1576,29 @@ export const App: React.FC = () => {
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
         />
 
-        {/* 2b. Contextual Modification Tab (Revit-Style Contextual Modify Tab Below Top Pill) */}
+        {/* 2b. Contextual Modification Tab (Archicad 29 & Tekla 2025 Ribbon Below Top Pill) */}
         {selectedExpressID !== null && (
           <ContextualModifyBar
             expressId={selectedExpressID}
             elementDetails={selectedElementDetails}
             storeys={storeys}
             isPinned={pinnedExpressIds.has(selectedExpressID)}
+            activeInteractiveMode={activeInteractiveMode}
             onTogglePin={handleTogglePin}
-            onMove={handleMoveElement}
-            onRotate={handleRotateElement}
-            onMirror={handleMirrorElement}
-            onArray={handleArrayElement}
-            onAlign={handleAlignElement}
+            onStartMove={() => setActiveInteractiveMode('move')}
+            onStartRotate={() => setActiveInteractiveMode('rotate')}
+            onQuickRotate={(cw) => handleRotateElement(selectedExpressID, cw ? 90 : -90, 'z')}
+            onStartMirror={() => setActiveInteractiveMode('mirror')}
+            onStartElevate={() => setActiveInteractiveMode('elevate')}
+            onStartMultiply={() => setActiveInteractiveMode('multiply')}
+            onOpenSpecialModal={() => setIsMoveCopySpecialOpen(true)}
+            onCancelInteractiveTool={() => setActiveInteractiveMode('none')}
             onClone={handleCloneElement}
             onDelete={handleDeleteElement}
             onUpdateGeometry={handleUpdateGeometry}
             onAssignStorey={handleAssignStorey}
             onAssignMaterial={handleAssignMaterial}
+            onAlignElement={handleAlignElement}
             onFocus={(id) => setFocusTrigger({ expressId: id, timestamp: Date.now() })}
             onOpenInspector={() => setIsPropertyOpen(true)}
             onDeselect={() => handleSelectElement(null)}
@@ -1827,6 +1847,37 @@ export const App: React.FC = () => {
         onUpdateSettings={handleUpdateSettings}
         onResetSettings={handleResetSettings}
       />
+
+      {/* Tekla Structures 2025 Move/Copy Special Precision Engineering Modal */}
+      {selectedExpressID !== null && (
+        <MoveCopySpecialModal
+          isOpen={isMoveCopySpecialOpen}
+          expressId={selectedExpressID}
+          pickedVector={specialPickedPoints ? [
+            specialPickedPoints.p2[0] - specialPickedPoints.p1[0],
+            specialPickedPoints.p2[1] - specialPickedPoints.p1[1],
+            specialPickedPoints.p2[2] - specialPickedPoints.p1[2]
+          ] : undefined}
+          onClose={() => setIsMoveCopySpecialOpen(false)}
+          onPickTwoPoints={() => {
+            setIsMoveCopySpecialOpen(false);
+            setActiveInteractiveMode('special_pick');
+          }}
+          onApplyLinear={(delta, copies, isCopy) => {
+            if (isCopy) {
+              handleArrayElement(selectedExpressID, copies + 1, delta);
+            } else {
+              handleMoveElement(selectedExpressID, delta);
+            }
+          }}
+          onApplyRotate={(angle, axis, _copies, _isCopy) => {
+            handleRotateElement(selectedExpressID, angle, axis);
+          }}
+          onApplyMirror={(axis, isCopy) => {
+            handleMirrorElement(selectedExpressID, axis, isCopy);
+          }}
+        />
+      )}
       </HudLayoutProvider>
     </div>
   );

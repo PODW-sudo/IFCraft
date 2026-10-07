@@ -46,6 +46,17 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Resolved Items
 
+### 2026-10-07 - Archicad 29 Pet Palette & Tekla Structures 2025 Precision Editing Suite
+- **Type:** Enhancement
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-MOD-10, TC-MOD-11, TC-MOD-12, TC-MOD-13
+- **Severity:** P1
+- **Observed:** Legacy modification tools lacked industry-standard CAD direct manipulation, precision angular sweep rotation, real-time cursor tracker readout, and two-point displacement vectors.
+- **Expected:** In-canvas floating Pet Palette with Move, Rotate, Quick 90° Rotate, Mirror, Elevate, Multiply, and Tekla Special modal; live floating CadTrackerHud displaying Distance, Angle, dX, dY, dZ with type-ahead numeric commit; two-point vector picking with translucent ghost preview meshes (capped at XS_PREVIEW_LIMIT = 50) and dashed rubber-band line; Tekla Move/Copy Special precision dialog with Pick 2 Points workflow.
+- **Evidence:** Browser runner passed TR-1348 through TR-1360 and full Key tier (TR-1361 through TR-1470).
+- **Suggested fix:** Replaced legacy editing tools (archived in `frontend/src/archive/editing_tools_v1/`) with new modular suite (`PetPalette.tsx`, `CadTrackerHud.tsx`, `MoveCopySpecialModal.tsx`, `ContextualModifyBar.tsx`, and `ThreeViewport.tsx` interactive vector picking).
+- **Status:** Resolved
+
 ### 2026-10-07 - Hover Pre-Selection Inactive After Orbit Until Zoom
 - **Type:** Bug / UX
 - **Platform:** http://localhost:5173
