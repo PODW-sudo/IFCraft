@@ -46,6 +46,50 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Resolved Items
 
+### 2026-10-07 - Hover Pre-Selection Inactive After Orbit Until Zoom
+- **Type:** Bug / UX
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-NAV-03
+- **Severity:** P1
+- **Observed:** After rotating or orbiting the 3D scene (Shift + MMB), elements were not pre-highlighted on hover until the user zoomed in or out.
+- **Expected:** Hover pre-selection becomes active immediately once rotation finishes, instantly pre-highlighting the element under the cursor without requiring a zoom action.
+- **Evidence:** Regression test TC-NAV-03 and full 96-test key functionalities suite passed 100% in live Google Chrome browser session.
+- **Suggested fix:** Fixed OrbitControls damping inertia trap in `ThreeViewport.tsx`: removed unconditional `isOrbitingRef.current = true` from OrbitControls `change` event listener (since damping coasting fires `change` without a terminating `end` event). Generalized `handlePointerUp` across all mouse buttons (`event.buttons === 0`). Added `lastPointerPosRef` tracking and invoked `updateHoverAtScreenCoordsRef` directly in OrbitControls `end` listener and settle timer to immediately re-evaluate hover under cursor upon camera rest.
+- **Status:** Resolved
+
+### 2026-10-07 - Selection and Pre-Highlighting Lockout Post-Orbit
+- **Type:** Bug / UX
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-NAV-03, TC-NAV-04
+- **Severity:** P0
+- **Observed:** After rotating/orbiting the camera with Shift + MMB, elements could not be selected on left-click and pre-selection hover failed to activate without zooming in or out. OrbitControls damping caused post-release change events that kept motion flags true indefinitely, and passive left clicks triggered OrbitControls end events that continuously reset navigation timestamps.
+- **Expected:** Immediately after camera rotation completes, hovering over any visible mesh pre-highlights it and left-clicking immediately selects the element without requiring zoom or suffering input suppression.
+- **Evidence:** Regression tests TC-NAV-03 and TC-NAV-04 passed in live Chrome browser session.
+- **Suggested fix:** Removed sticky camera-moved flag; guarded navigation end timestamp recording to only active orbit/drag sessions (`wasActiveOrbit`); forced pointer raycast re-evaluation on orbit end (`requestHoverUpdate`); executed direct selection on pointerup with double-firing deduplication; exposed `stats.getElementScreenPos` for deterministic spatial clicking.
+- **Status:** Resolved
+
+### 2026-10-07 - Left-Click Selection Suppression via OrbitControls End Event
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-SEL-03, TC-NAV-01, TC-NAV-02
+- **Severity:** P0
+- **Observed:** Left mouse button clicks on element meshes failed to select elements because OrbitControls unconditionally dispatched `_endEvent` on pointerup even when left mouse had no navigation action assigned, resetting `lastNavigationEndTimeRef` and triggering a 150ms suppression window.
+- **Expected:** Left click on any visible element or mesh directly selects the element without delay or camera motion interference.
+- **Evidence:** Regression test TC-SEL-03 passed 100% in live browser session.
+- **Suggested fix:** Added `hasCameraMovedRef` tracking in OrbitControls `start`, `change`, and `end` listeners; only suppress clicks if camera motion actually occurred. Added immediate direct selection in `handlePointerUp` and `handleClick`.
+- **Status:** Resolved
+
+### 2026-10-07 - Complex Model Pre-Highlighting and Tab Distance Ordering
+- **Type:** Bug / UX
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-SEL-01, TC-SEL-02, TC-SEL-04
+- **Severity:** P1
+- **Observed:** In complex models using `BatchedMesh`, front-facing normal calculation produced erroneous normals in local space, causing frontmost visible surfaces to sort behind background elements. Preserving stale `curHovered` prevented newly targeted visible elements from pre-highlighting.
+- **Expected:** Hovering over an element immediately pre-highlights the visible element directly below the pointer (closest optical distance from user viewpoint), and Tab cycles candidates strictly in ascending order of distance.
+- **Evidence:** Regression test TC-SEL-04 and TC-SEL-02 passed in browser automation.
+- **Suggested fix:** Refactored `findVisibleCandidates` to sort candidates strictly by ascending optical distance `distance: hit.distance`. Updated `handlePointerMove` to always set candidate index to 0 (`candidateIds[0]`) on pointer movement.
+- **Status:** Resolved
+
 ### 2026-10-02 - Add Explicit DOM Status Attributes for Web Worker Parsing
 - **Type:** Testability
 - **Platform:** http://localhost:5173

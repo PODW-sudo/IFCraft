@@ -97,6 +97,15 @@ export async function loadSampleProject(sampleId: string): Promise<ProjectMetada
   return res.json();
 }
 
+export async function getElementDetails(
+  projectId: string,
+  expressId: number
+): Promise<import('../types/ifc').ElementDetails> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/elements/${expressId}`);
+  if (!res.ok) throw new Error(`Failed to load element details: ${res.statusText}`);
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Phase 10: Multi-Model Federation & Clash Detection APIs
 // ---------------------------------------------------------------------------
@@ -258,6 +267,89 @@ export async function fetchCadHistory(
   if (!res.ok) throw new Error(`Failed to fetch CAD history: ${res.statusText}`);
   return res.json();
 }
+
+export async function deleteElement(
+  projectId: string,
+  expressId: number
+): Promise<{ success: boolean; express_id: number; message: string }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to delete element');
+  }
+  return res.json();
+}
+
+export async function cloneElement(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadCloneRequest = { delta: [1.0, 0.0, 0.0] }
+): Promise<import('../types/ifc').CadElementResponse> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/clone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to clone element');
+  }
+  return res.json();
+}
+
+export async function updateElementGeometry(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadGeometryUpdateRequest
+): Promise<{ success: boolean; express_id: number; updated: boolean }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/geometry`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to update geometry');
+  }
+  return res.json();
+}
+
+export async function assignElementStorey(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadAssignStoreyRequest
+): Promise<{ success: boolean; express_id: number; storey_id: number }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/assign-storey`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to assign storey');
+  }
+  return res.json();
+}
+
+export async function assignElementMaterial(
+  projectId: string,
+  expressId: number,
+  req: import('../types/ifc').CadMaterialRequest
+): Promise<{ success: boolean; express_id: number; material: string }> {
+  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/material`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to assign material');
+  }
+  return res.json();
+}
+
 
 // ===========================================================================
 // BCF 2.1 & Temporal Audit API (Phase 12)

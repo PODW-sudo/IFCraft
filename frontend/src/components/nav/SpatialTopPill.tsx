@@ -19,7 +19,8 @@ import {
   PenTool,
   ClipboardList,
   History,
-  GripVertical
+  GripVertical,
+  Settings
 } from 'lucide-react';
 import { useDraggableHud } from '../hud/HudLayoutContext';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
@@ -66,6 +67,7 @@ interface SpatialTopPillProps {
   isTimelineOpen?: boolean;
   onToggleTimeline?: () => void;
   auditCount?: number;
+  onOpenSettingsModal?: () => void;
 }
 
 export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
@@ -100,7 +102,8 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   bcfTopicCount = 0,
   isTimelineOpen = false,
   onToggleTimeline,
-  auditCount = 0
+  auditCount = 0,
+  onOpenSettingsModal
 }) => {
   // Find spatial path for breadcrumbs
   const findBreadcrumbPath = (node: SpatialNode | null, targetId: number | null, path: string[] = []): string[] | null => {
@@ -227,6 +230,17 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
                 <Upload className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Upload IFC File...</span>
               </DropdownMenu.Item>
+
+              {onOpenSettingsModal && (
+                <DropdownMenu.Item
+                  onSelect={onOpenSettingsModal}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-[var(--control-hover)] hover:text-white text-slate-300 outline-none"
+                  data-qa="dropdown-settings-item"
+                >
+                  <Settings className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Editor Settings (Ctrl+,)...</span>
+                </DropdownMenu.Item>
+              )}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
@@ -479,6 +493,18 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
             </div>
           ))}
         </div>
+      )}
+
+      {/* Settings Modal Trigger */}
+      {onOpenSettingsModal && (
+        <button
+          data-qa="pill-settings-toggle"
+          onClick={onOpenSettingsModal}
+          className="p-1.5 rounded-full text-slate-400 hover:text-slate-100 hover:bg-[var(--control-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+          title="Editor Settings & Viewport Preferences (Ctrl+,)"
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
       )}
 
       {/* Quick Action: Export IFC */}

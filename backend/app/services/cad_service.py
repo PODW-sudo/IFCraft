@@ -23,8 +23,13 @@ from ..models.schemas import (
     CadUndoRedoResponse,
     CadHistoryItem,
     CadHistoryResponse,
+    CadCloneRequest,
+    CadGeometryUpdateRequest,
+    CadAssignStoreyRequest,
+    CadMaterialRequest,
 )
 from .project_service import ProjectService
+from .ifc_service import IFCService
 
 logger = logging.getLogger("ifc_editor.cad_service")
 
@@ -564,3 +569,233 @@ class CADService:
             can_undo=can_undo,
             can_redo=can_redo
         )
+
+    @classmethod
+    async def delete_element(cls, project_id: str, express_id: int) -> dict[str, Any]:
+        """Delete an IFC product element from the model and record undoable transaction."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        entity_type = entity.is_a()
+        entity_name = getattr(entity, "Name", None) or f"{entity_type} #{express_id}"
+
+        # If it's a wall with openings/fillings or opening with filling, clean up
+        if hasattr(entity, "HasOpenings") and entity.HasOpenings:
+            for rel in list(entity.HasOpenings):
+                opening = rel.RelatedOpeningElement
+                if opening:
+                    if hasattr(opening, "HasFillings") and opening.HasFillings:
+                        for rel_fill in list(opening.HasFillings):
+                            fill = rel_fill.RelatedOpeningElement
+                            if fill:
+                                try:
+                                    ifcopenshell.api.run("root.remove_product", model, product=fill)
+                                except Exception:
+                                    model.remove(fill)
+                    try:
+                        ifcopenshell.api.run("root.remove_product", model, product=opening)
+                    except Exception:
+                        model.remove(opening)
+
+        try:
+            ifcopenshell.api.run("root.remove_product", model, product=entity)
+        except Exception:
+            model.remove(entity)
+
+        model.write(str(file_path))
+        logger.info("Deleted %s #%d in project %s", entity_type, express_id, project_id)
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'delete_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, express_id, entity_type, json.dumps({"name": entity_name}), now)
+            )
+            await db.commit()
+
+        return {
+            "success": True,
+            "express_id": express_id,
+            "entity_type": entity_type,
+            "message": f"Successfully deleted {entity_type} #{express_id}",
+            "transaction_id": trans_id
+        }
+
+    @classmethod
+    async def clone_element(cls, project_id: str, express_id: int, req: CadCloneRequest) -> CadElementResponse:
+        """Duplicate an IFC element with a translation delta offset."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        entity_type = entity.is_a()
+        new_name = f"{getattr(entity, 'Name', '') or entity_type} (Copy)"
+        _, body = cls._ensure_contexts(model)
+        storey = cls._get_target_storey(model, req.storey_id)
+
+        cloned = ifcopenshell.api.run(
+            "root.create_entity",
+            model,
+            ifc_class=entity_type,
+            name=new_name
+        )
+
+        if hasattr(entity, "Representation") and entity.Representation:
+            try:
+                ifcopenshell.api.run(
+                    "geometry.assign_representation",
+                    model,
+                    product=cloned,
+                    representation=entity.Representation
+                )
+            except Exception:
+                pass
+
+        mat = np.identity(4)
+        try:
+            mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+        except Exception:
+            pass
+
+        mat[0, 3] += float(req.delta[0])
+        mat[1, 3] += float(req.delta[1])
+        mat[2, 3] += float(req.delta[2])
+
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=cloned, matrix=mat)
+        ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[cloned])
+
+        model.write(str(file_path))
+        logger.info("Cloned %s #%d to new element #%d", entity_type, express_id, cloned.id())
+
+        trans_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        async with get_db_connection() as db:
+            await db.execute(
+                """
+                INSERT INTO cad_transactions (id, project_id, action_type, express_id, entity_type, parameters, status, created_at)
+                VALUES (?, ?, 'clone_element', ?, ?, ?, 'ACTIVE', ?)
+                """,
+                (trans_id, project_id, cloned.id(), entity_type, req.model_dump_json(), now)
+            )
+            await db.commit()
+
+        return CadElementResponse(
+            success=True,
+            express_id=cloned.id(),
+            global_id=cloned.GlobalId,
+            entity_type=entity_type,
+            name=new_name,
+            transaction_id=trans_id,
+            message=f"Element #{express_id} duplicated successfully as #{cloned.id()}"
+        )
+
+    @classmethod
+    async def update_geometry(cls, project_id: str, express_id: int, req: CadGeometryUpdateRequest) -> dict[str, Any]:
+        """Parametrically update element dimensions (height, thickness, elevation)."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        _, body = cls._ensure_contexts(model)
+
+        if entity.is_a("IfcWall"):
+            if req.height is not None:
+                IFCService.update_element_property(file_path, express_id, "Dimensions", "Height", float(req.height), "IfcLengthMeasure")
+            if req.thickness is not None:
+                IFCService.update_element_property(file_path, express_id, "Dimensions", "Thickness", float(req.thickness), "IfcLengthMeasure")
+            # Re-read model
+            model = ifcopenshell.open(str(file_path))
+            entity = model.by_id(express_id)
+        elif entity.is_a("IfcColumn"):
+            w = float(req.width) if req.width is not None else 0.35
+            d = float(req.depth) if req.depth is not None else 0.35
+            h = float(req.height) if req.height is not None else 3.0
+            rep = cls._create_box_mesh(model, body, w, d, h)
+            ifcopenshell.api.run("geometry.assign_representation", model, product=entity, representation=rep)
+            IFCService.update_element_property(file_path, express_id, "Dimensions", "Height", h, "IfcLengthMeasure")
+
+        if req.elevation is not None:
+            try:
+                mat = ifcopenshell.util.placement.get_local_placement(entity.ObjectPlacement)
+                mat[2, 3] = float(req.elevation)
+                ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=mat)
+            except Exception:
+                pass
+
+        model.write(str(file_path))
+        logger.info("Updated geometry parameters for #%d", express_id)
+
+        return {"success": True, "express_id": express_id, "updated": True}
+
+    @classmethod
+    async def assign_storey(cls, project_id: str, express_id: int, req: CadAssignStoreyRequest) -> dict[str, Any]:
+        """Reassign spatial container of element to another IfcBuildingStorey."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        storey = model.by_id(req.storey_id)
+        if not storey or not storey.is_a("IfcBuildingStorey"):
+            raise ValueError(f"Target storey #{req.storey_id} not found or is not an IfcBuildingStorey.")
+
+        ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[entity])
+        model.write(str(file_path))
+        logger.info("Assigned element #%d to storey #%d (%s)", express_id, req.storey_id, getattr(storey, "Name", ""))
+
+        return {
+            "success": True,
+            "express_id": express_id,
+            "storey_id": req.storey_id,
+            "storey_name": str(getattr(storey, "Name", "Storey"))
+        }
+
+    @classmethod
+    async def assign_material(cls, project_id: str, express_id: int, req: CadMaterialRequest) -> dict[str, Any]:
+        """Assign or override architectural material and color appearance for an element."""
+        file_path = ProjectService.get_project_file_path(project_id)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Project file {file_path} not found.")
+
+        model = ifcopenshell.open(str(file_path))
+        entity = model.by_id(express_id)
+        if not entity:
+            raise ValueError(f"Entity #{express_id} not found in model.")
+
+        IFCService.update_element_property(file_path, express_id, "Materials", "MaterialName", req.material_name, "IfcLabel")
+        if req.color_hex:
+            IFCService.update_element_property(file_path, express_id, "Materials", "SurfaceColor", req.color_hex, "IfcLabel")
+        if req.transparency is not None:
+            IFCService.update_element_property(file_path, express_id, "Materials", "Transparency", float(req.transparency), "IfcReal")
+
+        return {
+            "success": True,
+            "express_id": express_id,
+            "material": req.material_name,
+            "color": req.color_hex,
+            "transparency": req.transparency
+        }
