@@ -303,3 +303,19 @@ async def update_element_properties(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update property for #{express_id}: {str(e)}"
         )
+
+@router.delete("/{project_id}/elements/{express_id}", status_code=status.HTTP_200_OK)
+async def delete_element(project_id: str, express_id: int) -> dict[str, Any]:
+    """Delete an element from the IFC project model."""
+    from ..services.cad_service import CADService
+    try:
+        return await CADService.delete_element(project_id, express_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete element #{express_id}: {str(e)}"
+        )

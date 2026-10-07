@@ -231,6 +231,25 @@ class CadHistoryResponse(BaseModel):
     can_undo: bool
     can_redo: bool
 
+class CadCloneRequest(BaseModel):
+    delta: list[float] = Field(default=[1.0, 0.0, 0.0], description="Translation delta offset [dx, dy, dz] in meters")
+    storey_id: Optional[int] = None
+
+class CadGeometryUpdateRequest(BaseModel):
+    height: Optional[float] = Field(None, description="Updated height in meters")
+    thickness: Optional[float] = Field(None, description="Updated thickness in meters")
+    width: Optional[float] = Field(None, description="Updated width in meters")
+    depth: Optional[float] = Field(None, description="Updated depth in meters")
+    elevation: Optional[float] = Field(None, description="Updated base elevation in meters")
+
+class CadAssignStoreyRequest(BaseModel):
+    storey_id: int = Field(description="Target IfcBuildingStorey Express ID")
+
+class CadMaterialRequest(BaseModel):
+    material_name: str = Field(description="Architectural material name: Concrete, Wood, Glass, Steel, Brick, Plaster")
+    color_hex: Optional[str] = Field(None, description="Color hex code e.g. #94A3B8")
+    transparency: Optional[float] = Field(0.0, description="Transparency (0.0 to 1.0)")
+
 # ===========================================================================
 # BCF 2.1 & Temporal Audit Schemas (Phase 12)
 # ===========================================================================

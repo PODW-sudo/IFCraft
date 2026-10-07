@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ThreeViewport,
   type TransformMode,
@@ -22,6 +22,9 @@ import { ClashInspector } from './components/federation/ClashInspector';
 import { CadToolbar } from './components/cad/CadToolbar';
 import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
 import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
+import { SettingsModal } from './components/modals/SettingsModal';
+import { loadEditorSettings, saveEditorSettings } from './services/settings';
+import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from './types/settings';
 import type { 
   GeometryData, 
   SpatialNode, 
@@ -36,7 +39,8 @@ import type {
   BcfTopic,
   BcfTopicCreateRequest,
   AuditTimelineItem,
-  AuditDiffResponse
+  AuditDiffResponse,
+  ElementDetails
 } from './types/ifc';
 import * as api from './services/api';
 import {
@@ -141,6 +145,20 @@ export const App: React.FC = () => {
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [auditTimeline, setAuditTimeline] = useState<AuditTimelineItem[]>([]);
   const [auditDiff, setAuditDiff] = useState<AuditDiffResponse | null>(null);
+
+  // Settings State & Persistence
+  const [settings, setSettings] = useState<EditorSettings>(() => loadEditorSettings());
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const handleUpdateSettings = useCallback((updated: EditorSettings) => {
+    setSettings(updated);
+    saveEditorSettings(updated);
+  }, []);
+
+  const handleResetSettings = useCallback(() => {
+    setSettings(DEFAULT_EDITOR_SETTINGS);
+    saveEditorSettings(DEFAULT_EDITOR_SETTINGS);
+  }, []);
 
   // Web Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -737,7 +755,101 @@ export const App: React.FC = () => {
     }
   }, [currentProject, refreshCadHistory, loadProject]);
 
-  // Global Keyboard Shortcuts for CAD Undo/Redo (Ctrl+Z, Ctrl+Y)
+  // Selected Element Details for In-Viewport Context Capsule
+  const [selectedElementDetails, setSelectedElementDetails] = useState<ElementDetails | null>(null);
+
+  useEffect(() => {
+    if (!currentProject || selectedExpressID === null) {
+      setSelectedElementDetails(null);
+      return;
+    }
+    let isMounted = true;
+    api.getElementDetails(currentProject.id, selectedExpressID)
+      .then((data) => {
+        if (isMounted) setSelectedElementDetails(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load element details for capsule:', err);
+      });
+    return () => { isMounted = false; };
+  }, [currentProject, selectedExpressID]);
+
+  // Extract Storeys from Spatial Tree
+  const storeys = useMemo(() => {
+    if (!spatialTree) return [];
+    const list: { id: number; name: string; elevation: number }[] = [];
+    const traverse = (node: SpatialNode) => {
+      if (node.type === 'IfcBuildingStorey') {
+        list.push({ id: node.express_id, name: node.name, elevation: 0.0 });
+      }
+      node.children?.forEach(traverse);
+    };
+    traverse(spatialTree);
+    return list;
+  }, [spatialTree]);
+
+  // Modern BIM Element Handlers
+  const handleDeleteElement = useCallback(async (expressId: number) => {
+    if (!currentProject) return;
+    try {
+      await api.deleteElement(currentProject.id, expressId);
+      setSelectedExpressID(null);
+      setSelectedElementDetails(null);
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to delete element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleCloneElement = useCallback(async (expressId: number) => {
+    if (!currentProject) return;
+    try {
+      const res = await api.cloneElement(currentProject.id, expressId, { delta: [1.5, 0.0, 0.0] });
+      await refreshCadHistory();
+      await loadProject(currentProject);
+      if (res.express_id) {
+        setSelectedExpressID(res.express_id);
+      }
+    } catch (err) {
+      console.error('Failed to clone element:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleUpdateGeometry = useCallback(async (expressId: number, params: { height?: number; thickness?: number; elevation?: number }) => {
+    if (!currentProject) return;
+    try {
+      await api.updateElementGeometry(currentProject.id, expressId, params);
+      await refreshCadHistory();
+      await loadProject(currentProject);
+    } catch (err) {
+      console.error('Failed to update geometry:', err);
+    }
+  }, [currentProject, refreshCadHistory, loadProject]);
+
+  const handleAssignStorey = useCallback(async (expressId: number, storeyId: number) => {
+    if (!currentProject) return;
+    try {
+      await api.assignElementStorey(currentProject.id, expressId, { storey_id: storeyId });
+      const tree = await api.fetchSpatialTree(currentProject.id);
+      setSpatialTree(tree);
+    } catch (err) {
+      console.error('Failed to assign storey:', err);
+    }
+  }, [currentProject]);
+
+  const handleAssignMaterial = useCallback(async (expressId: number, materialName: string, colorHex?: string) => {
+    if (!currentProject) return;
+    try {
+      await api.assignElementMaterial(currentProject.id, expressId, { material_name: materialName, color_hex: colorHex });
+      const updated = await api.getElementDetails(currentProject.id, expressId);
+      setSelectedElementDetails(updated);
+    } catch (err) {
+      console.error('Failed to assign material:', err);
+    }
+  }, [currentProject]);
+
+  // Global Keyboard Shortcuts for CAD & BIM Editing (Ctrl+Z, Ctrl+Y, Delete, Ctrl+D)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
@@ -752,18 +864,32 @@ export const App: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleCadRedo();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedExpressID !== null) {
+          e.preventDefault();
+          handleDeleteElement(selectedExpressID);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        if (selectedExpressID !== null) {
+          e.preventDefault();
+          handleCloneElement(selectedExpressID);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === ',' || e.key === '<')) {
+        e.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCadUndo, handleCadRedo]);
+  }, [handleCadUndo, handleCadRedo, handleDeleteElement, handleCloneElement, selectedExpressID]);
 
   // Global ESC Key Handling: Clear selection, close floating HUDs, cancel tools
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
         // If modals or command palette are open, let their own handlers manage dismissal
-        if (isOmnibarOpen || isUploadModalOpen || isNewProjectModalOpen || isBcfOpen || isFederationOpen) {
+        if (isOmnibarOpen || isUploadModalOpen || isNewProjectModalOpen || isBcfOpen || isFederationOpen || isSettingsOpen) {
+          if (isSettingsOpen) setIsSettingsOpen(false);
           return;
         }
 
@@ -1123,6 +1249,7 @@ export const App: React.FC = () => {
         data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
       >
         <ThreeViewport
+          settings={settings}
           geometries={geometries}
           selectedExpressID={selectedExpressID}
           onSelectElement={handleSelectElement}
@@ -1154,6 +1281,15 @@ export const App: React.FC = () => {
           onCadDrawColumn={handleCadDrawColumn}
           onCadDrawOpening={handleCadDrawOpening}
           onCadCancel={() => setCadToolMode('select')}
+          elementDetails={selectedElementDetails}
+          storeys={storeys}
+          onCloneElement={handleCloneElement}
+          onDeleteElement={handleDeleteElement}
+          onUpdateGeometry={handleUpdateGeometry}
+          onAssignStorey={handleAssignStorey}
+          onAssignMaterial={handleAssignMaterial}
+          onOpenInspector={() => setIsPropertyOpen(true)}
+          onSelectCadTool={(mode) => setCadToolMode(mode)}
         />
       </div>
 
@@ -1198,12 +1334,15 @@ export const App: React.FC = () => {
             if (!isTimelineOpen) refreshAuditData();
           }}
           auditCount={auditTimeline.length}
+          onOpenSettingsModal={() => setIsSettingsOpen(true)}
         />
 
         {/* 2a. Floating View Orientation Controls */}
         <ViewControlsHud
           onCameraPreset={handleCameraPreset}
           activePreset={cameraPresetTrigger?.preset ?? null}
+          isRightDrawerOpen={isRightDrawerOpen}
+          rightDrawerWidth={activeRightDrawerWidth}
         />
 
       {/* 2b. Floating CAD Modeling Toolbar */}
@@ -1263,6 +1402,12 @@ export const App: React.FC = () => {
       <SpatialBottomDock
         transformMode={transformMode}
         onSetTransformMode={setTransformMode}
+        cadToolMode={cadToolMode}
+        onSelectCadTool={(mode) => setCadToolMode(mode)}
+        canUndo={cadCanUndo}
+        canRedo={cadCanRedo}
+        onUndo={handleCadUndo}
+        onRedo={handleCadRedo}
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled((prev) => !prev)}
         isMeasureActive={isMeasureActive}
@@ -1424,6 +1569,15 @@ export const App: React.FC = () => {
             setSelectedExpressID(event.express_id);
           }
         }}
+      />
+
+      {/* Settings & Preferences Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        onResetSettings={handleResetSettings}
       />
       </HudLayoutProvider>
     </div>

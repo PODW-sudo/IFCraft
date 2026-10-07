@@ -6,15 +6,22 @@ import { useDraggableHud } from './HudLayoutContext';
 interface ViewControlsHudProps {
   onCameraPreset?: (preset: CameraPreset) => void;
   activePreset?: CameraPreset | null;
+  isRightDrawerOpen?: boolean;
+  rightDrawerWidth?: number;
 }
 
 export const ViewControlsHud: React.FC<ViewControlsHudProps> = ({
   onCameraPreset,
-  activePreset = null
+  activePreset = null,
+  isRightDrawerOpen = false,
+  rightDrawerWidth = 320
 }) => {
   const initialWidth = 240;
   const initialHeight = 36;
-  const initialX = typeof window !== 'undefined' ? Math.max(16, window.innerWidth - initialWidth - 24) : 1180;
+  const drawerOffset = isRightDrawerOpen ? Math.max(0, rightDrawerWidth) : 0;
+  const initialX = typeof window !== 'undefined'
+    ? Math.max(16, window.innerWidth - initialWidth - 24 - drawerOffset)
+    : 1180;
   const initialY = 72; // Cleanly below the top pill (top pill is at top: 12px, height: 45px)
 
   const { ref, style, dragProps, isDragging } = useDraggableHud('view-controls', {

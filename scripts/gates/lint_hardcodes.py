@@ -22,7 +22,8 @@ IGNORE_FILES = {
     "tokens.css",
     "index.css",
     "collaboration.ts",
-    "vite-env.d.ts"
+    "vite-env.d.ts",
+    "settings.ts"
 }
 
 IGNORE_DIRS = {

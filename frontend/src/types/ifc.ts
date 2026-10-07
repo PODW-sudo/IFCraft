@@ -242,6 +242,29 @@ export interface CadHistoryResponse {
   can_redo: boolean;
 }
 
+export interface CadCloneRequest {
+  delta?: [number, number, number];
+  storey_id?: number;
+}
+
+export interface CadGeometryUpdateRequest {
+  height?: number;
+  thickness?: number;
+  width?: number;
+  depth?: number;
+  elevation?: number;
+}
+
+export interface CadAssignStoreyRequest {
+  storey_id: number;
+}
+
+export interface CadMaterialRequest {
+  material_name: string;
+  color_hex?: string;
+  transparency?: number;
+}
+
 export interface BcfTopic {
   id: string;
   project_id: string;

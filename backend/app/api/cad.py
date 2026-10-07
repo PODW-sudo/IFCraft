@@ -8,6 +8,10 @@ from ..models.schemas import (
     CadElementResponse,
     CadUndoRedoResponse,
     CadHistoryResponse,
+    CadCloneRequest,
+    CadGeometryUpdateRequest,
+    CadAssignStoreyRequest,
+    CadMaterialRequest,
 )
 from ..services.cad_service import CADService
 
@@ -98,4 +102,88 @@ async def get_history(id: str = Path(..., description="Project ID")):
         return await CADService.get_history(id)
     except Exception as e:
         logger.exception("Failed to fetch CAD history: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.delete("/elements/{express_id}")
+async def delete_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID")
+):
+    """Delete an element from the IFC project model."""
+    try:
+        return await CADService.delete_element(id, express_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to delete element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/clone", response_model=CadElementResponse)
+async def clone_element(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadCloneRequest = ...
+):
+    """Clone an element with an offset delta vector."""
+    try:
+        return await CADService.clone_element(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to clone element #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.patch("/elements/{express_id}/geometry")
+async def update_element_geometry(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadGeometryUpdateRequest = ...
+):
+    """Update parametric dimensions of an element."""
+    try:
+        return await CADService.update_geometry(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update geometry of #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/assign-storey")
+async def assign_element_storey(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadAssignStoreyRequest = ...
+):
+    """Reassign element spatial container to target storey."""
+    try:
+        return await CADService.assign_storey(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to assign storey for #%d: %s", express_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@cad_router.post("/elements/{express_id}/material")
+async def assign_element_material(
+    id: str = Path(..., description="Project ID"),
+    express_id: int = Path(..., description="Element Express ID"),
+    req: CadMaterialRequest = ...
+):
+    """Assign or override material and surface style."""
+    try:
+        return await CADService.assign_material(id, express_id, req)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to assign material for #%d: %s", express_id, e)
         raise HTTPException(status_code=500, detail=str(e))

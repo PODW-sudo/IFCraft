@@ -9,6 +9,10 @@ import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 (THREE.BufferGeometry.prototype as any).disposeBoundsTree = disposeBoundsTree;
 import type { GeometryData } from '../../types/ifc';
 import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/BimToolsToolbar';
+import { SelectionContextOverlay } from './SelectionContextOverlay';
+import { SpatialContextMenu } from './SpatialContextMenu';
+import { DraftingInputHud } from './DraftingInputHud';
+import { DEFAULT_EDITOR_SETTINGS, THEME_COLOR_MAP, type EditorSettings } from '../../types/settings';
 
 export type TransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 
@@ -37,6 +41,7 @@ export interface MeasurementRecord {
 }
 
 interface ThreeViewportProps {
+  settings?: EditorSettings;
   geometries: GeometryData[];
   selectedExpressID: number | null;
   onSelectElement: (expressID: number | null) => void;
@@ -75,6 +80,17 @@ interface ThreeViewportProps {
   onCadDrawColumn?: (pos: [number, number]) => void;
   onCadDrawOpening?: (hostWallId: number, offsetAlongWall: number) => void;
   onCadCancel?: () => void;
+
+  // Modern In-Viewport BIM Editing
+  elementDetails?: import('../../types/ifc').ElementDetails | null;
+  storeys?: { id: number; name: string; elevation: number }[];
+  onCloneElement?: (expressId: number) => void;
+  onDeleteElement?: (expressId: number) => void;
+  onUpdateGeometry?: (expressId: number, params: { height?: number; thickness?: number; elevation?: number }) => void;
+  onAssignStorey?: (expressId: number, storeyId: number) => void;
+  onAssignMaterial?: (expressId: number, materialName: string, colorHex?: string) => void;
+  onOpenInspector?: () => void;
+  onSelectCadTool?: (tool: import('../../types/ifc').CadToolMode) => void;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -231,7 +247,75 @@ function findSnapPoint(
   return { point: hitPoint, type: 'surface' };
 }
 
+/**
+ * Visible Surface Raycaster:
+ * Finds all visible elements along the ray, prioritizing the frontmost visible surface
+ * facing the user and filtering out clipped, hidden, or back-facing interior geometry.
+ */
+function findVisibleCandidates(
+  raycaster: THREE.Raycaster,
+  group: THREE.Group,
+  clipPlane: THREE.Plane,
+  sectionEnabled: boolean,
+  hiddenCategories: Set<string>,
+  isolatedExpressID: number | null,
+  hiddenModelIds?: Set<string>
+): { expressID: number; hit: THREE.Intersection; distance: number }[] {
+  const visibleMeshes = group.children.filter((c) => c.visible);
+  // Do NOT set raycaster.firstHitOnly = true so Three.js accurately tests all objects by distance
+  const intersects = raycaster.intersectObjects(visibleMeshes, false);
+  if (intersects.length === 0) return [];
+
+  const candidates: { expressID: number; hit: THREE.Intersection; distance: number }[] = [];
+  const seenExpressIds = new Set<number>();
+
+  for (const hit of intersects) {
+    // 1. Clipping plane test: discard hits behind active section cut
+    if (sectionEnabled && clipPlane.distanceToPoint(hit.point) < -0.001) {
+      continue;
+    }
+
+    // 2. Resolve expressID and type (supporting both BatchedMesh instances and standard Mesh)
+    let expressID: number | null = null;
+    let type = '';
+    let modelId = 'main';
+
+    if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
+      const instances = (hit.object.userData as any)?.instances;
+      if (instances && instances[hit.batchId]) {
+        const inst = instances[hit.batchId];
+        expressID = inst.expressID;
+        type = inst.type;
+        modelId = inst.modelId || 'main';
+      }
+    } else if (hit.object.userData && hit.object.userData.expressID !== undefined) {
+      expressID = hit.object.userData.expressID as number;
+      type = hit.object.userData.type || '';
+      modelId = hit.object.userData.modelId || 'main';
+    }
+
+    if (expressID === null || seenExpressIds.has(expressID)) {
+      continue;
+    }
+
+    // 3. Visibility filter (categories, isolation, model federation)
+    if (hiddenCategories.has(type)) continue;
+    if (isolatedExpressID !== null && expressID !== isolatedExpressID) continue;
+    if (hiddenModelIds && hiddenModelIds.has(modelId)) continue;
+
+    seenExpressIds.add(expressID);
+    candidates.push({ expressID, hit, distance: hit.distance });
+  }
+
+  // Sort candidates strictly by ascending optical distance from camera / user viewpoint
+  // Candidate 0 is the closest visible surface directly beneath cursor; subsequent candidates follow in line-of-sight depth order
+  candidates.sort((a, b) => a.distance - b.distance);
+
+  return candidates;
+}
+
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
+  settings = DEFAULT_EDITOR_SETTINGS,
   geometries,
   selectedExpressID,
   onSelectElement,
@@ -263,7 +347,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onCadDrawSlab,
   onCadDrawColumn,
   onCadDrawOpening,
-  onCadCancel
+  onCadCancel,
+
+  elementDetails,
+  storeys = [],
+  onCloneElement,
+  onDeleteElement,
+  onUpdateGeometry,
+  onAssignStorey,
+  onAssignMaterial,
+  onOpenInspector,
+  onSelectCadTool
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -274,10 +368,60 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const meshesGroupRef = useRef<THREE.Group | null>(null);
   const meshMapRef = useRef<Map<number, THREE.Mesh[]>>(new Map());
   const bboxHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const selectedLinesRef = useRef<THREE.LineSegments | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
   const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
   const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+
+  // Modern In-Viewport BIM Editing State
+  const [selectionScreenPos, setSelectionScreenPos] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; expressId: number | null } | null>(null);
+  const [draftingLength, setDraftingLength] = useState<number>(0);
+  const [draftingAngle, setDraftingAngle] = useState<number>(0);
+  const [isOrthoLocked, setIsOrthoLocked] = useState<boolean>(false);
+  const [isHoveringInteractiveMesh, setIsHoveringInteractiveMesh] = useState<boolean>(false);
+
+  // Hover & Pre-Selection Engine State (Revit-style Depth Cycling & Subtle Highlighting)
+  const [hoveredExpressId, setHoveredExpressId] = useState<number | null>(null);
+  const hoveredExpressIdRef = useRef<number | null>(null);
+  hoveredExpressIdRef.current = hoveredExpressId;
+
+  const [hoverCandidates, setHoverCandidates] = useState<number[]>([]);
+  const hoverCandidatesRef = useRef<number[]>([]);
+  hoverCandidatesRef.current = hoverCandidates;
+
+  const [hoverCandidateIndex, setHoverCandidateIndex] = useState<number>(0);
+  const hoverCandidateIndexRef = useRef<number>(0);
+  hoverCandidateIndexRef.current = hoverCandidateIndex;
+
+  // Rotation & Drag Isolation Tracking (prevents selection during/after camera orbit)
+  const isPointerDraggingRef = useRef<boolean>(false);
+  const isOrbitingRef = useRef<boolean>(false);
+  const lastNavigationEndTimeRef = useRef<number>(0);
+  const lastPointerUpSelectTimeRef = useRef<number>(0);
+  const lastPointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const updateHoverAtScreenCoordsRef = useRef<((clientX: number, clientY: number) => void) | null>(null);
+
+  // Hover & Selection Highlight Mesh Helper Refs
+  const hoverBboxHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const hoverLinesRef = useRef<THREE.LineSegments | null>(null);
+  const hoverOverlayMeshRef = useRef<THREE.Mesh | null>(null);
+  const selectedOverlayMeshRef = useRef<THREE.Mesh | null>(null);
+
+  const hoveredElementName = React.useMemo(() => {
+    if (hoveredExpressId === null) return '';
+    const mesh = meshMapRef.current.get(hoveredExpressId)?.[0];
+    if (mesh?.userData?.type) {
+      return `${mesh.userData.type} #${hoveredExpressId}`;
+    }
+    const geom = geometries.find((g) => g.expressID === hoveredExpressId);
+    if (geom?.type) {
+      return `${geom.type} #${hoveredExpressId}`;
+    }
+    return `#${hoveredExpressId}`;
+  }, [hoveredExpressId, geometries]);
 
   // CAD Interactive Modeling State
   const [cadStartPoint, setCadStartPoint] = useState<THREE.Vector3 | null>(null);
@@ -327,7 +471,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b0d10);
+    const initialThemeKey = settings.viewport?.theme ?? 'dark-slate';
+    const initialBg = THEME_COLOR_MAP[initialThemeKey] ?? 0x0b0d10;
+    scene.background = new THREE.Color(
+      initialThemeKey === 'custom' && settings.viewport?.customCanvasColor
+        ? settings.viewport.customCanvasColor
+        : initialBg
+    );
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
@@ -358,15 +508,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     rendererRef.current = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.enableDamping = settings.navigation?.enableDamping ?? true;
+    controls.dampingFactor = settings.navigation?.dampingFactor ?? 0.05;
+    controls.rotateSpeed = settings.navigation?.orbitSensitivity ?? 1.0;
+    controls.panSpeed = settings.navigation?.panSensitivity ?? 1.0;
+    controls.zoomSpeed = settings.navigation?.zoomSensitivity ?? 1.0;
     controls.screenSpacePanning = true;
     controls.maxDistance = 500;
     controls.minDistance = 0.5;
+    // Revit / Blender CAD standard:
+    // Scroll: zoom in / out
+    // Middle mouse button (MMB) drag: Pan / Drag
+    // Middle mouse button + Shift (Shift + MMB) drag: Rotate / Orbit
+    // Left click: 100% free for CAD drafting, element selection, and commands
+    controls.mouseButtons = {
+      LEFT: -1 as any,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: -1 as any
+    };
     controlsRef.current = controls;
 
-    // Dynamic Resolution Scaling (DRS) & Shadow Freeze Event Handlers
+    // Dynamic Resolution Scaling (DRS) & Camera Navigation / Orbit Event Handlers
     controls.addEventListener('start', () => {
+      isOrbitingRef.current = true;
       isNavigatingRef.current = true;
       if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
       // Adaptive Dynamic Resolution Scaling: drop to lower pixel ratio during fast camera orbit
@@ -376,18 +540,44 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     });
 
     controls.addEventListener('change', () => {
+      if (isOrbitingRef.current) {
+        isNavigatingRef.current = true;
+        lastNavigationEndTimeRef.current = Date.now();
+      }
       needsRenderRef.current = true;
     });
 
     controls.addEventListener('end', () => {
-      if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
-      navSettleTimerRef.current = window.setTimeout(() => {
+      const wasActiveOrbit = isOrbitingRef.current;
+      isOrbitingRef.current = false;
+      isPointerDraggingRef.current = false;
+      if (wasActiveOrbit) {
+        lastNavigationEndTimeRef.current = Date.now();
+        if (navSettleTimerRef.current) window.clearTimeout(navSettleTimerRef.current);
+        navSettleTimerRef.current = window.setTimeout(() => {
+          isNavigatingRef.current = false;
+          // Restore native sharp resolution when camera motion settles
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          renderer.shadowMap.needsUpdate = true;
+          needsRenderRef.current = true;
+
+          // Re-evaluate hover under cursor now that camera rotation settled
+          if (lastPointerPosRef.current && updateHoverAtScreenCoordsRef.current) {
+            updateHoverAtScreenCoordsRef.current(
+              lastPointerPosRef.current.clientX,
+              lastPointerPosRef.current.clientY
+            );
+          }
+        }, 80);
+      } else {
         isNavigatingRef.current = false;
-        // Restore native sharp resolution when camera motion settles
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.needsUpdate = true;
-        needsRenderRef.current = true;
-      }, 120);
+        if (lastPointerPosRef.current && updateHoverAtScreenCoordsRef.current) {
+          updateHoverAtScreenCoordsRef.current(
+            lastPointerPosRef.current.clientX,
+            lastPointerPosRef.current.clientY
+          );
+        }
+      }
     });
 
     // TransformControls
@@ -451,9 +641,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(dirLight2);
 
     // Grid (DTCG tokens: cyan accent line, subtle dark grid)
-    const gridHelper = new THREE.GridHelper(50, 50, 0x22d3ee, 0x252b36);
+    const gridHelper = new THREE.GridHelper(
+      settings.viewport?.gridSize ?? 50,
+      settings.viewport?.gridDivisions ?? 50,
+      new THREE.Color(settings.viewport?.gridAccentColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridAccentColor).getHex(),
+      new THREE.Color(settings.viewport?.gridBaseColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridBaseColor).getHex()
+    );
     gridHelper.position.y = -0.01;
+    gridHelper.visible = settings.viewport?.showGrid ?? true;
     scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
 
     // Groups
     const meshesGroup = new THREE.Group();
@@ -562,10 +759,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     // Expose renderer stats and core refs for automated verification
     (window as any).__THREE_VIEWPORT_STATS__ = {
+      THREE,
       scene,
       camera,
       meshesGroup,
       renderer,
+      getElementScreenPos: (expressId: number) => {
+        const meshes = meshMapRef.current.get(expressId);
+        if (!meshes || !meshes[0] || !cameraRef.current || !containerRef.current) return null;
+        const box = new THREE.Box3().setFromObject(meshes[0]);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        center.project(cameraRef.current);
+        if (center.z > 1.0) return null;
+        const rect = containerRef.current.getBoundingClientRect();
+        return {
+          x: ((center.x + 1) / 2) * rect.width + rect.left,
+          y: ((-center.y + 1) / 2) * rect.height + rect.top
+        };
+      },
       getRendererInfo: () => ({
         drawCalls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
@@ -1167,7 +1379,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
   }, [measurements, pendingStartPoint]);
 
-  // 7. Handle Selection & TransformControls
+  // 7. Handle Active Selection & TransformControls
   useEffect(() => {
     const scene = sceneRef.current;
     const tControls = transformControlsRef.current;
@@ -1175,24 +1387,91 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (bboxHelperRef.current) {
       scene.remove(bboxHelperRef.current);
+      if ('geometry' in bboxHelperRef.current) (bboxHelperRef.current.geometry as any).dispose();
       bboxHelperRef.current = null;
+    }
+    if (selectedLinesRef.current) {
+      scene.remove(selectedLinesRef.current);
+      if (selectedLinesRef.current.geometry) selectedLinesRef.current.geometry.dispose();
+      if (selectedLinesRef.current.material instanceof THREE.Material) selectedLinesRef.current.material.dispose();
+      selectedLinesRef.current = null;
+    }
+    if (selectedOverlayMeshRef.current) {
+      scene.remove(selectedOverlayMeshRef.current);
+      if (selectedOverlayMeshRef.current.material instanceof THREE.Material) {
+        selectedOverlayMeshRef.current.material.dispose();
+      }
+      selectedOverlayMeshRef.current = null;
     }
 
     if (selectedExpressID === null || isMeasureActive) {
       tControls.detach();
+      needsRenderRef.current = true;
       return;
     }
 
     const meshes = meshMapRef.current.get(selectedExpressID);
     if (!meshes || meshes.length === 0) {
       tControls.detach();
+      needsRenderRef.current = true;
       return;
     }
 
     const primaryMesh = meshes[0];
-    const bbox = new THREE.BoxHelper(primaryMesh, 0x38bdf8);
-    scene.add(bbox);
-    bboxHelperRef.current = bbox;
+    const highlightConfig = settings?.highlighting ?? DEFAULT_EDITOR_SETTINGS.highlighting;
+
+    // High-visibility Architectural Contours or Bounding Box
+    if (highlightConfig.highlightStyle === 'contours' && primaryMesh.geometry) {
+      try {
+        const edgesGeom = new THREE.EdgesGeometry(primaryMesh.geometry, 24);
+        const edgeColor = new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor);
+        const edgeMat = new THREE.LineBasicMaterial({
+          color: edgeColor,
+          transparent: highlightConfig.selectionEdgeOpacity < 1,
+          opacity: highlightConfig.selectionEdgeOpacity ?? 1.0,
+          depthTest: !highlightConfig.xrayHighlight,
+          depthWrite: false
+        });
+        const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
+        lineSegs.matrixAutoUpdate = false;
+        lineSegs.matrix.copy(primaryMesh.matrixWorld);
+        scene.add(lineSegs);
+        selectedLinesRef.current = lineSegs;
+      } catch {
+        const bbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor).getHex());
+        scene.add(bbox);
+        bboxHelperRef.current = bbox;
+      }
+    } else {
+      const bbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.selectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionEdgeColor).getHex());
+      const boxMat = bbox.material as THREE.LineBasicMaterial;
+      boxMat.transparent = highlightConfig.selectionEdgeOpacity < 1;
+      boxMat.opacity = highlightConfig.selectionEdgeOpacity ?? 1.0;
+      scene.add(bbox);
+      bboxHelperRef.current = bbox;
+    }
+
+    // Distinct active selection surface wash
+    if (primaryMesh.geometry && (highlightConfig.selectionFillOpacity ?? 0.28) > 0) {
+      const fillColor = new THREE.Color(highlightConfig.selectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.selectionColor);
+      const selOverlayMat = new THREE.MeshBasicMaterial({
+        color: fillColor,
+        transparent: true,
+        opacity: highlightConfig.selectionFillOpacity ?? 0.28,
+        depthTest: !highlightConfig.xrayHighlight,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+        side: THREE.DoubleSide,
+        clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
+      });
+      const selMesh = new THREE.Mesh(primaryMesh.geometry, selOverlayMat);
+      selMesh.matrixAutoUpdate = false;
+      selMesh.matrix.copy(primaryMesh.matrixWorld);
+      scene.add(selMesh);
+      selectedOverlayMeshRef.current = selMesh;
+    }
 
     if (transformMode === 'select') {
       tControls.detach();
@@ -1210,7 +1489,230 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
     }
     needsRenderRef.current = true;
-  }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive]);
+
+    return () => {
+      if (bboxHelperRef.current && scene) {
+        scene.remove(bboxHelperRef.current);
+        if ('geometry' in bboxHelperRef.current) (bboxHelperRef.current.geometry as any).dispose();
+        bboxHelperRef.current = null;
+      }
+      if (selectedLinesRef.current && scene) {
+        scene.remove(selectedLinesRef.current);
+        if (selectedLinesRef.current.geometry) selectedLinesRef.current.geometry.dispose();
+        if (selectedLinesRef.current.material instanceof THREE.Material) selectedLinesRef.current.material.dispose();
+        selectedLinesRef.current = null;
+      }
+      if (selectedOverlayMeshRef.current && scene) {
+        scene.remove(selectedOverlayMeshRef.current);
+        if (selectedOverlayMeshRef.current.material instanceof THREE.Material) {
+          selectedOverlayMeshRef.current.material.dispose();
+        }
+        selectedOverlayMeshRef.current = null;
+      }
+    };
+  }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive, sectionConfig.enabled, settings]);
+
+  // 7b. Handle Hover / Pre-Selection Highlight (Subtle, clearly distinct from active selection)
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    if (hoverBboxHelperRef.current) {
+      scene.remove(hoverBboxHelperRef.current);
+      if ('geometry' in hoverBboxHelperRef.current) (hoverBboxHelperRef.current.geometry as any).dispose();
+      hoverBboxHelperRef.current = null;
+    }
+    if (hoverLinesRef.current) {
+      scene.remove(hoverLinesRef.current);
+      if (hoverLinesRef.current.geometry) hoverLinesRef.current.geometry.dispose();
+      if (hoverLinesRef.current.material instanceof THREE.Material) hoverLinesRef.current.material.dispose();
+      hoverLinesRef.current = null;
+    }
+    if (hoverOverlayMeshRef.current) {
+      scene.remove(hoverOverlayMeshRef.current);
+      if (hoverOverlayMeshRef.current.material instanceof THREE.Material) {
+        hoverOverlayMeshRef.current.material.dispose();
+      }
+      hoverOverlayMeshRef.current = null;
+    }
+
+    if (
+      hoveredExpressId === null ||
+      hoveredExpressId === selectedExpressID ||
+      isMeasureActive ||
+      cadToolMode !== 'select'
+    ) {
+      needsRenderRef.current = true;
+      return;
+    }
+
+    const meshes = meshMapRef.current.get(hoveredExpressId);
+    if (!meshes || meshes.length === 0) {
+      needsRenderRef.current = true;
+      return;
+    }
+
+    const primaryMesh = meshes[0];
+    const highlightConfig = settings?.highlighting ?? DEFAULT_EDITOR_SETTINGS.highlighting;
+
+    // Hover Contours or Bounding Box
+    if (highlightConfig.highlightStyle === 'contours' && primaryMesh.geometry) {
+      try {
+        const edgesGeom = new THREE.EdgesGeometry(primaryMesh.geometry, 24);
+        const edgeColor = new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor);
+        const edgeMat = new THREE.LineBasicMaterial({
+          color: edgeColor,
+          transparent: true,
+          opacity: highlightConfig.preselectionEdgeOpacity ?? 0.65,
+          depthTest: !highlightConfig.xrayHighlight,
+          depthWrite: false
+        });
+        const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
+        lineSegs.matrixAutoUpdate = false;
+        lineSegs.matrix.copy(primaryMesh.matrixWorld);
+        scene.add(lineSegs);
+        hoverLinesRef.current = lineSegs;
+      } catch {
+        const hoverBbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor).getHex());
+        scene.add(hoverBbox);
+        hoverBboxHelperRef.current = hoverBbox;
+      }
+    } else {
+      const hoverBbox = new THREE.BoxHelper(primaryMesh, new THREE.Color(highlightConfig.preselectionEdgeColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionEdgeColor).getHex());
+      const boxMat = hoverBbox.material as THREE.LineBasicMaterial;
+      boxMat.transparent = true;
+      boxMat.opacity = highlightConfig.preselectionEdgeOpacity ?? 0.65;
+      boxMat.depthWrite = false;
+      scene.add(hoverBbox);
+      hoverBboxHelperRef.current = hoverBbox;
+    }
+
+    // Subtle surface tint wash
+    if (primaryMesh.geometry && (highlightConfig.preselectionFillOpacity ?? 0.14) > 0) {
+      const fillColor = new THREE.Color(highlightConfig.preselectionColor || DEFAULT_EDITOR_SETTINGS.highlighting.preselectionColor);
+      const hoverOverlayMat = new THREE.MeshBasicMaterial({
+        color: fillColor,
+        transparent: true,
+        opacity: highlightConfig.preselectionFillOpacity ?? 0.14,
+        depthTest: !highlightConfig.xrayHighlight,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+        side: THREE.DoubleSide,
+        clippingPlanes: sectionConfig.enabled ? [clipPlaneRef.current] : []
+      });
+      const hoverMesh = new THREE.Mesh(primaryMesh.geometry, hoverOverlayMat);
+      hoverMesh.matrixAutoUpdate = false;
+      hoverMesh.matrix.copy(primaryMesh.matrixWorld);
+      scene.add(hoverMesh);
+      hoverOverlayMeshRef.current = hoverMesh;
+    }
+
+    needsRenderRef.current = true;
+
+    return () => {
+      if (hoverBboxHelperRef.current && scene) {
+        scene.remove(hoverBboxHelperRef.current);
+        if ('geometry' in hoverBboxHelperRef.current) (hoverBboxHelperRef.current.geometry as any).dispose();
+        hoverBboxHelperRef.current = null;
+      }
+      if (hoverLinesRef.current && scene) {
+        scene.remove(hoverLinesRef.current);
+        if (hoverLinesRef.current.geometry) hoverLinesRef.current.geometry.dispose();
+        if (hoverLinesRef.current.material instanceof THREE.Material) hoverLinesRef.current.material.dispose();
+        hoverLinesRef.current = null;
+      }
+      if (hoverOverlayMeshRef.current && scene) {
+        scene.remove(hoverOverlayMeshRef.current);
+        if (hoverOverlayMeshRef.current.material instanceof THREE.Material) {
+          hoverOverlayMeshRef.current.material.dispose();
+        }
+        hoverOverlayMeshRef.current = null;
+      }
+    };
+  }, [hoveredExpressId, selectedExpressID, isMeasureActive, cadToolMode, sectionConfig.enabled, settings]);
+
+  // Screen-space 2D Projection for Selection Context Capsule
+  const updateSelectionScreenPosition = useCallback(() => {
+    if (selectedExpressID === null || !cameraRef.current || !containerRef.current) {
+      setSelectionScreenPos(null);
+      return;
+    }
+    const meshes = meshMapRef.current.get(selectedExpressID);
+    if (!meshes || meshes.length === 0) {
+      setSelectionScreenPos(null);
+      return;
+    }
+    const primaryMesh = meshes[0];
+    const box = new THREE.Box3().setFromObject(primaryMesh);
+    const centerTop = new THREE.Vector3(
+      (box.min.x + box.max.x) / 2,
+      box.max.y,
+      (box.min.z + box.max.z) / 2
+    );
+    centerTop.project(cameraRef.current);
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((centerTop.x + 1) / 2) * rect.width + rect.left;
+    const y = ((-centerTop.y + 1) / 2) * rect.height + rect.top;
+
+    if (centerTop.z > 1.0) {
+      setSelectionScreenPos(null);
+    } else {
+      setSelectionScreenPos({ x, y });
+    }
+  }, [selectedExpressID]);
+
+  useEffect(() => {
+    updateSelectionScreenPosition();
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.addEventListener('change', updateSelectionScreenPosition);
+    return () => controls.removeEventListener('change', updateSelectionScreenPosition);
+  }, [updateSelectionScreenPosition]);
+
+  // Focus camera on element (F key)
+  const handleFocusElement = useCallback((expressId: number) => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const meshes = meshMapRef.current.get(expressId);
+    if (!meshes || meshes.length === 0) return;
+    const primaryMesh = meshes[0];
+    const box = new THREE.Box3().setFromObject(primaryMesh);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 2.0);
+
+    controlsRef.current.target.copy(center);
+    cameraRef.current.position.set(
+      center.x + maxDim * 1.5,
+      center.y + maxDim * 1.2,
+      center.z + maxDim * 1.5
+    );
+    cameraRef.current.lookAt(center);
+    controlsRef.current.update();
+    needsRenderRef.current = true;
+    updateSelectionScreenPosition();
+  }, [updateSelectionScreenPosition]);
+
+  // Reset view
+  const handleResetView = useCallback(() => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    controlsRef.current.target.set(0, 0, 0);
+    cameraRef.current.position.set(12, 10, 15);
+    cameraRef.current.lookAt(0, 0, 0);
+    controlsRef.current.update();
+    needsRenderRef.current = true;
+  }, []);
+
+  // Commit drafting distance from type-ahead input
+  const handleCommitDraftingDistance = useCallback((exactLength: number) => {
+    if (!cadStartPoint || !onCadDrawWall) return;
+    const rad = (draftingAngle * Math.PI) / 180;
+    const endX = cadStartPoint.x + Math.cos(rad) * exactLength;
+    const endZ = cadStartPoint.z + Math.sin(rad) * exactLength;
+    onCadDrawWall([cadStartPoint.x, cadStartPoint.z], [endX, endZ]);
+    setCadStartPoint(null);
+  }, [cadStartPoint, draftingAngle, onCadDrawWall]);
 
   const lockHelpersRef = useRef<Map<number, THREE.BoxHelper>>(new Map());
 
@@ -1260,24 +1762,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
   }, [remoteTransform]);
 
-  // Configure OrbitControls isolation and reset snap when measure tool toggles
+  // Configure OrbitControls navigation and reset snap when measure tool toggles
   useEffect(() => {
     const controls = controlsRef.current;
     if (controls) {
-      if (isMeasureActive) {
-        // Isolate Left-Click for measurement point placement; use Right-Click to orbit while measuring
-        controls.mouseButtons = {
-          LEFT: -1 as any,
-          MIDDLE: THREE.MOUSE.DOLLY,
-          RIGHT: THREE.MOUSE.ROTATE
-        };
-      } else {
-        controls.mouseButtons = {
-          LEFT: THREE.MOUSE.ROTATE,
-          MIDDLE: THREE.MOUSE.DOLLY,
-          RIGHT: THREE.MOUSE.PAN
-        };
-      }
+      // Revit / Blender navigation invariant: Left click is 100% free, MMB pans/drags, Shift+MMB rotates
+      controls.mouseButtons = {
+        LEFT: -1 as any,
+        MIDDLE: THREE.MOUSE.PAN,
+        RIGHT: -1 as any
+      };
     }
     if (!isMeasureActive) {
       setPendingStartPoint(null);
@@ -1290,6 +1784,34 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       needsRenderRef.current = true;
     }
   }, [isMeasureActive]);
+
+  // Dynamically sync user settings (Theme, Grid, Navigation Sensitivities) to Three.js scene
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const controls = controlsRef.current;
+    if (!scene || !controls) return;
+
+    const themeKey = settings?.viewport?.theme ?? 'dark-slate';
+    const themeBg = THEME_COLOR_MAP[themeKey] ?? 0x0b0d10;
+    scene.background = new THREE.Color(
+      themeKey === 'custom' && settings?.viewport?.customCanvasColor
+        ? settings?.viewport?.customCanvasColor
+        : themeBg
+    );
+
+    if (settings?.navigation) {
+      controls.enableDamping = settings.navigation.enableDamping;
+      controls.dampingFactor = settings.navigation.dampingFactor;
+      controls.rotateSpeed = settings.navigation.orbitSensitivity;
+      controls.panSpeed = settings.navigation.panSensitivity;
+      controls.zoomSpeed = settings.navigation.zoomSensitivity;
+    }
+
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = settings?.viewport?.showGrid ?? true;
+    }
+    needsRenderRef.current = true;
+  }, [settings]);
 
   // Reset CAD preview when returning to select mode
   useEffect(() => {
@@ -1307,9 +1829,31 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
   }, [cadToolMode]);
 
-  // Handle ESC key to clear element selection, cancel measurement, or cancel CAD drawing
+  // Handle ESC (clear selection / cancel) and TAB (cycle candidate elements)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      // Tab Key: Cycle through candidate elements under the cursor in ascending distance order
+      if (e.key === 'Tab' && !isInput) {
+        if (hoverCandidatesRef.current.length > 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          const count = hoverCandidatesRef.current.length;
+          const nextIdx = e.shiftKey
+            ? (hoverCandidateIndexRef.current - 1 + count) % count
+            : (hoverCandidateIndexRef.current + 1) % count;
+          hoverCandidateIndexRef.current = nextIdx;
+          const targetExpressId = hoverCandidatesRef.current[nextIdx];
+          hoveredExpressIdRef.current = targetExpressId;
+          setHoverCandidateIndex(nextIdx);
+          setHoveredExpressId(targetExpressId);
+          needsRenderRef.current = true;
+          return;
+        }
+      }
+
       if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
         if (selectedExpressID !== null) {
           onSelectElement(null);
@@ -1353,11 +1897,106 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     onCancelMeasure
   ]);
 
+  // Helper: Evaluates visible surface candidates and pre-selection highlight at screen coordinates
+  const updateHoverAtScreenCoords = useCallback(
+    (clientX: number, clientY: number) => {
+      if (isMeasureActive || cadToolMode !== 'select' || isDraggingGizmoRef.current) return;
+      const container = containerRef.current;
+      const camera = cameraRef.current;
+      const group = meshesGroupRef.current;
+      if (!container || !camera || !group) return;
+
+      const rect = container.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+
+      const visibleCandidates = findVisibleCandidates(
+        raycaster,
+        group,
+        clipPlaneRef.current,
+        sectionConfig.enabled,
+        hiddenCategories,
+        isolatedExpressID,
+        hiddenModelIds
+      );
+
+      const candidateIds = visibleCandidates.map((c) => c.expressID);
+      hoverCandidatesRef.current = candidateIds;
+      setHoverCandidates(candidateIds);
+      setIsHoveringInteractiveMesh(candidateIds.length > 0);
+
+      if (candidateIds.length === 0) {
+        hoveredExpressIdRef.current = null;
+        setHoveredExpressId(null);
+        setHoverCandidateIndex(0);
+        hoverCandidateIndexRef.current = 0;
+      } else {
+        hoverCandidateIndexRef.current = 0;
+        setHoverCandidateIndex(0);
+        hoveredExpressIdRef.current = candidateIds[0];
+        setHoveredExpressId(candidateIds[0]);
+      }
+      needsRenderRef.current = true;
+    },
+    [
+      isMeasureActive,
+      cadToolMode,
+      sectionConfig.enabled,
+      hiddenCategories,
+      isolatedExpressID,
+      hiddenModelIds
+    ]
+  );
+  updateHoverAtScreenCoordsRef.current = updateHoverAtScreenCoords;
+
   // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (isDraggingGizmoRef.current) return;
-      if (!isMeasureActive && cadToolMode === 'select') return;
+
+      lastPointerPosRef.current = { clientX: event.clientX, clientY: event.clientY };
+
+      // If no mouse buttons are held, clear any drag tracking
+      if (event.buttons === 0) {
+        isPointerDraggingRef.current = false;
+        pointerDownPosRef.current = null;
+      }
+
+      // Track pointer drag distance for rotation / pan detection when any button is held
+      if (event.buttons !== 0 && pointerDownPosRef.current) {
+        const dragDist = Math.hypot(
+          event.clientX - pointerDownPosRef.current.x,
+          event.clientY - pointerDownPosRef.current.y
+        );
+        if (dragDist > 4) {
+          isPointerDraggingRef.current = true;
+          // While dragging or rotating the camera, clear hover highlight
+          if (hoveredExpressIdRef.current !== null) {
+            hoveredExpressIdRef.current = null;
+            setHoveredExpressId(null);
+            setHoverCandidates([]);
+            hoverCandidatesRef.current = [];
+            hoverCandidateIndexRef.current = 0;
+            setHoverCandidateIndex(0);
+          }
+          return;
+        }
+      }
+
+      // If a button is held down or the camera is actively orbiting via OrbitControls drag, suppress hover
+      if (event.buttons !== 0 || isOrbitingRef.current || isPointerDraggingRef.current) {
+        return;
+      }
+
+      if (!isMeasureActive && cadToolMode === 'select') {
+        updateHoverAtScreenCoords(event.clientX, event.clientY);
+        return;
+      }
 
       const container = containerRef.current;
       const camera = cameraRef.current;
@@ -1374,8 +2013,43 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       );
 
       const raycaster = new THREE.Raycaster();
-      (raycaster as any).firstHitOnly = true;
       raycaster.setFromCamera(mouse, camera);
+
+      // Snapping evaluation for both measuring and CAD drafting
+      const visibleMeshes = group.children.filter((c) => c.visible);
+      const snapResult = snapGroup ? findSnapPoint(
+        raycaster,
+        visibleMeshes,
+        camera,
+        { x: event.clientX, y: event.clientY },
+        rect
+      ) : null;
+
+      if (snapResult) {
+        currentSnapPointRef.current = snapResult.point;
+        currentSnapTypeRef.current = snapResult.type;
+        if (snapGroup) {
+          snapGroup.position.copy(snapResult.point);
+          snapGroup.quaternion.copy(camera.quaternion);
+          const camDist = camera.position.distanceTo(snapResult.point);
+          const scale = Math.max(0.015, camDist * 0.08);
+          snapGroup.scale.set(scale, scale, scale);
+          const ringMesh = snapGroup.children[0] as THREE.Mesh;
+          if (ringMesh && ringMesh.material instanceof THREE.MeshBasicMaterial) {
+            ringMesh.material.color.setHex(
+              snapResult.type === 'vertex'
+                ? 0x22d3ee
+                : snapResult.type === 'midpoint'
+                ? 0xfbbf24
+                : 0x34d399
+            );
+          }
+          snapGroup.visible = true;
+        }
+      } else {
+        currentSnapPointRef.current = null;
+        if (snapGroup) snapGroup.visible = false;
+      }
 
       // CAD Preview handling
       if (cadToolMode !== 'select' && cadGroup) {
@@ -1389,6 +2063,34 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const groundHit = new THREE.Vector3();
         const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
+
+        // Snap to active snap point if present and snap is enabled
+        if (snapEnabled && currentSnapPointRef.current) {
+          groundHit.copy(currentSnapPointRef.current);
+        }
+
+        // Orthogonal Lock (holding Shift)
+        const orthoActive = event.shiftKey;
+        setIsOrthoLocked(orthoActive);
+        if (orthoActive && cadStartPoint) {
+          const dx = groundHit.x - cadStartPoint.x;
+          const dz = groundHit.z - cadStartPoint.z;
+          if (Math.abs(dx) > Math.abs(dz)) {
+            groundHit.z = cadStartPoint.z;
+          } else {
+            groundHit.x = cadStartPoint.x;
+          }
+        }
+
+        // Track live distance and angle
+        if (cadStartPoint) {
+          const dist = Math.hypot(groundHit.x - cadStartPoint.x, groundHit.z - cadStartPoint.z);
+          const rad = Math.atan2(groundHit.z - cadStartPoint.z, groundHit.x - cadStartPoint.x);
+          let deg = (rad * 180) / Math.PI;
+          if (deg < 0) deg += 360;
+          setDraftingLength(dist);
+          setDraftingAngle(deg);
+        }
 
         if (cadToolMode === 'wall') {
           if (cadStartPoint && hitGround) {
@@ -1434,94 +2136,82 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         }
       }
 
-      if (!isMeasureActive || !snapGroup) return;
+      if (isMeasureActive) {
+        if (snapResult) {
+          // Calculate 2D screen coordinates for hover micro-badge
+          const vec = snapResult.point.clone().project(camera);
+          const screenX = (vec.x * 0.5 + 0.5) * rect.width;
+          const screenY = (-(vec.y * 0.5) + 0.5) * rect.height;
 
-      const visibleMeshes = group.children.filter((c) => c.visible);
-      const snapResult = findSnapPoint(
-        raycaster,
-        visibleMeshes,
-        camera,
-        { x: event.clientX, y: event.clientY },
-        rect
-      );
-
-      if (snapResult) {
-        currentSnapPointRef.current = snapResult.point;
-        currentSnapTypeRef.current = snapResult.type;
-
-        // Position & configure snap indicator gizmo
-        snapGroup.position.copy(snapResult.point);
-        snapGroup.quaternion.copy(camera.quaternion);
-        const camDist = camera.position.distanceTo(snapResult.point);
-        const scale = Math.max(0.015, camDist * 0.08);
-        snapGroup.scale.set(scale, scale, scale);
-
-        // Colorize based on snap type: cyan for vertex, amber for midpoint, emerald for surface
-        const ringMesh = snapGroup.children[0] as THREE.Mesh;
-        const tickMesh = snapGroup.children[2] as THREE.LineSegments;
-        const snapColor = snapResult.type === 'vertex' ? 0x22d3ee : snapResult.type === 'midpoint' ? 0xf59e0b : 0x10b981;
-        if (ringMesh?.material instanceof THREE.MeshBasicMaterial) ringMesh.material.color.setHex(snapColor);
-        if (tickMesh?.material instanceof THREE.LineBasicMaterial) tickMesh.material.color.setHex(snapColor);
-        snapGroup.visible = true;
-
-        // Calculate 2D screen coordinates for hover micro-badge
-        const vec = snapResult.point.clone().project(camera);
-        const screenX = (vec.x * 0.5 + 0.5) * rect.width;
-        const screenY = (-(vec.y * 0.5) + 0.5) * rect.height;
-
-        setActiveSnap({
-          point: snapResult.point,
-          type: snapResult.type,
-          screenPos: { x: screenX, y: screenY }
-        });
-
-        // Update dynamic rubber-band measure preview line if pending start point exists
-        if (pendingStartPoint && previewGroup) {
-          const previewLine = previewGroup.children[0] as THREE.Line;
-          const startMarker = previewGroup.children[1] as THREE.Mesh;
-          const endMarker = previewGroup.children[2] as THREE.Mesh;
-
-          if (previewLine && previewLine.geometry) {
-            previewLine.geometry.setFromPoints([pendingStartPoint, snapResult.point]);
-            previewLine.computeLineDistances();
-          }
-          if (startMarker) startMarker.position.copy(pendingStartPoint);
-          if (endMarker) endMarker.position.copy(snapResult.point);
-          previewGroup.visible = true;
-
-          const dist = pendingStartPoint.distanceTo(snapResult.point);
-          const dx = Math.abs(snapResult.point.x - pendingStartPoint.x);
-          const dy = Math.abs(snapResult.point.y - pendingStartPoint.y);
-          const dz = Math.abs(snapResult.point.z - pendingStartPoint.z);
-          const mid = pendingStartPoint.clone().add(snapResult.point).multiplyScalar(0.5);
-
-          const midVec = mid.project(camera);
-          const midScreenX = (midVec.x * 0.5 + 0.5) * rect.width;
-          const midScreenY = (-(midVec.y * 0.5) + 0.5) * rect.height;
-
-          setPreviewMeasure({
-            distance: dist,
-            dx,
-            dy,
-            dz,
-            midpointScreen: { x: midScreenX, y: midScreenY }
+          setActiveSnap({
+            point: snapResult.point,
+            type: snapResult.type,
+            screenPos: { x: screenX, y: screenY }
           });
-        }
-      } else {
-        currentSnapPointRef.current = null;
-        currentSnapTypeRef.current = null;
-        snapGroup.visible = false;
-        setActiveSnap(null);
 
-        if (previewGroup) previewGroup.visible = false;
-        setPreviewMeasure(null);
+          // Update dynamic rubber-band measure preview line if pending start point exists
+          if (pendingStartPoint && previewGroup) {
+            const previewLine = previewGroup.children[0] as THREE.Line;
+            const startMarker = previewGroup.children[1] as THREE.Mesh;
+            const endMarker = previewGroup.children[2] as THREE.Mesh;
+
+            if (previewLine && previewLine.geometry) {
+              previewLine.geometry.setFromPoints([pendingStartPoint, snapResult.point]);
+              previewLine.computeLineDistances();
+            }
+            if (startMarker) startMarker.position.copy(pendingStartPoint);
+            if (endMarker) endMarker.position.copy(snapResult.point);
+            previewGroup.visible = true;
+
+            const dist = pendingStartPoint.distanceTo(snapResult.point);
+            const dx = Math.abs(snapResult.point.x - pendingStartPoint.x);
+            const dy = Math.abs(snapResult.point.y - pendingStartPoint.y);
+            const dz = Math.abs(snapResult.point.z - pendingStartPoint.z);
+            const mid = pendingStartPoint.clone().add(snapResult.point).multiplyScalar(0.5);
+
+            const midVec = mid.project(camera);
+            const midScreenX = (midVec.x * 0.5 + 0.5) * rect.width;
+            const midScreenY = (-(midVec.y * 0.5) + 0.5) * rect.height;
+
+            setPreviewMeasure({
+              distance: dist,
+              dx,
+              dy,
+              dz,
+              midpointScreen: { x: midScreenX, y: midScreenY }
+            });
+          }
+        } else {
+          setActiveSnap(null);
+          if (previewGroup) previewGroup.visible = false;
+          setPreviewMeasure(null);
+        }
       }
       needsRenderRef.current = true;
     },
-    [isMeasureActive, pendingStartPoint, cadToolMode, cadStartPoint]
+    [
+      isMeasureActive,
+      pendingStartPoint,
+      cadToolMode,
+      cadStartPoint,
+      snapEnabled,
+      sectionConfig.enabled,
+      hiddenCategories,
+      isolatedExpressID,
+      hiddenModelIds
+    ]
   );
 
   const handlePointerLeave = useCallback(() => {
+    lastPointerPosRef.current = null;
+    isPointerDraggingRef.current = false;
+    pointerDownPosRef.current = null;
+    setIsHoveringInteractiveMesh(false);
+    setHoveredExpressId(null);
+    setHoverCandidates([]);
+    hoverCandidatesRef.current = [];
+    hoverCandidateIndexRef.current = 0;
+    setHoverCandidateIndex(0);
     if (snapIndicatorGroupRef.current) snapIndicatorGroupRef.current.visible = false;
     if (measurePreviewGroupRef.current) measurePreviewGroupRef.current.visible = false;
     setActiveSnap(null);
@@ -1533,12 +2223,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button === 0) {
-        pointerDownPosRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
-        if (isMeasureActive) {
-          // Isolate measurement click from OrbitControls pointer capture
-          event.stopPropagation();
-        }
+      pointerDownPosRef.current = { x: event.clientX, y: event.clientY, time: Date.now() };
+      isPointerDraggingRef.current = false;
+
+      if (isMeasureActive && event.button === 0) {
+        // Isolate measurement click from pointer capture
+        event.stopPropagation();
       }
     },
     [isMeasureActive]
@@ -1546,11 +2236,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button === 0 && pointerDownPosRef.current) {
-        const dx = Math.abs(event.clientX - pointerDownPosRef.current.x);
-        const dy = Math.abs(event.clientY - pointerDownPosRef.current.y);
-        const dt = Date.now() - pointerDownPosRef.current.time;
+      isPointerDraggingRef.current = false;
+      let dx = 0;
+      let dy = 0;
+      let dt = 0;
+      if (pointerDownPosRef.current) {
+        dx = Math.abs(event.clientX - pointerDownPosRef.current.x);
+        dy = Math.abs(event.clientY - pointerDownPosRef.current.y);
+        dt = Date.now() - pointerDownPosRef.current.time;
+        if (dx > 6 || dy > 6) {
+          lastNavigationEndTimeRef.current = Date.now();
+        }
         pointerDownPosRef.current = null;
+      }
+
+      // When releasing any camera navigation button (such as MMB rotate or pan), re-evaluate hover immediately
+      if (event.button !== 0 && lastPointerPosRef.current && updateHoverAtScreenCoordsRef.current) {
+        updateHoverAtScreenCoordsRef.current(
+          lastPointerPosRef.current.clientX,
+          lastPointerPosRef.current.clientY
+        );
+      }
+
+      if (event.button === 0) {
 
         if (isMeasureActive && dx < 10 && dy < 10 && dt < 1200) {
           event.stopPropagation();
@@ -1607,10 +2315,73 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             }
             needsRenderRef.current = true;
           }
+          return;
+        }
+
+        // Direct and reliable selection on left pointerup: prevents lost selections if browser click is delayed or throttled
+        if (
+          !isMeasureActive &&
+          cadToolMode === 'select' &&
+          !isDraggingGizmoRef.current &&
+          !isOrbitingRef.current &&
+          !isPointerDraggingRef.current &&
+          dx <= 6 &&
+          dy <= 6 &&
+          dt < 800
+        ) {
+          lastPointerUpSelectTimeRef.current = Date.now();
+          const container = containerRef.current;
+          const camera = cameraRef.current;
+          const group = meshesGroupRef.current;
+          if (container && camera && group) {
+            const rect = container.getBoundingClientRect();
+            const mouse = new THREE.Vector2(
+              ((event.clientX - rect.left) / rect.width) * 2 - 1,
+              -((event.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const candidates = findVisibleCandidates(
+              raycaster,
+              group,
+              clipPlaneRef.current,
+              sectionConfig.enabled,
+              hiddenCategories,
+              isolatedExpressID,
+              hiddenModelIds
+            );
+
+            if (candidates.length > 0) {
+              const pre = hoveredExpressIdRef.current;
+              const hasPre = pre !== null && candidates.some((c) => c.expressID === pre);
+              const targetId = hasPre ? (pre as number) : candidates[0].expressID;
+              onSelectElement(targetId);
+              const meshes = meshMapRef.current.get(targetId);
+              if (meshes && meshes[0] && onTransformChange) {
+                const pos = meshes[0].position.toArray() as [number, number, number];
+                const rot = [meshes[0].rotation.x, meshes[0].rotation.y, meshes[0].rotation.z] as [number, number, number];
+                onTransformChange(targetId, pos, rot);
+              }
+            } else {
+              onSelectElement(null);
+            }
+          }
         }
       }
     },
-    [isMeasureActive, pendingStartPoint, onAddMeasurement]
+    [
+      isMeasureActive,
+      cadToolMode,
+      pendingStartPoint,
+      onAddMeasurement,
+      onSelectElement,
+      onTransformChange,
+      sectionConfig.enabled,
+      hiddenCategories,
+      isolatedExpressID,
+      hiddenModelIds
+    ]
   );
 
   // Click Handler for Raycasting (Selection OR Measurement)
@@ -1618,6 +2389,24 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (isDraggingGizmoRef.current) return;
       if (isMeasureActive) return; // Handled reliably via onPointerUp to prevent OrbitControls conflicts
+
+      const now = Date.now();
+      // If handlePointerUp already handled selection on pointerup, skip redundant execution
+      if (now - lastPointerUpSelectTimeRef.current < 250) {
+        return;
+      }
+
+      // 1. FORBID SELECTION WHEN ROTATING OR PANNING CAMERA VIA MIDDLE MOUSE
+      const timeSinceNav = now - lastNavigationEndTimeRef.current;
+      if (
+        isOrbitingRef.current ||
+        isPointerDraggingRef.current ||
+        (isNavigatingRef.current && timeSinceNav < 80)
+      ) {
+        isPointerDraggingRef.current = false;
+        return;
+      }
+      isPointerDraggingRef.current = false;
 
       const container = containerRef.current;
       const camera = cameraRef.current;
@@ -1631,7 +2420,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       );
 
       const raycaster = new THREE.Raycaster();
-      (raycaster as any).firstHitOnly = true;
       raycaster.setFromCamera(mouse, camera);
 
       const visibleMeshes = group.children.filter((c) => c.visible);
@@ -1673,11 +2461,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const groundHit = new THREE.Vector3();
         const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
 
+        const targetHit = (snapEnabled && currentSnapPointRef.current)
+          ? currentSnapPointRef.current.clone()
+          : groundHit.clone();
+
+        if (event.shiftKey && cadStartPoint) {
+          const dx = targetHit.x - cadStartPoint.x;
+          const dz = targetHit.z - cadStartPoint.z;
+          if (Math.abs(dx) > Math.abs(dz)) {
+            targetHit.z = cadStartPoint.z;
+          } else {
+            targetHit.x = cadStartPoint.x;
+          }
+        }
+
         if (cadToolMode === 'wall') {
           if (!cadStartPoint && hitGround) {
-            setCadStartPoint(groundHit.clone());
+            setCadStartPoint(targetHit.clone());
           } else if (cadStartPoint && hitGround && onCadDrawWall) {
-            onCadDrawWall([cadStartPoint.x, cadStartPoint.z], [groundHit.x, groundHit.z]);
+            onCadDrawWall([cadStartPoint.x, cadStartPoint.z], [targetHit.x, targetHit.z]);
             setCadStartPoint(null);
           }
           return;
@@ -1685,9 +2487,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
         if (cadToolMode === 'slab') {
           if (!cadStartPoint && hitGround) {
-            setCadStartPoint(groundHit.clone());
+            setCadStartPoint(targetHit.clone());
           } else if (cadStartPoint && hitGround && onCadDrawSlab) {
-            onCadDrawSlab([cadStartPoint.x, cadStartPoint.z], [groundHit.x, groundHit.z]);
+            onCadDrawSlab([cadStartPoint.x, cadStartPoint.z], [targetHit.x, targetHit.z]);
             setCadStartPoint(null);
           }
           return;
@@ -1695,7 +2497,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
         if (cadToolMode === 'column') {
           if (hitGround && onCadDrawColumn) {
-            onCadDrawColumn([groundHit.x, groundHit.z]);
+            onCadDrawColumn([targetHit.x, targetHit.z]);
           }
           return;
         }
@@ -1721,29 +2523,27 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         return;
       }
 
-      // Normal Selection
-      if (intersects.length > 0) {
-        const hit = intersects[0];
-        let expressID: number | null = null;
-        if (hit.object instanceof THREE.BatchedMesh && hit.batchId !== undefined) {
-          const instances = (hit.object.userData as any)?.instances;
-          if (instances && instances[hit.batchId]) {
-            expressID = instances[hit.batchId].expressID;
-          }
-        } else if (hit.object.userData && hit.object.userData.expressID !== undefined) {
-          expressID = hit.object.userData.expressID as number;
-        }
+      // Normal Selection: Select currently pre-selected / hovered element (or cycled via Tab) or frontmost visible candidate
+      const candidates = findVisibleCandidates(
+        raycaster,
+        group,
+        clipPlaneRef.current,
+        sectionConfig.enabled,
+        hiddenCategories,
+        isolatedExpressID,
+        hiddenModelIds
+      );
 
-        if (expressID !== null) {
-          onSelectElement(expressID);
-          const meshes = meshMapRef.current.get(expressID);
-          if (meshes && meshes[0] && onTransformChange) {
-            const pos = meshes[0].position.toArray() as [number, number, number];
-            const rot = [meshes[0].rotation.x, meshes[0].rotation.y, meshes[0].rotation.z] as [number, number, number];
-            onTransformChange(expressID, pos, rot);
-          }
-        } else {
-          onSelectElement(null);
+      if (candidates.length > 0) {
+        const pre = hoveredExpressIdRef.current;
+        const hasPre = pre !== null && candidates.some((c) => c.expressID === pre);
+        const targetId = hasPre ? (pre as number) : candidates[0].expressID;
+        onSelectElement(targetId);
+        const meshes = meshMapRef.current.get(targetId);
+        if (meshes && meshes[0] && onTransformChange) {
+          const pos = meshes[0].position.toArray() as [number, number, number];
+          const rot = [meshes[0].rotation.x, meshes[0].rotation.y, meshes[0].rotation.z] as [number, number, number];
+          onTransformChange(targetId, pos, rot);
         }
       } else {
         onSelectElement(null);
@@ -1760,20 +2560,83 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       onCadDrawWall,
       onCadDrawSlab,
       onCadDrawColumn,
-      onCadDrawOpening
+      onCadDrawOpening,
+      snapEnabled,
+      sectionConfig.enabled,
+      hiddenCategories,
+      isolatedExpressID,
+      hiddenModelIds
     ]
   );
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const now = Date.now();
+    if (
+      isOrbitingRef.current ||
+      isPointerDraggingRef.current ||
+      (now - lastNavigationEndTimeRef.current < 200)
+    ) {
+      return;
+    }
+
+    const container = containerRef.current;
+    const camera = cameraRef.current;
+    const group = meshesGroupRef.current;
+    if (!container || !camera || !group) return;
+
+    const rect = container.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+
+    const candidates = findVisibleCandidates(
+      raycaster,
+      group,
+      clipPlaneRef.current,
+      sectionConfig.enabled,
+      hiddenCategories,
+      isolatedExpressID,
+      hiddenModelIds
+    );
+
+    if (candidates.length > 0) {
+      const expressID = candidates[0].expressID;
+      onSelectElement(expressID);
+      setContextMenu({ x: event.clientX, y: event.clientY, expressId: expressID });
+      return;
+    }
+
+    setContextMenu({ x: event.clientX, y: event.clientY, expressId: null });
+  }, [
+    onSelectElement,
+    sectionConfig.enabled,
+    hiddenCategories,
+    isolatedExpressID,
+    hiddenModelIds
+  ]);
+
+  const getCursorClass = () => {
+    if (isMeasureActive || cadToolMode !== 'select') return 'cursor-crosshair';
+    if (hoveredExpressId !== null || isHoveringInteractiveMesh) return 'cursor-pointer';
+    return 'cursor-default';
+  };
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none outline-none">
       <div
         ref={containerRef}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
-        className="w-full h-full cursor-crosshair"
+        className={`w-full h-full ${getCursorClass()}`}
       />
 
 
@@ -1906,6 +2769,73 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           </div>
         )
       ))}
+
+      {/* Selection Context Capsule (In-Viewport Direct CAD Manipulation) */}
+      {selectedExpressID !== null && selectionScreenPos && (
+        <SelectionContextOverlay
+          expressId={selectedExpressID}
+          elementDetails={elementDetails || null}
+          screenPosition={selectionScreenPos}
+          storeys={storeys}
+          onClone={(id) => onCloneElement && onCloneElement(id)}
+          onDelete={(id) => onDeleteElement && onDeleteElement(id)}
+          onUpdateGeometry={(id, params) => onUpdateGeometry && onUpdateGeometry(id, params)}
+          onAssignStorey={(id, sId) => onAssignStorey && onAssignStorey(id, sId)}
+          onAssignMaterial={(id, mat, col) => onAssignMaterial && onAssignMaterial(id, mat, col)}
+          onFocus={(id) => handleFocusElement(id)}
+          onOpenInspector={() => onOpenInspector && onOpenInspector()}
+        />
+      )}
+
+      {/* 3D Spatial Context Menu (Right Click) */}
+      {contextMenu && (
+        <SpatialContextMenu
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          expressId={contextMenu.expressId}
+          onClose={() => setContextMenu(null)}
+          onFocus={(id) => handleFocusElement(id)}
+          onClone={(id) => onCloneElement && onCloneElement(id)}
+          onDelete={(id) => onDeleteElement && onDeleteElement(id)}
+          onOpenInspector={() => onOpenInspector && onOpenInspector()}
+          onSelectTool={(tool) => onSelectCadTool && onSelectCadTool(tool)}
+          onResetView={handleResetView}
+          onClearSelection={() => onSelectElement(null)}
+        />
+      )}
+
+      {/* Dynamic Drafting HUD (Type-ahead Distance & Angle during Drawing) */}
+      {cadToolMode !== 'select' && (
+        <DraftingInputHud
+          toolMode={cadToolMode}
+          isDrawing={Boolean(cadStartPoint)}
+          currentLength={draftingLength}
+          currentAngle={draftingAngle}
+          isOrthoLocked={isOrthoLocked}
+          onCommitDistance={handleCommitDraftingDistance}
+          onCancel={() => {
+            setCadStartPoint(null);
+            if (onCadCancel) onCadCancel();
+          }}
+        />
+      )}
+
+      {/* Tab Candidate Cycling Pill (Multi-Surface Depth Selection) */}
+      {hoverCandidates.length > 1 && hoveredExpressId !== null && cadToolMode === 'select' && !isMeasureActive && (
+        <div
+          className="absolute bottom-14 left-1/2 -translate-x-1/2 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-bg)] text-cyan-200 border border-cyan-400/40 shadow-[var(--shadow-hud)] backdrop-blur-md text-xs font-mono select-none z-30 transition-all duration-150 animate-in fade-in"
+          data-qa="tab-candidate-pill"
+        >
+          <kbd className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-semibold text-[10px] border border-cyan-500/40">
+            Tab
+          </kbd>
+          <span className="text-slate-300">
+            Cycle surface <span className="text-white font-bold">{hoverCandidateIndex + 1}</span> of <span className="text-white font-bold">{hoverCandidates.length}</span>
+          </span>
+          <span className="text-cyan-400/80 font-mono text-[11px]">
+            ({hoveredElementName})
+          </span>
+        </div>
+      )}
     </div>
   );
 };

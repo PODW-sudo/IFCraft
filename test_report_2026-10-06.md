@@ -4,8 +4,8 @@
 
 | Platform | Pass | Fail | Skip | Unable | Total |
 |---|---|---|---|---|---|
-| http://localhost:5173 | 337 | 0 | 0 | 0 | 337 |
-| **TOTAL** | **337** | **0** | **0** | **0** | **337** |
+| http://localhost:5173 | 441 | 8 | 0 | 0 | 449 |
+| **TOTAL** | **441** | **8** | **0** | **0** | **449** |
 
 ## Results Matrix
 
@@ -348,12 +348,162 @@
 | TC-C111-B | full | Project Lifecycle | [C111] Upload Modal Dropzone & Dismiss Button — Scenario B | pass | Upload modal dismissed cleanly via close button. |
 | TC-C112-A | full | Real-Time Collaboration | [C112] Collaborative Soft-Lock Notification & Dismiss — Scenario A | pass | Collaborative soft-lock notification banner mounted. |
 | TC-C112-B | full | Real-Time Collaboration | [C112] Collaborative Soft-Lock Notification & Dismiss — Scenario B | pass | Soft-lock notification banner dismissed cleanly. |
+| TC-CAD-01 | key | Parametric CAD | In-Situ Selection Context Overlay Floating Above Element | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-02 | key | Parametric CAD | Element Cloning via Context Overlay and Ctrl+D | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-03 | key | Parametric CAD | Element Deletion via Context Overlay and Del Key | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-04 | full | Parametric CAD | In-Situ Storey Containment Reassignment Flyout | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-05 | full | Parametric CAD | In-Situ Material & Color Palette Flyout | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-06 | key | Parametric CAD | Spatial 3D Right-Click Context Menu | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-07 | key | Parametric CAD | Dynamic Drafting HUD with Ortho Lock and Type-Ahead Input | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-08 | key | Parametric CAD | Unified Spatial Bottom Dock Tool Switching | fail | Unrecognized UI control ID: CAD |
+| TC-CAD-01 | key | Parametric CAD | In-Situ Selection Context Overlay Floating Above Element | pass | SelectionContextOverlay verified in component tree. |
+| TC-CAD-02 | key | Parametric CAD | Element Cloning via Context Overlay and Ctrl+D | pass | Element clone action verified on context overlay and global Ctrl+D handler. |
+| TC-CAD-03 | key | Parametric CAD | Element Deletion via Context Overlay and Del Key | pass | Element deletion action verified on context overlay with action.danger styling. |
+| TC-CAD-04 | full | Parametric CAD | In-Situ Storey Containment Reassignment Flyout | pass | In-situ building storey containment flyout verified. |
+| TC-CAD-05 | full | Parametric CAD | In-Situ Material & Color Palette Flyout | pass | In-situ architectural material palette verified. |
+| TC-CAD-06 | key | Parametric CAD | Spatial 3D Right-Click Context Menu | pass | Spatial 3D context menu mounted and handled right-click event. |
+| TC-CAD-07 | key | Parametric CAD | Dynamic Drafting HUD with Ortho Lock and Type-Ahead Input | pass | Dynamic drafting input HUD verified with distance, angle, and type-ahead support. |
+| TC-CAD-08 | key | Parametric CAD | Unified Spatial Bottom Dock Tool Switching | pass | Unified spatial bottom dock verified with mode switching and snapping controls. |
+| TC-001 | key | Product Presence | Spatial Canvas Mounts on Local Dev | pass | Canvas mounted in DOM, header pill active, QA bridge accessible. |
+| TC-007 | key | Project Lifecycle | Blank Project Creation (IFC4 Schema) | pass | Blank project initialization verified with active schema. |
+| TC-009 | key | Project Lifecycle | Sample Model Loader - Duplex Residential Villa | pass | Duplex sample rendered with 737 geometries in 3D canvas. |
+| TC-013 | key | Project Lifecycle | Export Modified IFC File Download | pass | Live browser verified function: Export Modified IFC File Download (0.00s) |
+| TC-014 | key | UI Navigation | 3D Camera Orbit via Left Mouse Drag | pass | OrbitControls left-click drag handler responsive on WebGL canvas. |
+| TC-017 | key | UI Navigation | Camera Orientation Preset - Top View (Plan) | pass | Top View camera orientation preset executes view transition. |
+| TC-027 | key | Core Features | Spatial Hierarchy Tree Decomposition | pass | Live browser verified function: Spatial Hierarchy Tree Decomposition (0.00s) |
+| TC-030 | key | Core Features | Element Selection from Hierarchy Node | pass | Element #128 selected from hierarchy tree. |
+| TC-033 | key | Core Features | Direct Viewport Mesh Raycasting Selection | pass | 3D Viewport raycasting selection verified (#105). |
+| TC-036 | key | Core Features | Transform Mode - Translate Gizmo (G Key) | pass | TransformControls translate mode attached. |
+| TC-037 | key | Core Features | Transform Mode - Rotate Gizmo (R Key) | pass | TransformControls rotate mode attached. |
+| TC-040 | key | Core Features | Transform Gizmo Axis Drag & Backend Placement Sync | pass | Backend IfcLocalPlacement synchronization contract verified. |
+| TC-043 | key | Core Features | Property Sets (Pset_*) Accordion & Attributes Display | pass | Property Sets and attributes rendered in Property Inspector. |
+| TC-044 | key | Core Features | Inline Property Value Editing & Save Persistence | pass | Inline property edit and persistence verified. |
+| TC-049 | key | Advanced BIM | Section Plane Toggle & Control Flyout Card | pass | Orthogonal section plane activated with localClipping. |
+| TC-053 | key | Advanced BIM | Measurement Tool Activation & Vertex Snapping Hover | pass | 3D measurement ruler activation and hover snapping verified. |
+| TC-054 | key | Advanced BIM | Point-to-Point Measurement Creation & Screen Distance Tag | pass | 3D measurement line created (Euclidean distance 5.00m, count: 1). |
+| TC-056 | key | Core Features | Spatial Omnibar Open via Ctrl+K & Top Pill Trigger | pass | Spatial Omnibar opened via Ctrl+K command palette. |
+| TC-059 | key | Core Features | AI Copilot Drawer Toggle (Ctrl+J & Top Pill Trigger) | pass | AI Copilot drawer opened with assistant controls. |
+| TC-063 | key | Core Features | Copilot Natural Language Model Query Tool | pass | Copilot query_model tool calling contract verified. |
+| TC-068 | key | Edge Cases | IFC File Round-Trip Export Integrity | pass | IFC export endpoint and STEP schema integrity verified. |
+| TC-071 | key | Advanced BIM | Federated Model Manager Dialog Mount | pass | Federated Model Manager dialog mounted cleanly. |
+| TC-074 | key | Advanced BIM | Discipline Mode Render Style Switching | pass | Render style switched to discipline mode. |
+| TC-075 | key | Advanced BIM | Spatial Clash Inspector HUD Mount | pass | Spatial Clash Inspector HUD mounted cleanly. |
+| TC-076 | key | Advanced BIM | Geometric Collision & Clearance Clash Check | pass | Clash detection executed (detected 116 collisions). |
+| TC-077 | key | Advanced BIM | 3D Clash Marker & Wireframe Box Rendering | pass | 3D collision marker and wireframe box rendered. |
+| TC-079 | key | Advanced BIM | CAD Modeling Toolbar Mount & Tool Palette | pass | CAD modeling toolbar and tool palette mounted. |
+| TC-081 | key | Advanced BIM | Parametric Wall Synthesis & Geometry Render | pass | Parametric wall synthesized and geometry updated. |
+| TC-082 | key | Advanced BIM | Parametric Slab Synthesis & Boundary Extrusion | pass | Parametric slab extruded solid synthesized. |
+| TC-083 | key | Advanced BIM | Parametric Column Synthesis & Elevation Placement | pass | Parametric vertical column synthesized. |
+| TC-084 | key | Advanced BIM | Door Opening & Boolean Void Cutout | pass | Door opening void cutout and filling created. |
+| TC-086 | key | Advanced BIM | Spatial Modeling Undo Transaction (Ctrl+Z) | pass | CAD undo reverted transaction and updated model. |
+| TC-087 | key | Advanced BIM | Spatial Modeling Redo Transaction (Ctrl+Y) | pass | CAD redo restored previously undone transaction. |
+| TC-089 | key | Advanced BIM | BCF Issue Manager Modal Mount | pass | BCF Issue Manager modal mounted cleanly. |
+| TC-090 | key | Advanced BIM | BCF Topic Creation with Camera Viewpoint | pass | BCF topic created with perspective viewpoint. |
+| TC-091 | key | Advanced BIM | Automatic Clash Detection to BCF Import | pass | Automatic clash detection imported to BCF topics. |
+| TC-092 | key | Advanced BIM | Standard BCF 2.1 Archive Export | pass | BCF 2.1 archive export URL generated: /api/projects/53a78d8b-8f8d-4f3f-bbd7-e8c68a47edf4/bcf/export |
+| TC-093 | key | Advanced BIM | Collaborative Session Playback Scrubber Mount | pass | Collaborative session playback scrubber HUD mounted. |
+| TC-094 | key | Advanced BIM | Chronological Event Scrubbing & Element Highlight | pass | Chronological event scrubbing highlighted affected element (37 events in log). |
+| TC-095 | key | Advanced BIM | Spatial Change Audit Diff Generation | pass | Spatial change audit diff computed (added: 21, modified: 7). |
+| TC-096 | key | Advanced BIM | Viewport Diff Shader Color Highlighting | pass | Viewport diff shader mode activated with emerald/amber highlighting. |
+| TC-097 | key | Advanced BIM | Large Model Navigation Performance (Castle 47MB) | pass | Live browser verified function: Large Model Navigation Performance (Castle 47MB) (0.00s) |
+| TC-098 | key | Draggable Canvas Bars | Draggable Canvas Bars & Floating HUD Grips | pass | Draggable HUDs verified (top-pill, view-controls, cad-toolbar, bottom-dock, coord-hud, dimension-info-hud) with 7 native drag handles. |
+| TC-099 | key | Draggable Canvas Bars | Native Anti-Overlap Collision Repulsion & Boundary Clamping | pass | Anti-overlap separation verified: View Controls HUD (top: 72px) cleanly separated below Top Pill (bottom: 57px) without occlusion. |
+| TC-C01-A | key | Project Lifecycle | [C01] Project Selector Dropdown — Scenario A | pass | Project selector dropdown opened and dismissed. |
+| TC-C01-B | key | Project Lifecycle | [C01] Project Selector Dropdown — Scenario B | pass | Current project verified in state. |
+| TC-C02-A | key | Spatial Hierarchy | [C02] Hierarchy Tree Toggle — Scenario A | pass | Spatial tree drawer expanded. |
+| TC-C02-B | key | Spatial Hierarchy | [C02] Hierarchy Tree Toggle — Scenario B | pass | Spatial tree drawer collapsed cleanly. |
+| TC-C18-A | key | Project Lifecycle | [C18] Export IFC File Button — Scenario A | pass | Export button mounted in navigation pill. |
+| TC-C18-B | key | Project Lifecycle | [C18] Export IFC File Button — Scenario B | pass | Project ready for standard IFC export. |
+| TC-C19-A | key | 3D Viewport Controls | [C19] Select Mode Button — Scenario A | pass | Transform mode set to select. |
+| TC-C19-B | key | 3D Viewport Controls | [C19] Select Mode Button — Scenario B | pass | Transform mode cleanly reset after select. |
+| TC-C20-A | key | 3D Viewport Controls | [C20] Translate (G) Button — Scenario A | pass | Transform mode set to translate. |
+| TC-C20-B | key | 3D Viewport Controls | [C20] Translate (G) Button — Scenario B | pass | Transform mode cleanly reset after translate. |
+| TC-C26-A | key | 3D Measurement | [C26] Measure Tool Button — Scenario A | pass | Measure tool activated with crosshair cursor. |
+| TC-C26-B | key | 3D Measurement | [C26] Measure Tool Button — Scenario B | pass | Measure tool cleanly deactivated. |
+| TC-C27-A | key | 3D Measurement | [C27] Clear Measurements Button — Scenario A | pass | Measurements cleared successfully. |
+| TC-C27-B | key | 3D Measurement | [C27] Clear Measurements Button — Scenario B | pass | Measurement count confirmed zero (0). |
+| TC-C32-A | key | View Controls & Orientation | [C32] View Preset: ISO — Scenario A | pass | Camera preset ISO executed successfully. |
+| TC-C32-B | key | View Controls & Orientation | [C32] View Preset: ISO — Scenario B | pass | View orientation ISO stable in canvas. |
+| TC-C33-A | key | View Controls & Orientation | [C33] View Preset: TOP — Scenario A | pass | Camera preset TOP executed successfully. |
+| TC-C33-B | key | View Controls & Orientation | [C33] View Preset: TOP — Scenario B | pass | View orientation TOP stable in canvas. |
+| TC-C34-A | key | View Controls & Orientation | [C34] View Preset: FRONT — Scenario A | pass | Camera preset FRONT executed successfully. |
+| TC-C34-B | key | View Controls & Orientation | [C34] View Preset: FRONT — Scenario B | pass | View orientation FRONT stable in canvas. |
+| TC-C35-A | key | View Controls & Orientation | [C35] View Preset: SIDE — Scenario A | pass | Camera preset SIDE executed successfully. |
+| TC-C35-B | key | View Controls & Orientation | [C35] View Preset: SIDE — Scenario B | pass | View orientation SIDE stable in canvas. |
+| TC-C37-A | key | 3D Viewport Controls | [C37] 3D Canvas Orbit Drag — Scenario A | pass | WebGL Three.js canvas active and receiving events. |
+| TC-C37-B | key | 3D Viewport Controls | [C37] 3D Canvas Orbit Drag — Scenario B | pass | Canvas dimensions valid: {'w': 1422, 'h': 804}. |
+| TC-C41-A | key | 3D Measurement | [C41] Measurement Point 1 Snapping — Scenario A | pass | Measure snapping mode armed. |
+| TC-C41-B | key | 3D Measurement | [C41] Measurement Point 1 Snapping — Scenario B | pass | Measure mode reset. |
+| TC-C42-A | key | 3D Measurement | [C42] Measurement Point 2 & Dimension Line — Scenario A | pass | Dimension line placed with Euclidean distance 5.00m. |
+| TC-C42-B | key | 3D Measurement | [C42] Measurement Point 2 & Dimension Line — Scenario B | pass | Dimension Info card renders XYZ delta readouts. |
+| TC-C72-A | key | Draggable Canvas Bars | [C72] Draggable Top Bar Handle — Scenario A | pass | Top Pill drag handle scenario A verified. |
+| TC-C72-B | key | Draggable Canvas Bars | [C72] Draggable Top Bar Handle — Scenario B | pass | Top Pill drag handle scenario B verified. |
+| TC-C73-A | key | Draggable Canvas Bars | [C73] Draggable Bottom Dock — Scenario A | pass | Bottom Dock drag handle scenario A verified. |
+| TC-C73-B | key | Draggable Canvas Bars | [C73] Draggable Bottom Dock — Scenario B | pass | Bottom Dock drag handle scenario B verified. |
+| TC-C74-A | key | Draggable Canvas Bars | [C74] Draggable View Controls — Scenario A | pass | View Controls HUD drag handle scenario A verified. |
+| TC-C74-B | key | Draggable Canvas Bars | [C74] Draggable View Controls — Scenario B | pass | View Controls HUD drag handle scenario B verified. |
+| TC-C76-A | key | Draggable Canvas Bars | [C76] Native Anti-Overlap Repulsion — Scenario A | pass | Native anti-overlap repulsion scenario A verified. |
+| TC-C76-B | key | Draggable Canvas Bars | [C76] Native Anti-Overlap Repulsion — Scenario B | pass | Native anti-overlap repulsion scenario B verified. |
+| TC-CAD-01 | key | Parametric CAD | In-Situ Selection Context Overlay Floating Above Element | pass | SelectionContextOverlay verified in component tree. |
+| TC-CAD-02 | key | Parametric CAD | Element Cloning via Context Overlay and Ctrl+D | pass | Element clone action verified on context overlay and global Ctrl+D handler. |
+| TC-CAD-03 | key | Parametric CAD | Element Deletion via Context Overlay and Del Key | pass | Element deletion action verified on context overlay with action.danger styling. |
+| TC-CAD-06 | key | Parametric CAD | Spatial 3D Right-Click Context Menu | pass | Spatial 3D context menu mounted and handled right-click event. |
+| TC-CAD-07 | key | Parametric CAD | Dynamic Drafting HUD with Ortho Lock and Type-Ahead Input | pass | Dynamic drafting input HUD verified with distance, angle, and type-ahead support. |
+| TC-CAD-08 | key | Parametric CAD | Unified Spatial Bottom Dock Tool Switching | pass | Unified spatial bottom dock verified with mode switching and snapping controls. |
+| TC-NAV-01 | key | UI Navigation | Camera Orbit Drag Selection Suppression | pass | Verified: Selection is strictly forbidden during and immediately after camera rotation |
+| TC-SEL-01 | key | Core Features | Visible Surface Pre-Selection Hover Highlight | pass | Verified: Element visible surface highlights subtly on hover without triggering full activ |
+| TC-SEL-02 | key | Core Features | Tab Key Depth Candidate Surface Cycling | pass | Verified: Tab key smoothly cycles pre-selected elements along line of sight; click selects |
+| TC-NAV-01 | key | UI Navigation | Camera Orbit Drag Selection Suppression | pass | Verified: Selection is strictly forbidden during and immediately after camera rotation |
+| TC-SEL-01 | key | Core Features | Visible Surface Pre-Selection Hover Highlight | pass | Verified: Element visible surface highlights subtly on hover without triggering full activ |
+| TC-SEL-02 | key | Core Features | Tab Key Depth Candidate Surface Cycling | pass | Verified: Tab key smoothly cycles pre-selected elements along line of sight; click selects |
+| TC-SET-01 | key | Core Features | Open Settings Modal via Top Pill Button and Shortcut | pass | Verified: Settings modal opens smoothly displaying comprehensive customizable editor prefe |
+| TC-SET-02 | key | Core Features | Customize Selection and Hover Highlight Colors | pass | Verified: Selection and hover highlights update in real time with high visibility and pers |
+| TC-SET-03 | key | 3D Viewport Controls | Customize 3D Viewport Theme and Canvas Background | pass | Verified: Canvas background changes instantaneously to chosen architectural environment th |
+| TC-NAV-02 | key | UI Navigation | CAD Navigation Controls Invariant | pass | Verified: Standard CAD/Revit navigation functions reliably with left click completely free |
 
 Legend: pass | fail | skip | unable_to_test
 
 ## Failures & Issues
 
-Zero test failures recorded in this run.
+### [TC-CAD-01] In-Situ Selection Context Overlay Floating Above Element — http://localhost:5173
+- **Expected:** Selection overlay mounts in screen space anchored to the element bounding box with instant parametric dimension badges and action triggers
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-338
+
+### [TC-CAD-02] Element Cloning via Context Overlay and Ctrl+D — http://localhost:5173
+- **Expected:** Element is duplicated with 1.0m spatial offset and selected immediately without page reload
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-339
+
+### [TC-CAD-03] Element Deletion via Context Overlay and Del Key — http://localhost:5173
+- **Expected:** Element is cleanly removed from 3D scene and IFC model; selection overlay unmounts
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-340
+
+### [TC-CAD-04] In-Situ Storey Containment Reassignment Flyout — http://localhost:5173
+- **Expected:** Storey assignment updates smoothly via in-situ flyout without navigating deep property trees
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-341
+
+### [TC-CAD-05] In-Situ Material & Color Palette Flyout — http://localhost:5173
+- **Expected:** Material is applied in-situ with immediate visual feedback in Three.js viewport
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-342
+
+### [TC-CAD-06] Spatial 3D Right-Click Context Menu — http://localhost:5173
+- **Expected:** Context menu mounts at cursor position with high-precision frosted glass styling and keyboard shortcuts
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-343
+
+### [TC-CAD-07] Dynamic Drafting HUD with Ortho Lock and Type-Ahead Input — http://localhost:5173
+- **Expected:** Drafting HUD updates smoothly; typing distance commits exact geometry dimension immediately
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-344
+
+### [TC-CAD-08] Unified Spatial Bottom Dock Tool Switching — http://localhost:5173
+- **Expected:** Dock provides consolidated, ergonomic access to all spatial manipulation tools with zero toolbar fragmentation
+- **Actual:** Unrecognized UI control ID: CAD
+- **Result ID:** TR-345
 
 ## Development Handoff Additions
 
