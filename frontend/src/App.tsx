@@ -385,20 +385,26 @@ export const App: React.FC = () => {
   }, []);
 
   // Load project by ID: fetches metadata and downloads IFC buffer to parse
-  const loadProject = useCallback(async (project: ProjectMetadata) => {
+  const loadProject = useCallback(async (project: ProjectMetadata, preserveSelectionId?: number | null) => {
     setCurrentProject(project);
-    setSelectedExpressID(null);
+    if (preserveSelectionId !== undefined) {
+      setSelectedExpressID(preserveSelectionId);
+    } else {
+      setSelectedExpressID(null);
+    }
     setIsolatedExpressID(null);
     setTransformInfo(null);
-    setMeasurements([]);
+    if (preserveSelectionId === undefined) {
+      setMeasurements([]);
+    }
 
     try {
       setIsLoading(true);
       setLoadingStage('Downloading IFC model from server storage...');
       setLoadingPercent(10);
 
-      const downloadUrl = api.getDownloadUrl(project.id);
-      const res = await fetch(downloadUrl);
+      const downloadUrl = `${api.getDownloadUrl(project.id)}?t=${Date.now()}`;
+      const res = await fetch(downloadUrl, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to download project model');
       const arrayBuffer = await res.arrayBuffer();
 
@@ -759,24 +765,24 @@ export const App: React.FC = () => {
   const handleCadUndo = useCallback(async () => {
     if (!currentProject) return;
     try {
-      await api.undoCad(currentProject.id);
+      const res = await api.undoCad(currentProject.id);
       await refreshCadHistory();
-      await loadProject(currentProject);
+      await loadProject(currentProject, res.affected_express_id || selectedExpressID);
     } catch (err) {
       console.error('Failed to undo CAD action:', err);
     }
-  }, [currentProject, refreshCadHistory, loadProject]);
+  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
 
   const handleCadRedo = useCallback(async () => {
     if (!currentProject) return;
     try {
-      await api.redoCad(currentProject.id);
+      const res = await api.redoCad(currentProject.id);
       await refreshCadHistory();
-      await loadProject(currentProject);
+      await loadProject(currentProject, res.affected_express_id || selectedExpressID);
     } catch (err) {
       console.error('Failed to redo CAD action:', err);
     }
-  }, [currentProject, refreshCadHistory, loadProject]);
+  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
 
   // Selected Element Details for In-Viewport Context Capsule
   const [selectedElementDetails, setSelectedElementDetails] = useState<ElementDetails | null>(null);
@@ -861,11 +867,10 @@ export const App: React.FC = () => {
     try {
       await api.moveElement(currentProject.id, expressId, { delta });
       await refreshCadHistory();
-      await loadProject(currentProject);
     } catch (err) {
       console.error('Failed to move element:', err);
     }
-  }, [currentProject, refreshCadHistory, loadProject]);
+  }, [currentProject, refreshCadHistory]);
 
   const handleRotateElement = useCallback(async (expressId: number, angleDegrees: number = 90, axis: 'x' | 'y' | 'z' = 'z') => {
     if (!currentProject) return;
@@ -876,11 +881,10 @@ export const App: React.FC = () => {
     try {
       await api.rotateElement(currentProject.id, expressId, { angle_degrees: angleDegrees, axis });
       await refreshCadHistory();
-      await loadProject(currentProject);
     } catch (err) {
       console.error('Failed to rotate element:', err);
     }
-  }, [currentProject, refreshCadHistory, loadProject]);
+  }, [currentProject, refreshCadHistory]);
 
   const handleMirrorElement = useCallback(async (expressId: number, axis: 'x' | 'y' | 'z' = 'x', isCopy: boolean = false) => {
     if (!currentProject) return;
@@ -891,9 +895,9 @@ export const App: React.FC = () => {
     try {
       const res = await api.mirrorElement(currentProject.id, expressId, { axis, is_copy: isCopy });
       await refreshCadHistory();
-      await loadProject(currentProject);
-      if (res.express_id) {
-        setSelectedExpressID(res.express_id);
+      if (isCopy) {
+        const newId = res.express_id || expressId;
+        await loadProject(currentProject, newId);
       }
     } catch (err) {
       console.error('Failed to mirror element:', err);
@@ -905,10 +909,8 @@ export const App: React.FC = () => {
     try {
       const res = await api.arrayElement(currentProject.id, expressId, { count, delta });
       await refreshCadHistory();
-      await loadProject(currentProject);
-      if (res.length > 0 && res[0].express_id) {
-        setSelectedExpressID(res[0].express_id);
-      }
+      const firstId = res.length > 0 && res[0].express_id ? res[0].express_id : expressId;
+      await loadProject(currentProject, firstId);
     } catch (err) {
       console.error('Failed to array element:', err);
     }
@@ -923,7 +925,7 @@ export const App: React.FC = () => {
     try {
       await api.alignElement(currentProject.id, expressId, { align_type: 'origin', axis, target_value: targetValue });
       await refreshCadHistory();
-      await loadProject(currentProject);
+      await loadProject(currentProject, expressId);
     } catch (err) {
       console.error('Failed to align element:', err);
     }
@@ -934,10 +936,8 @@ export const App: React.FC = () => {
     try {
       const res = await api.cloneElement(currentProject.id, expressId, { delta: [1.5, 0.0, 0.0] });
       await refreshCadHistory();
-      await loadProject(currentProject);
-      if (res.express_id) {
-        setSelectedExpressID(res.express_id);
-      }
+      const newId = res.express_id || expressId;
+      await loadProject(currentProject, newId);
     } catch (err) {
       console.error('Failed to clone element:', err);
     }
@@ -948,7 +948,7 @@ export const App: React.FC = () => {
     try {
       await api.updateElementGeometry(currentProject.id, expressId, params);
       await refreshCadHistory();
-      await loadProject(currentProject);
+      await loadProject(currentProject, expressId);
     } catch (err) {
       console.error('Failed to update geometry:', err);
     }
@@ -1529,6 +1529,7 @@ export const App: React.FC = () => {
             setSpecialPickedPoints({ p1, p2 });
             setIsMoveCopySpecialOpen(true);
           }}
+          projectId={currentProject?.id}
         />
       </div>
 

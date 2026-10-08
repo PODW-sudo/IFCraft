@@ -105,6 +105,7 @@ interface ThreeViewportProps {
   onActiveInteractiveModeChange?: (mode: InteractiveEditMode) => void;
   onOpenSpecialModal?: () => void;
   onSpecialPointsPicked?: (p1: [number, number, number], p2: [number, number, number]) => void;
+  projectId?: string;
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -669,6 +670,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onActiveInteractiveModeChange,
   onOpenSpecialModal,
   onSpecialPointsPicked,
+  projectId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -684,6 +686,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
   const editGuidesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+  const lastFittedProjectIdRef = useRef<string | null>(null);
 
   // Industry-Grade CAD/BIM Interactive Editing State (Archicad 29 & Tekla 2025)
   const [interactiveEditState, setInteractiveEditState] = useState<InteractiveEditState>({
@@ -1470,19 +1473,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
 
     if (!box.isEmpty() && cameraRef.current && controlsRef.current) {
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = cameraRef.current.fov * (Math.PI / 180);
-      let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-      cameraZ *= 1.8;
+      const projKey = projectId || (geometries.length > 0 ? 'loaded' : null);
+      if (projKey && lastFittedProjectIdRef.current !== projKey) {
+        lastFittedProjectIdRef.current = projKey;
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = cameraRef.current.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+        cameraZ *= 1.8;
 
-      cameraRef.current.position.set(center.x + cameraZ * 0.8, center.y + cameraZ * 0.6, center.z + cameraZ);
-      cameraRef.current.lookAt(center);
-      controlsRef.current.target.copy(center);
-      controlsRef.current.update();
+        cameraRef.current.position.set(center.x + cameraZ * 0.8, center.y + cameraZ * 0.6, center.z + cameraZ);
+        cameraRef.current.lookAt(center);
+        controlsRef.current.target.copy(center);
+        controlsRef.current.update();
+      }
     }
-  }, [geometries]);
+  }, [geometries, projectId]);
 
   // Handle visibility filtering (Categories, Isolation, & Model Federation)
   useEffect(() => {
@@ -1976,6 +1983,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     const box = new THREE.Box3();
     meshes.forEach((m) => {
+      m.updateMatrixWorld(true);
+      if (m.geometry) {
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        if (m.geometry.boundingBox) {
+          box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+          return;
+        }
+      }
       box.union(new THREE.Box3().setFromObject(m));
     });
     if (box.isEmpty()) {
@@ -2014,6 +2029,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!meshes || meshes.length === 0) return;
     const box = new THREE.Box3();
     meshes.forEach((m) => {
+      m.updateMatrixWorld(true);
+      if (m.geometry) {
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        if (m.geometry.boundingBox) {
+          box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+          return;
+        }
+      }
       box.union(new THREE.Box3().setFromObject(m));
     });
     if (box.isEmpty()) return;
@@ -2381,6 +2404,106 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     needsRenderRef.current = true;
   }, [onActiveInteractiveModeChange]);
 
+  // Immediately apply transformations in 3D viewport without resetting scene or camera
+  const applyLocalElementTransform = useCallback(
+    (
+      expressId: number,
+      type: 'move' | 'rotate' | 'mirror',
+      options: {
+        delta?: [number, number, number];
+        angle_degrees?: number;
+        axis?: 'x' | 'y' | 'z';
+        center?: THREE.Vector3;
+      }
+    ) => {
+      const meshes = meshMapRef.current.get(expressId);
+      if (!meshes || meshes.length === 0) return;
+
+      if (type === 'move') {
+        const d = options.delta || [0, 0, 0];
+        const offset = new THREE.Vector3(d[0], d[1], d[2]);
+        meshes.forEach((mesh) => {
+          mesh.position.add(offset);
+          mesh.updateMatrixWorld(true);
+          if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+            const bm = mesh.userData.batchedMesh as THREE.BatchedMesh;
+            bm.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+            bm.computeBoundingBox();
+            bm.computeBoundingSphere();
+          }
+        });
+      } else if (type === 'rotate') {
+        const deg = options.angle_degrees || 0;
+        const rad = (deg * Math.PI) / 180;
+        const origin = options.center;
+        meshes.forEach((mesh) => {
+          if (origin) {
+            const t1 = new THREE.Matrix4().makeTranslation(-origin.x, -origin.y, -origin.z);
+            const rotMat = new THREE.Matrix4().makeRotationY(-rad);
+            const t2 = new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z);
+            const fullMat = new THREE.Matrix4().multiply(t2).multiply(rotMat).multiply(t1);
+            mesh.applyMatrix4(fullMat);
+          } else {
+            mesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -rad);
+          }
+          mesh.updateMatrixWorld(true);
+          if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+            const bm = mesh.userData.batchedMesh as THREE.BatchedMesh;
+            bm.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+            bm.computeBoundingBox();
+            bm.computeBoundingSphere();
+          }
+        });
+      } else if (type === 'mirror') {
+        const axis = options.axis || 'x';
+        const origin = options.center || (meshes[0] ? meshes[0].position : new THREE.Vector3());
+        const scaleMat = new THREE.Matrix4().makeScale(
+          axis === 'x' ? 1 : -1,
+          1,
+          axis === 'x' ? -1 : 1
+        );
+        const t1 = new THREE.Matrix4().makeTranslation(-origin.x, -origin.y, -origin.z);
+        const t2 = new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z);
+        const fullMat = new THREE.Matrix4().multiply(t2).multiply(scaleMat).multiply(t1);
+
+        meshes.forEach((mesh) => {
+          mesh.applyMatrix4(fullMat);
+          mesh.updateMatrixWorld(true);
+          if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+            const bm = mesh.userData.batchedMesh as THREE.BatchedMesh;
+            bm.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+            bm.computeBoundingBox();
+            bm.computeBoundingSphere();
+          }
+        });
+      }
+
+      // Update active highlight outlines and transform controls
+      if (selectedHighlightGroupRef.current) {
+        selectedHighlightGroupRef.current.children.forEach((child) => {
+          const sourceMesh = (child.userData as any)?.sourceMesh;
+          if (sourceMesh) {
+            child.matrix.copy(sourceMesh.matrixWorld);
+            (child as any).update?.();
+          }
+        });
+      }
+      if (transformControlsRef.current?.object) {
+        transformControlsRef.current.getHelper()?.updateMatrixWorld();
+      }
+      if (onTransformChange && meshes[0]) {
+        const pos = meshes[0].position.toArray() as [number, number, number];
+        const rot = [meshes[0].rotation.x, meshes[0].rotation.y, meshes[0].rotation.z] as [number, number, number];
+        onTransformChange(expressId, pos, rot);
+      }
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.needsUpdate = true;
+      }
+      needsRenderRef.current = true;
+    },
+    [onTransformChange]
+  );
+
   // Commit value entered in CadTrackerHud
   const handleCommitTrackerValue = useCallback(
     (field: 'distance' | 'angle' | 'dx' | 'dy' | 'dz', value: number) => {
@@ -2406,12 +2529,19 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         } else if (field === 'dz') {
           delta[2] = value;
         }
+        applyLocalElementTransform(selectedExpressID, 'move', { delta });
         if (onMoveElement) onMoveElement(selectedExpressID, delta);
         handleCancelInteractiveEdit();
       } else if (interactiveEditState.mode === 'rotate') {
+        applyLocalElementTransform(selectedExpressID, 'rotate', {
+          angle_degrees: value,
+          axis: 'z',
+          center: interactiveEditState.originPoint || undefined
+        });
         if (onRotateElement) onRotateElement(selectedExpressID, value, 'z');
         handleCancelInteractiveEdit();
       } else if (interactiveEditState.mode === 'elevate') {
+        applyLocalElementTransform(selectedExpressID, 'move', { delta: [0, value, 0] });
         if (onMoveElement) onMoveElement(selectedExpressID, [0, value, 0]);
         handleCancelInteractiveEdit();
       } else if (interactiveEditState.mode === 'multiply') {
@@ -2428,7 +2558,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         handleCancelInteractiveEdit();
       }
     },
-    [selectedExpressID, interactiveEditState, trackerReadout, onMoveElement, onRotateElement, onArrayElement, handleCancelInteractiveEdit]
+    [selectedExpressID, interactiveEditState, trackerReadout, applyLocalElementTransform, onMoveElement, onRotateElement, onArrayElement, handleCancelInteractiveEdit]
   );
 
   const handleStartMove = useCallback(() => {
@@ -2527,10 +2657,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   }, [onActiveInteractiveModeChange]);
 
   const handleQuickRotate = useCallback((cw: boolean) => {
-    if (selectedExpressID !== null && onRotateElement) {
-      onRotateElement(selectedExpressID, cw ? 90 : -90, 'z');
+    if (selectedExpressID !== null) {
+      const deg = cw ? 90 : -90;
+      applyLocalElementTransform(selectedExpressID, 'rotate', { angle_degrees: deg, axis: 'z' });
+      if (onRotateElement) {
+        onRotateElement(selectedExpressID, deg, 'z');
+      }
     }
-  }, [selectedExpressID, onRotateElement]);
+  }, [selectedExpressID, applyLocalElementTransform, onRotateElement]);
 
   // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
   const handlePointerMove = useCallback(
@@ -3153,8 +3287,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
               hitPoint.y - origin.y,
               hitPoint.z - origin.z
             ];
-            if (selectedExpressID !== null && onMoveElement) {
-              onMoveElement(selectedExpressID, delta);
+            if (selectedExpressID !== null) {
+              applyLocalElementTransform(selectedExpressID, 'move', { delta });
+              if (onMoveElement) {
+                onMoveElement(selectedExpressID, delta);
+              }
             }
             handleCancelInteractiveEdit();
             return;
@@ -3174,8 +3311,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             const dx = hitPoint.x - origin.x;
             const dz = hitPoint.z - origin.z;
             const axis = Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z';
-            if (selectedExpressID !== null && onMirrorElement) {
-              onMirrorElement(selectedExpressID, axis, interactiveEditState.isCopyMode);
+            if (selectedExpressID !== null) {
+              if (!interactiveEditState.isCopyMode) {
+                applyLocalElementTransform(selectedExpressID, 'mirror', { axis, center: origin });
+              }
+              if (onMirrorElement) {
+                onMirrorElement(selectedExpressID, axis, interactiveEditState.isCopyMode);
+              }
             }
             handleCancelInteractiveEdit();
             return;
@@ -3196,8 +3338,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
           if (interactiveEditState.mode === 'elevate') {
             const dy = hitPoint.y - origin.y;
-            if (selectedExpressID !== null && onMoveElement) {
-              onMoveElement(selectedExpressID, [0, dy, 0]);
+            if (selectedExpressID !== null) {
+              applyLocalElementTransform(selectedExpressID, 'move', { delta: [0, dy, 0] });
+              if (onMoveElement) {
+                onMoveElement(selectedExpressID, [0, dy, 0]);
+              }
             }
             handleCancelInteractiveEdit();
             return;
@@ -3218,12 +3363,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (interactiveEditState.step === 3 && interactiveEditState.mode === 'rotate') {
           const origin = interactiveEditState.originPoint;
           const refRay = interactiveEditState.referenceRayPoint;
-          if (origin && refRay && selectedExpressID !== null && onRotateElement) {
+          if (origin && refRay && selectedExpressID !== null) {
             const v1 = new THREE.Vector2(refRay.x - origin.x, refRay.z - origin.z).normalize();
             const v2 = new THREE.Vector2(hitPoint.x - origin.x, hitPoint.z - origin.z).normalize();
             const rad = Math.atan2(v2.y, v2.x) - Math.atan2(v1.y, v1.x);
             let deg = (rad * 180) / Math.PI;
-            onRotateElement(selectedExpressID, deg, 'z');
+            applyLocalElementTransform(selectedExpressID, 'rotate', { angle_degrees: deg, axis: 'z', center: origin });
+            if (onRotateElement) {
+              onRotateElement(selectedExpressID, deg, 'z');
+            }
           }
           handleCancelInteractiveEdit();
           return;
@@ -3413,7 +3561,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       onRotateElement,
       onMirrorElement,
       onArrayElement,
-      onSpecialPointsPicked
+      onSpecialPointsPicked,
+      applyLocalElementTransform
     ]
   );
 

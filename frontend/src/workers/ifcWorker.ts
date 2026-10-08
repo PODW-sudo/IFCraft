@@ -35,7 +35,7 @@ self.onmessage = async (event: MessageEvent<WorkerParseRequest>) => {
     postMessage({ type: 'PROGRESS', stage: 'Parsing IFC binary stream...', percent: 30 });
     const uint8Array = new Uint8Array(buffer);
     const modelID = ifcApi.OpenModel(uint8Array, {
-      COORDINATE_TO_ORIGIN: true
+      COORDINATE_TO_ORIGIN: false
     });
 
     postMessage({ type: 'PROGRESS', stage: 'Extracting 3D geometry meshes...', percent: 50 });
