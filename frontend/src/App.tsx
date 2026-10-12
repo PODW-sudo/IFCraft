@@ -4,24 +4,24 @@ import {
   type TransformMode,
   type MeasurementRecord
 } from './components/viewer/ThreeViewport';
-import { SpatialTree } from './components/tree/SpatialTree';
-import { PropertyInspector } from './components/properties/PropertyInspector';
-import { SpatialTopPill } from './components/nav/SpatialTopPill';
-import { ContextualModifyBar } from './components/nav/ContextualModifyBar';
-import { SpatialBottomDock } from './components/dock/SpatialBottomDock';
+import { GlassSpatialTree } from './components/tree/GlassSpatialTree';
+import { GlassPropertyInspector } from './components/properties/GlassPropertyInspector';
+import { GlassHeader } from './components/nav/GlassHeader';
+import { GlassNavRail } from './components/nav/GlassNavRail';
+import { GlassContextualModifyDock } from './components/cad/GlassContextualModifyDock';
+import { GlassBottomDock } from './components/dock/GlassBottomDock';
+import { GlassViewCube } from './components/hud/GlassViewCube';
 import { CoordinateHud } from './components/hud/CoordinateHud';
 import { DimensionInfoHud } from './components/hud/DimensionInfoHud';
 import { HudLayoutProvider } from './components/hud/HudLayoutContext';
-import { ViewControlsHud } from './components/hud/ViewControlsHud';
 import { SpatialOmnibar } from './components/omnibar/SpatialOmnibar';
-import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './components/tools/BimToolsToolbar';
+import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './types/viewport';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import { FederatedModelManager } from './components/federation/FederatedModelManager';
 import { ClashInspector } from './components/federation/ClashInspector';
 import { CadToolbar } from './components/cad/CadToolbar';
-import { ModernGlassMockup } from './components/mockup/ModernGlassMockup';
 import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
 import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
 import { SettingsModal } from './components/modals/SettingsModal';
@@ -135,21 +135,45 @@ export const App: React.FC = () => {
     } catch {}
     return false;
   });
-  const [isModernGlassMockup, setIsModernGlassMockup] = useState<boolean>(() => {
+  const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>(() => {
     try {
       if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('mockup') === 'modern-glass') return true;
-        return localStorage.getItem('ifc_editor_view_mode') === 'modern-glass';
+        const saved = localStorage.getItem('ifc_editor_theme');
+        if (saved === 'dark' || saved === 'light') return saved;
       }
     } catch {}
-    return false;
+    return 'light'; // Default Light theme per user instruction
   });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    try {
+      localStorage.setItem('ifc_editor_theme', currentTheme);
+    } catch {}
+  }, [currentTheme]);
+
+  const toggleTheme = useCallback(() => {
+    setCurrentTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  }, []);
+
   const [isPropertyOpen, setIsPropertyOpen] = useState(true);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [treeWidth, setTreeWidth] = useState(288);
   const [propertyWidth, setPropertyWidth] = useState(320);
   const [copilotWidth, setCopilotWidth] = useState(384);
+  const [isTreeCollapsed, setIsTreeCollapsed] = useState(false);
+  const [isPropertyCollapsed, setIsPropertyCollapsed] = useState(false);
+
+  const handleTreeWidthChange = useCallback((w: number, collapsed: boolean) => {
+    setTreeWidth(w);
+    setIsTreeCollapsed(collapsed);
+  }, []);
+
+  const handlePropertyWidthChange = useCallback((w: number, collapsed: boolean) => {
+    setPropertyWidth(w);
+    setIsPropertyCollapsed(collapsed);
+  }, []);
+
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isOmnibarOpen, setIsOmnibarOpen] = useState(false);
@@ -1541,25 +1565,20 @@ export const App: React.FC = () => {
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
   const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
 
-  if (isModernGlassMockup) {
-    return (
-      <ModernGlassMockup
-        onBackToApp={() => {
-          setIsModernGlassMockup(false);
-          try {
-            localStorage.removeItem('ifc_editor_view_mode');
-            const url = new URL(window.location.href);
-            url.searchParams.delete('mockup');
-            window.history.replaceState({}, '', url.toString());
-          } catch {}
-        }}
-      />
-    );
-  }
+  const leftOffset = 56 + (isTreeOpen ? (isTreeCollapsed ? 56 : treeWidth) : 0);
+  const rightOffset = isCopilotOpen
+    ? copilotWidth
+    : (isPropertyOpen && selectedExpressID !== null)
+    ? (isPropertyCollapsed ? 56 : propertyWidth)
+    : 0;
 
   return (
     <div
-      className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none"
+      className="relative w-screen h-screen overflow-hidden flex flex-col font-sans select-none text-slate-800 dark:text-slate-100"
+      style={{
+        background: 'var(--glass-bg-gradient)'
+      }}
+      data-qa="modern-glass-root"
       data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
       data-qa-selected-id={selectedExpressID ?? ''}
       data-qa-project-name={currentProject?.name ?? ''}
@@ -1582,7 +1601,7 @@ export const App: React.FC = () => {
       data-qa-audit-count={auditTimeline.length}
       data-qa-ui-profile={activeProfile}
     >
-      {/* 1. 100% Viewport Canvas (Full window immersion) */}
+      {/* 1. 100% Viewport Canvas (Full window immersion underneath all glass panels) */}
       <div
         className="absolute inset-0 w-full h-full overflow-hidden z-0"
         data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
@@ -1650,69 +1669,39 @@ export const App: React.FC = () => {
       </div>
 
       <HudLayoutProvider>
-        {/* 2. Floating Top Pill Navigation */}
-        <SpatialTopPill
+        {/* 2. Floating Top Frosted Glass Header */}
+        <GlassHeader
           currentProject={currentProject}
           projects={projects}
           onSelectProject={loadProject}
-          activeProfile={activeProfile}
-          onSelectProfile={handleSelectProfile}
-          customSettings={customSettings}
-          onUpdateCustomSettings={handleUpdateCustomSettings}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
           onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           onDownloadProject={handleDownloadProject}
+          activeProfile={activeProfile}
+          onSelectProfile={handleSelectProfile}
+          onOpenOmnibar={() => setIsOmnibarOpen(true)}
+          onOpenSettingsModal={() => setIsSettingsOpen(true)}
+          collaborators={collaborators}
           isTreeOpen={isTreeOpen}
           onToggleTree={() => setIsTreeOpen((prev) => !prev)}
           isPropertyOpen={isPropertyOpen}
           onToggleProperty={handleToggleProperty}
           isCopilotOpen={isCopilotOpen}
           onToggleCopilot={handleToggleCopilot}
-          onOpenOmnibar={() => setIsOmnibarOpen(true)}
-          selectedExpressID={selectedExpressID}
-          spatialTree={spatialTree}
-          collaborators={collaborators}
-          hiddenCategories={hiddenCategories}
-          onToggleCategory={toggleCategoryVisibility}
-          isFederationOpen={isFederationOpen}
-          onToggleFederation={() => setIsFederationOpen((prev) => !prev)}
-          subModelCount={subModels.length}
-          isClashOpen={isClashInspectorOpen}
-          onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
-          clashCount={clashResult?.total_clashes ?? 0}
-          isCadOpen={isCadOpen}
-          onToggleCad={handleToggleCad}
-          isBcfOpen={isBcfOpen}
-          onToggleBcf={() => {
-            setIsBcfOpen((prev) => !prev);
-            if (!isBcfOpen) refreshBcfTopics();
-          }}
-          bcfTopicCount={bcfTopics.length}
-          isTimelineOpen={isTimelineOpen}
-          onToggleTimeline={() => {
-            setIsTimelineOpen((prev) => !prev);
-            if (!isTimelineOpen) refreshAuditData();
-          }}
-          auditCount={auditTimeline.length}
-          onOpenSettingsModal={() => setIsSettingsOpen(true)}
-          onOpenMockup={() => {
-            setIsModernGlassMockup(true);
-            try {
-              localStorage.setItem('ifc_editor_view_mode', 'modern-glass');
-            } catch {}
-          }}
+          currentTheme={currentTheme}
+          onToggleTheme={toggleTheme}
         />
 
-        {/* 2b. Contextual Modification Tab (Archicad 29 & Tekla 2025 Ribbon Below Top Pill) */}
+        {/* 2b. Contextual Modification Ribbon (Decked directly below top glass header) */}
         {selectedExpressID !== null && effectiveProfileSettings.showContextualModifyBar && (
-          <ContextualModifyBar
+          <GlassContextualModifyDock
             expressId={selectedExpressID}
             elementDetails={selectedElementDetails}
             storeys={storeys}
             isPinned={pinnedExpressIds.has(selectedExpressID)}
             activeInteractiveMode={activeInteractiveMode}
-            leftDrawerOffset={isTreeOpen ? treeWidth : 0}
-            rightDrawerOffset={isPropertyOpen ? propertyWidth : isCopilotOpen ? copilotWidth : 0}
+            leftDrawerOffset={leftOffset}
+            rightDrawerOffset={rightOffset}
             onTogglePin={handleTogglePin}
             onStartMove={() => setActiveInteractiveMode('move')}
             onStartRotate={() => setActiveInteractiveMode('rotate')}
@@ -1734,111 +1723,136 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* 2a. Floating View Orientation Controls */}
-        {effectiveProfileSettings.showViewControls && (
-          <ViewControlsHud
-            onCameraPreset={handleCameraPreset}
-            activePreset={cameraPresetTrigger?.preset ?? null}
-            isRightDrawerOpen={isRightDrawerOpen}
-            rightDrawerWidth={activeRightDrawerWidth}
-            isModifyBarVisible={selectedExpressID !== null && effectiveProfileSettings.showContextualModifyBar}
+        {/* 3. Floating Frosted Glass Panels Over 3D Canvas */}
+        <div className="absolute inset-x-0 bottom-0 top-16 z-20 pointer-events-none p-4 flex justify-between overflow-hidden">
+          {/* Leftmost Navigation Rail + Spatial Hierarchy Tree */}
+          <div className="flex gap-2.5 h-full pointer-events-auto items-start">
+            <GlassNavRail
+              activeTab="model"
+              onSelectTab={() => {}}
+              isTreeOpen={isTreeOpen}
+              onToggleTree={() => setIsTreeOpen((prev) => !prev)}
+              isCadOpen={isCadOpen}
+              onToggleCad={handleToggleCad}
+              onOpenOmnibar={() => setIsOmnibarOpen(true)}
+              isMeasureActive={isMeasureActive}
+              onToggleMeasure={() => setIsMeasureActive((p) => !p)}
+              isClashOpen={isClashInspectorOpen}
+              onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
+              isCopilotOpen={isCopilotOpen}
+              onToggleCopilot={handleToggleCopilot}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+
+            <GlassSpatialTree
+              tree={spatialTree}
+              selectedExpressID={selectedExpressID}
+              onSelectElement={handleSelectElement}
+              isolatedExpressID={isolatedExpressID}
+              onToggleIsolate={setIsolatedExpressID}
+              isOpen={isTreeOpen}
+              onToggleOpen={() => setIsTreeOpen(false)}
+              onWidthChange={handleTreeWidthChange}
+              fileName={currentProject?.name}
+            />
+          </div>
+
+          {/* Rightmost Element Properties Inspector & Copilot */}
+          <div className="h-full pointer-events-auto flex items-start">
+            {isPropertyOpen && (
+              <GlassPropertyInspector
+                projectId={currentProject?.id || null}
+                expressId={selectedExpressID}
+                isOpen={isPropertyOpen}
+                onClose={() => setIsPropertyOpen(false)}
+                transformInfo={transformInfo}
+                onWidthChange={handlePropertyWidthChange}
+              />
+            )}
+
+            <CopilotSidebar
+              isOpen={isCopilotOpen}
+              onClose={() => setIsCopilotOpen(false)}
+              projectId={currentProject?.id || ''}
+              selectedExpressId={selectedExpressID}
+              onModelModified={handleModelModifiedByCopilot}
+              onWidthChange={setCopilotWidth}
+            />
+          </div>
+        </div>
+
+        {/* 4. Top-Right: 3D ViewCube Orientation Overlay */}
+        <GlassViewCube
+          onCameraPreset={handleCameraPreset}
+          activePreset={cameraPresetTrigger?.preset ?? null}
+          rightOffset={rightOffset}
+        />
+
+        {/* 5. Bottom-Left: Dynamic Offset Coordinate HUD */}
+        <div
+          className="absolute bottom-6 z-20 pointer-events-none transition-[left] duration-150"
+          style={{ left: leftOffset ? leftOffset + 16 : 24 }}
+        >
+          {effectiveProfileSettings.showCoordinateHud && (
+            <CoordinateHud
+              selectedExpressID={selectedExpressID}
+              transformInfo={transformInfo}
+              elementCount={geometries.length}
+              isTreeOpen={false}
+              treeWidth={0}
+            />
+          )}
+        </div>
+
+        {/* 6. CAD Modeling Toolbar (if open) */}
+        {isCadOpen && effectiveProfileSettings.showCadToolbar && (
+          <CadToolbar
+            activeMode={cadToolMode}
+            onSelectMode={setCadToolMode}
+            canUndo={cadCanUndo}
+            canRedo={cadCanRedo}
+            onUndo={handleCadUndo}
+            onRedo={handleCadRedo}
+            history={cadHistory}
+            onRefreshHistory={refreshCadHistory}
+            onClose={() => setIsCadOpen(false)}
+            wallHeight={cadWallHeight}
+            setWallHeight={setCadWallHeight}
+            wallThickness={cadWallThickness}
+            setWallThickness={setCadWallThickness}
+            leftOffset={leftOffset ? leftOffset + 12 : 72}
           />
         )}
 
-      {/* 2b. Floating CAD Modeling Toolbar */}
-      {isCadOpen && effectiveProfileSettings.showCadToolbar && (
-        <CadToolbar
-          activeMode={cadToolMode}
-          onSelectMode={setCadToolMode}
-          canUndo={cadCanUndo}
-          canRedo={cadCanRedo}
-          onUndo={handleCadUndo}
-          onRedo={handleCadRedo}
-          history={cadHistory}
-          onRefreshHistory={refreshCadHistory}
-          onClose={() => setIsCadOpen(false)}
-          wallHeight={cadWallHeight}
-          setWallHeight={setCadWallHeight}
-          wallThickness={cadWallThickness}
-          setWallThickness={setCadWallThickness}
-          leftOffset={isTreeOpen ? treeWidth + 12 : 16}
-        />
-      )}
-
-      {/* 3. Floating Left Hierarchy Drawer */}
-      <SpatialTree
-        tree={spatialTree}
-        selectedExpressID={selectedExpressID}
-        onSelectElement={handleSelectElement}
-        isolatedExpressID={isolatedExpressID}
-        onToggleIsolate={setIsolatedExpressID}
-        isOpen={isTreeOpen}
-        onToggleOpen={() => setIsTreeOpen(false)}
-        onWidthChange={setTreeWidth}
-      />
-
-      {/* 4. Floating Right Property Inspector Drawer */}
-      {selectedExpressID !== null && (
-        <PropertyInspector
-          projectId={currentProject?.id || null}
-          expressId={selectedExpressID}
-          isOpen={isPropertyOpen}
-          onClose={() => setIsPropertyOpen(false)}
-          transformInfo={transformInfo}
-          onWidthChange={setPropertyWidth}
-        />
-      )}
-
-      {/* 5. Floating AI Copilot Drawer */}
-      <CopilotSidebar
-        isOpen={isCopilotOpen}
-        onClose={() => setIsCopilotOpen(false)}
-        projectId={currentProject?.id || ''}
-        selectedExpressId={selectedExpressID}
-        onModelModified={handleModelModifiedByCopilot}
-        onWidthChange={setCopilotWidth}
-      />
-
-      {/* 6. Contextual Floating Tool Dock (Bottom Center) */}
-      {effectiveProfileSettings.showBottomDock && (
-        <SpatialBottomDock
-          transformMode={transformMode}
-          onSetTransformMode={setTransformMode}
-          cadToolMode={cadToolMode}
-          onSelectCadTool={(mode) => setCadToolMode(mode)}
-          canUndo={cadCanUndo}
-          canRedo={cadCanRedo}
-          onUndo={handleCadUndo}
-          onRedo={handleCadRedo}
-          snapEnabled={snapEnabled}
-          onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-          isMeasureActive={isMeasureActive}
-          onToggleMeasure={() => setIsMeasureActive((p) => !p)}
-          measurementCount={measurements.length}
-          onClearMeasurements={handleClearMeasurements}
-          sectionConfig={sectionConfig}
-          onUpdateSection={setSectionConfig}
-          onCameraPreset={handleCameraPreset}
-          renderStyle={renderStyle}
-          onSetRenderStyle={setRenderStyle}
-          profile={activeProfile}
-          customSettings={customSettings}
-          selectedExpressID={selectedExpressID}
-          leftDrawerOffset={isTreeOpen ? treeWidth : 0}
-          rightDrawerOffset={isPropertyOpen ? propertyWidth : isCopilotOpen ? copilotWidth : 0}
-        />
-      )}
-
-      {/* 7. Bottom-Left Coordinate & Viewport Status HUD */}
-      {effectiveProfileSettings.showCoordinateHud && (
-        <CoordinateHud
-          selectedExpressID={selectedExpressID}
-          transformInfo={transformInfo}
-          elementCount={geometries.length}
-          isTreeOpen={isTreeOpen}
-          treeWidth={treeWidth}
-        />
-      )}
+        {/* 7. Floating Frosted Bottom Tool Dock */}
+        {effectiveProfileSettings.showBottomDock && (
+          <GlassBottomDock
+            transformMode={transformMode}
+            onSetTransformMode={setTransformMode}
+            cadToolMode={cadToolMode}
+            onSelectCadTool={(mode) => setCadToolMode(mode)}
+            canUndo={cadCanUndo}
+            canRedo={cadCanRedo}
+            onUndo={handleCadUndo}
+            onRedo={handleCadRedo}
+            snapEnabled={snapEnabled}
+            onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+            isMeasureActive={isMeasureActive}
+            onToggleMeasure={() => setIsMeasureActive((p) => !p)}
+            measurementCount={measurements.length}
+            onClearMeasurements={handleClearMeasurements}
+            sectionConfig={sectionConfig}
+            onUpdateSection={setSectionConfig}
+            onCameraPreset={handleCameraPreset}
+            renderStyle={renderStyle}
+            onSetRenderStyle={setRenderStyle}
+            profile={activeProfile}
+            customSettings={customSettings}
+            selectedExpressID={selectedExpressID}
+            leftDrawerOffset={leftOffset}
+            rightDrawerOffset={rightOffset}
+          />
+        )}
 
       {/* 7a. Floating Dimension Info HUD with exact XYZ Deltas */}
       {activeDimension && (

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Compass, GripVertical } from 'lucide-react';
-import type { CameraPreset } from '../tools/BimToolsToolbar';
+import type { CameraPreset } from '../../types/viewport';
 import { useDraggableHud } from './HudLayoutContext';
 
 interface ViewControlsHudProps {

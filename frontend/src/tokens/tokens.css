@@ -52,7 +52,7 @@
   --shadow-hud: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   --shadow-control: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
 
-  /* Modern Glass - Soft / Elegant Theme Tokens */
+  /* Modern Glass - Soft / Elegant Theme Tokens (Default Light) */
   --glass-bg-canvas: #a5b9ce;
   --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(224, 242, 254, 0.8) 0px, transparent 60%),
     radial-gradient(at 85% 20%, rgba(241, 245, 249, 0.9) 0px, transparent 55%),
@@ -60,7 +60,23 @@
     linear-gradient(135deg, #a5b9ce 0%, #cbd8e6 40%, #e2e8f0 100%);
   --glass-surface-panel: rgba(255, 255, 255, 0.5);
   --glass-surface-card: rgba(255, 255, 255, 0.45);
+  --glass-surface-control: rgba(255, 255, 255, 0.65);
   --glass-border: rgba(255, 255, 255, 0.6);
   --glass-shadow: 0 12px 36px 0 rgba(15, 23, 42, 0.08);
 }
+
+[data-theme='dark'] {
+  /* Modern Glass - Frosted Obsidian Theme Tokens (Dark Mode) */
+  --glass-bg-canvas: #090b10;
+  --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(30, 41, 59, 0.7) 0px, transparent 60%),
+    radial-gradient(at 85% 20%, rgba(15, 23, 42, 0.8) 0px, transparent 55%),
+    radial-gradient(at 50% 90%, rgba(30, 27, 75, 0.5) 0px, transparent 65%),
+    linear-gradient(135deg, #090b10 0%, #0f172a 40%, #1e1b4b 100%);
+  --glass-surface-panel: rgba(15, 23, 42, 0.65);
+  --glass-surface-card: rgba(30, 41, 59, 0.55);
+  --glass-surface-control: rgba(51, 65, 85, 0.60);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glass-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.40);
+}
+
 

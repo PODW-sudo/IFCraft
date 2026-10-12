@@ -8,8 +8,7 @@ import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 (THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
 (THREE.BufferGeometry.prototype as any).disposeBoundsTree = disposeBoundsTree;
 import type { GeometryData } from '../../types/ifc';
-import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../tools/BimToolsToolbar';
-import { SelectionContextOverlay } from './SelectionContextOverlay';
+import type { CameraPreset, RenderStyle, SectionPlaneConfig } from '../../types/viewport';
 import { SpatialContextMenu } from './SpatialContextMenu';
 import { DraftingInputHud } from './DraftingInputHud';
 import { CadTrackerHud } from './CadTrackerHud';
@@ -651,13 +650,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onCadDrawOpening,
   onCadCancel,
 
-  elementDetails,
-  storeys = [],
+  elementDetails: _elementDetails,
+  storeys: _storeys = [],
   onCloneElement,
   onDeleteElement,
-  onUpdateGeometry,
-  onAssignStorey,
-  onAssignMaterial,
+  onUpdateGeometry: _onUpdateGeometry,
+  onAssignStorey: _onAssignStorey,
+  onAssignMaterial: _onAssignMaterial,
   onOpenInspector,
   onSelectCadTool,
   pinnedExpressIds,
@@ -670,7 +669,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   focusTrigger,
   activeInteractiveMode = 'none',
   onActiveInteractiveModeChange,
-  onOpenSpecialModal,
+  onOpenSpecialModal: _onOpenSpecialModal,
   onSpecialPointsPicked,
   projectId,
 }) => {
@@ -710,7 +709,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const [trackerReadout, setTrackerReadout] = useState<TrackerReadout | null>(null);
 
   // Modern In-Viewport BIM Editing State
-  const [selectionScreenPos, setSelectionScreenPos] = useState<{ x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; expressId: number | null } | null>(null);
   const [draftingLength, setDraftingLength] = useState<number>(0);
   const [draftingAngle, setDraftingAngle] = useState<number>(0);
@@ -2054,58 +2052,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     };
   }, [hoveredExpressId, selectedExpressID, isMeasureActive, cadToolMode, sectionConfig.enabled, settings]);
 
-  // Screen-space 2D Projection for Selection Context Capsule
-  const updateSelectionScreenPosition = useCallback(() => {
-    if (selectedExpressID === null || !cameraRef.current || !containerRef.current) {
-      setSelectionScreenPos(null);
-      return;
-    }
-    const meshes = meshMapRef.current.get(selectedExpressID);
-    if (!meshes || meshes.length === 0) {
-      setSelectionScreenPos(null);
-      return;
-    }
-    const box = new THREE.Box3();
-    meshes.forEach((m) => {
-      m.updateMatrixWorld(true);
-      if (m.geometry) {
-        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-        if (m.geometry.boundingBox) {
-          box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
-          return;
-        }
-      }
-      box.union(new THREE.Box3().setFromObject(m));
-    });
-    if (box.isEmpty()) {
-      setSelectionScreenPos(null);
-      return;
-    }
-    const centerTop = new THREE.Vector3(
-      (box.min.x + box.max.x) / 2,
-      box.max.y,
-      (box.min.z + box.max.z) / 2
-    );
-    centerTop.project(cameraRef.current);
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = ((centerTop.x + 1) / 2) * rect.width + rect.left;
-    const y = ((-centerTop.y + 1) / 2) * rect.height + rect.top;
-
-    if (centerTop.z > 1.0) {
-      setSelectionScreenPos(null);
-    } else {
-      setSelectionScreenPos({ x, y });
-    }
-  }, [selectedExpressID]);
-
-  useEffect(() => {
-    updateSelectionScreenPosition();
-    const controls = controlsRef.current;
-    if (!controls) return;
-    controls.addEventListener('change', updateSelectionScreenPosition);
-    return () => controls.removeEventListener('change', updateSelectionScreenPosition);
-  }, [updateSelectionScreenPosition]);
-
   // Focus camera on element (F key)
   const handleFocusElement = useCallback((expressId: number) => {
     if (!cameraRef.current || !controlsRef.current) return;
@@ -2137,8 +2083,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     cameraRef.current.lookAt(center);
     controlsRef.current.update();
     needsRenderRef.current = true;
-    updateSelectionScreenPosition();
-  }, [updateSelectionScreenPosition]);
+  }, []);
 
   useEffect(() => {
     if (focusTrigger && focusTrigger.expressId) {
@@ -2665,111 +2610,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     },
     [selectedExpressID, interactiveEditState, trackerReadout, applyLocalElementTransform, onMoveElement, onRotateElement, onArrayElement, handleCancelInteractiveEdit]
   );
-
-  const handleStartMove = useCallback(() => {
-    setInteractiveEditState({
-      mode: 'move',
-      step: 1,
-      originPoint: null,
-      referenceRayPoint: null,
-      currentPoint: null,
-      isCopyMode: false,
-      isMultiCopy: false,
-      isOrthoLocked: false,
-      multiplyCount: 3,
-      multiplySpacing: 2.0,
-      multiplyMethod: 'increment',
-      rotateAxis: 'z',
-      mirrorPlane: 'x',
-    });
-    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('move');
-  }, [onActiveInteractiveModeChange]);
-
-  const handleStartRotate = useCallback(() => {
-    setInteractiveEditState({
-      mode: 'rotate',
-      step: 1,
-      originPoint: null,
-      referenceRayPoint: null,
-      currentPoint: null,
-      isCopyMode: false,
-      isMultiCopy: false,
-      isOrthoLocked: false,
-      multiplyCount: 3,
-      multiplySpacing: 2.0,
-      multiplyMethod: 'increment',
-      rotateAxis: 'z',
-      mirrorPlane: 'x',
-    });
-    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('rotate');
-  }, [onActiveInteractiveModeChange]);
-
-  const handleStartMirror = useCallback(() => {
-    setInteractiveEditState({
-      mode: 'mirror',
-      step: 1,
-      originPoint: null,
-      referenceRayPoint: null,
-      currentPoint: null,
-      isCopyMode: false,
-      isMultiCopy: false,
-      isOrthoLocked: false,
-      multiplyCount: 3,
-      multiplySpacing: 2.0,
-      multiplyMethod: 'increment',
-      rotateAxis: 'z',
-      mirrorPlane: 'x',
-    });
-    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('mirror');
-  }, [onActiveInteractiveModeChange]);
-
-  const handleStartElevate = useCallback(() => {
-    setInteractiveEditState({
-      mode: 'elevate',
-      step: 1,
-      originPoint: null,
-      referenceRayPoint: null,
-      currentPoint: null,
-      isCopyMode: false,
-      isMultiCopy: false,
-      isOrthoLocked: false,
-      multiplyCount: 3,
-      multiplySpacing: 2.0,
-      multiplyMethod: 'increment',
-      rotateAxis: 'z',
-      mirrorPlane: 'x',
-    });
-    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('elevate');
-  }, [onActiveInteractiveModeChange]);
-
-  const handleStartMultiply = useCallback(() => {
-    setInteractiveEditState({
-      mode: 'multiply',
-      step: 1,
-      originPoint: null,
-      referenceRayPoint: null,
-      currentPoint: null,
-      isCopyMode: false,
-      isMultiCopy: false,
-      isOrthoLocked: false,
-      multiplyCount: 3,
-      multiplySpacing: 2.0,
-      multiplyMethod: 'increment',
-      rotateAxis: 'z',
-      mirrorPlane: 'x',
-    });
-    if (onActiveInteractiveModeChange) onActiveInteractiveModeChange('multiply');
-  }, [onActiveInteractiveModeChange]);
-
-  const handleQuickRotate = useCallback((cw: boolean) => {
-    if (selectedExpressID !== null) {
-      const deg = cw ? 90 : -90;
-      applyLocalElementTransform(selectedExpressID, 'rotate', { angle_degrees: deg, axis: 'z' });
-      if (onRotateElement) {
-        onRotateElement(selectedExpressID, deg, 'z');
-      }
-    }
-  }, [selectedExpressID, applyLocalElementTransform, onRotateElement]);
 
   // Pointer Move Handler for Snapping Preview & Rubber-Band Measure Line
   const handlePointerMove = useCallback(
@@ -3947,36 +3787,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         )
       ))}
 
-      {/* Selection Context Capsule (In-Viewport Direct CAD Manipulation) */}
-      {selectedExpressID !== null && selectionScreenPos && (
-        <SelectionContextOverlay
-          expressId={selectedExpressID}
-          elementDetails={elementDetails || null}
-          screenPosition={selectionScreenPos}
-          storeys={storeys}
-          isPinned={Boolean(selectedExpressID && pinnedExpressIds?.has(selectedExpressID))}
-          activeTool={interactiveEditState.mode}
-          onStartMove={handleStartMove}
-          onStartRotate={handleStartRotate}
-          onQuickRotate={handleQuickRotate}
-          onStartMirror={handleStartMirror}
-          onStartElevate={handleStartElevate}
-          onStartMultiply={handleStartMultiply}
-          onOpenSpecialModal={() => onOpenSpecialModal && onOpenSpecialModal()}
-          onClone={(id) => onCloneElement && onCloneElement(id)}
-          onDelete={(id) => onDeleteElement && onDeleteElement(id)}
-          onUpdateGeometry={(id, params) => onUpdateGeometry && onUpdateGeometry(id, params)}
-          onAssignStorey={(id, sId) => onAssignStorey && onAssignStorey(id, sId)}
-          onAssignMaterial={(id, mat, col) => onAssignMaterial && onAssignMaterial(id, mat, col)}
-          onFocus={(id) => handleFocusElement(id)}
-          onOpenInspector={() => onOpenInspector && onOpenInspector()}
-          onRotate={(id, angle, axis) => onRotateElement && onRotateElement(id, angle, axis)}
-          onMirror={(id, axis, copy) => onMirrorElement && onMirrorElement(id, axis, copy)}
-          onArray={(id, count, delta) => onArrayElement && onArrayElement(id, count, delta)}
-          onAlign={(id, axis, val) => onAlignElement && onAlignElement(id, axis, val)}
-          onTogglePin={(id) => onTogglePin && onTogglePin(id)}
-        />
-      )}
 
       {/* 3D Spatial Context Menu (Right Click) */}
       {contextMenu && (

@@ -14,7 +14,7 @@ import {
   Box
 } from 'lucide-react';
 import type { TransformMode } from '../viewer/ThreeViewport';
-import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../tools/BimToolsToolbar';
+import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../../types/viewport';
 import type { CadToolMode } from '../../types/ifc';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 import { useDraggableHud } from '../hud/HudLayoutContext';
