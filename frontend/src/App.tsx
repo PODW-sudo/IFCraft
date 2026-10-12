@@ -245,7 +245,7 @@ export const App: React.FC = () => {
     return getEffectiveProfileSettings(activeProfile, customSettings);
   }, [activeProfile, customSettings]);
 
-  const handleSelectProfile = (newProfile: UiProfile) => {
+  const handleSelectProfile = useCallback((newProfile: UiProfile) => {
     setActiveProfile(newProfile);
     try {
       localStorage.setItem('ifc_editor_ui_profile', newProfile);
@@ -272,7 +272,17 @@ export const App: React.FC = () => {
       setIsTreeOpen(customSettings.showTreeDrawer);
       setIsCadOpen(customSettings.showCadToolbar);
     }
-  };
+  }, [selectedExpressID, customSettings]);
+
+  const handleToggleTree = useCallback(() => {
+    setIsTreeOpen((prev) => {
+      const next = !prev;
+      if (next && activeProfile === 'review') {
+        handleSelectProfile('query');
+      }
+      return next;
+    });
+  }, [activeProfile, handleSelectProfile]);
 
   const handleUpdateCustomSettings = (partial: Partial<CustomProfileSettings>) => {
     setCustomSettings((prev) => {
@@ -805,10 +815,15 @@ export const App: React.FC = () => {
   const handleToggleCad = useCallback(() => {
     setIsCadOpen((prev) => {
       const next = !prev;
-      if (next) refreshCadHistory();
+      if (next) {
+        if (activeProfile === 'review') {
+          handleSelectProfile('modify');
+        }
+        refreshCadHistory();
+      }
       return next;
     });
-  }, [refreshCadHistory]);
+  }, [activeProfile, handleSelectProfile, refreshCadHistory]);
 
   const handleCadDrawWall = useCallback(async (start: [number, number], end: [number, number]) => {
     if (!currentProject) return;
@@ -1731,7 +1746,7 @@ export const App: React.FC = () => {
               activeTab="model"
               onSelectTab={() => {}}
               isTreeOpen={isTreeOpen}
-              onToggleTree={() => setIsTreeOpen((prev) => !prev)}
+              onToggleTree={handleToggleTree}
               isCadOpen={isCadOpen}
               onToggleCad={handleToggleCad}
               onOpenOmnibar={() => setIsOmnibarOpen(true)}

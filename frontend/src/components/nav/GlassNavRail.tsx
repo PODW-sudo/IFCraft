@@ -1,23 +1,22 @@
-import React from 'react';
-import { FolderTree, Search, Ruler, Crosshair, Sparkles, Settings, PenTool } from 'lucide-react';
+import { FolderTree, Ruler, Crosshair, Sparkles, PenTool } from 'lucide-react';
 
-export type GlassNavTab = 'model' | 'cad' | 'search' | 'measure' | 'clash' | 'copilot' | 'settings';
+export type GlassNavTab = 'model' | 'cad' | 'measure' | 'clash' | 'copilot' | 'search' | 'settings';
 
 interface GlassNavRailProps {
   activeTab?: GlassNavTab;
-  onSelectTab: (tab: GlassNavTab) => void;
+  onSelectTab?: (tab: GlassNavTab) => void;
   isTreeOpen: boolean;
   onToggleTree: () => void;
   isCadOpen?: boolean;
   onToggleCad?: () => void;
-  onOpenOmnibar: () => void;
+  onOpenOmnibar?: () => void;
   isMeasureActive: boolean;
   onToggleMeasure: () => void;
   isClashOpen: boolean;
   onToggleClash: () => void;
   isCopilotOpen: boolean;
   onToggleCopilot: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const GlassNavRail: React.FC<GlassNavRailProps> = ({
@@ -27,14 +26,14 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
   onToggleTree,
   isCadOpen = false,
   onToggleCad,
-  onOpenOmnibar,
+  onOpenOmnibar: _onOpenOmnibar,
   isMeasureActive,
   onToggleMeasure,
   isClashOpen,
   onToggleClash,
   isCopilotOpen,
   onToggleCopilot,
-  onOpenSettings
+  onOpenSettings: _onOpenSettings
 }) => {
   const tabs = [
     {
@@ -43,7 +42,7 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
       icon: FolderTree,
       active: isTreeOpen,
       onClick: () => {
-        onSelectTab('model');
+        onSelectTab?.('model');
         onToggleTree();
       }
     },
@@ -53,18 +52,8 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
       icon: PenTool,
       active: isCadOpen,
       onClick: () => {
-        onSelectTab('cad');
+        onSelectTab?.('cad');
         if (onToggleCad) onToggleCad();
-      }
-    },
-    {
-      id: 'search' as GlassNavTab,
-      label: 'Search',
-      icon: Search,
-      active: false,
-      onClick: () => {
-        onSelectTab('search');
-        onOpenOmnibar();
       }
     },
     {
@@ -73,7 +62,7 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
       icon: Ruler,
       active: isMeasureActive,
       onClick: () => {
-        onSelectTab('measure');
+        onSelectTab?.('measure');
         onToggleMeasure();
       }
     },
@@ -83,7 +72,7 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
       icon: Crosshair,
       active: isClashOpen,
       onClick: () => {
-        onSelectTab('clash');
+        onSelectTab?.('clash');
         onToggleClash();
       }
     },
@@ -93,18 +82,8 @@ export const GlassNavRail: React.FC<GlassNavRailProps> = ({
       icon: Sparkles,
       active: isCopilotOpen,
       onClick: () => {
-        onSelectTab('copilot');
+        onSelectTab?.('copilot');
         onToggleCopilot();
-      }
-    },
-    {
-      id: 'settings' as GlassNavTab,
-      label: 'Settings',
-      icon: Settings,
-      active: false,
-      onClick: () => {
-        onSelectTab('settings');
-        onOpenSettings();
       }
     }
   ];

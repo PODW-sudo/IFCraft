@@ -9,9 +9,6 @@ import {
   Settings,
   Sun,
   Moon,
-  Sparkles,
-  FolderTree,
-  SlidersHorizontal,
   GripVertical
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
@@ -30,12 +27,12 @@ interface GlassHeaderProps {
   onOpenOmnibar: () => void;
   onOpenSettingsModal?: () => void;
   collaborators?: Collaborator[];
-  isTreeOpen: boolean;
-  onToggleTree: () => void;
-  isPropertyOpen: boolean;
-  onToggleProperty: () => void;
-  isCopilotOpen: boolean;
-  onToggleCopilot: () => void;
+  isTreeOpen?: boolean;
+  onToggleTree?: () => void;
+  isPropertyOpen?: boolean;
+  onToggleProperty?: () => void;
+  isCopilotOpen?: boolean;
+  onToggleCopilot?: () => void;
   currentTheme: 'light' | 'dark';
   onToggleTheme: () => void;
 }
@@ -52,12 +49,12 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   onOpenOmnibar,
   onOpenSettingsModal,
   collaborators = [],
-  isTreeOpen,
-  onToggleTree,
-  isPropertyOpen,
-  onToggleProperty,
-  isCopilotOpen,
-  onToggleCopilot,
+  isTreeOpen: _isTreeOpen,
+  onToggleTree: _onToggleTree,
+  isPropertyOpen: _isPropertyOpen,
+  onToggleProperty: _onToggleProperty,
+  isCopilotOpen: _isCopilotOpen,
+  onToggleCopilot: _onToggleCopilot,
   currentTheme,
   onToggleTheme
 }) => {
@@ -203,53 +200,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
         </button>
       </div>
 
-      {/* 3. Right: Workspace Toggles, Theme Switcher & Settings */}
+      {/* 3. Right: Theme Switcher, Collaborators, Settings & Export */}
       <div className="flex items-center gap-2">
-        {/* Spatial Tree Toggle */}
-        <button
-          type="button"
-          onClick={onToggleTree}
-          className={`p-2 rounded-full transition-all cursor-pointer ${
-            isTreeOpen
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60'
-          }`}
-          title="Spatial Hierarchy"
-          aria-label="Spatial Hierarchy"
-        >
-          <FolderTree className="w-4 h-4" />
-        </button>
-
-        {/* Properties Toggle */}
-        <button
-          type="button"
-          onClick={onToggleProperty}
-          className={`p-2 rounded-full transition-all cursor-pointer ${
-            isPropertyOpen
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60'
-          }`}
-          title="Properties"
-          aria-label="Properties"
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </button>
-
-        {/* AI Copilot Toggle */}
-        <button
-          type="button"
-          onClick={onToggleCopilot}
-          className={`p-2 rounded-full transition-all cursor-pointer ${
-            isCopilotOpen
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60'
-          }`}
-          title="AI Copilot"
-          aria-label="AI Copilot"
-        >
-          <Sparkles className="w-4 h-4" />
-        </button>
-
         {/* Theme Switcher (Default Light <-> Dark Glass) */}
         <button
           type="button"
