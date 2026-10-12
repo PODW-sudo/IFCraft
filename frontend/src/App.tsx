@@ -816,10 +816,14 @@ export const App: React.FC = () => {
     setIsCadOpen((prev) => {
       const next = !prev;
       if (next) {
-        if (activeProfile === 'review') {
+        if (activeProfile !== 'modify') {
           handleSelectProfile('modify');
         }
         refreshCadHistory();
+      } else {
+        if (activeProfile === 'modify') {
+          handleSelectProfile('review');
+        }
       }
       return next;
     });
@@ -1436,6 +1440,7 @@ export const App: React.FC = () => {
         setActiveClash: (clash: ClashRecord | null) => setActiveClash(clash),
         toggleModelVisibility: (modelId: string) => handleToggleModelVisibility(modelId),
         openCadToolbar: () => {
+          setActiveProfile('modify');
           setIsCadOpen(true);
           refreshCadHistory();
         },
@@ -1835,7 +1840,7 @@ export const App: React.FC = () => {
             setWallHeight={setCadWallHeight}
             wallThickness={cadWallThickness}
             setWallThickness={setCadWallThickness}
-            leftOffset={leftOffset ? leftOffset + 12 : 72}
+            leftOffset={leftOffset ? leftOffset + 12 : 80}
           />
         )}
 
