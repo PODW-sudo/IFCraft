@@ -35,6 +35,8 @@ export interface ContextualModifyBarProps {
   storeys?: { id: number; name: string; elevation: number }[];
   isPinned: boolean;
   activeInteractiveMode?: InteractiveEditMode;
+  leftDrawerOffset?: number;
+  rightDrawerOffset?: number;
   onTogglePin: (expressId: number) => void;
   onStartMove: () => void;
   onStartRotate: () => void;
@@ -70,6 +72,8 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
   storeys = [],
   isPinned,
   activeInteractiveMode = 'none',
+  leftDrawerOffset = 0,
+  rightDrawerOffset = 0,
   onTogglePin,
   onStartMove,
   onStartRotate,
@@ -89,6 +93,21 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
   onOpenInspector,
   onDeselect,
 }) => {
+  const [windowWidth, setWindowWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1440
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const effectiveLeft = leftDrawerOffset || 0;
+  const effectiveRight = rightDrawerOffset || 0;
+  const availableCanvasWidth = Math.max(320, windowWidth - effectiveLeft - effectiveRight);
+  const canvasCenterX = effectiveLeft + availableCanvasWidth / 2;
+
   const [showStoreyMenu, setShowStoreyMenu] = useState(false);
   const [showMaterialMenu, setShowMaterialMenu] = useState(false);
   const [showRotateQuickMenu, setShowRotateQuickMenu] = useState(false);
@@ -165,17 +184,21 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
     <div
       ref={barRef}
       data-qa="contextual-modify-bar"
-      className="fixed top-14 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1 pointer-events-auto select-none animate-in fade-in slide-in-from-top-2 duration-150"
+      style={{
+        left: `${canvasCenterX}px`,
+        maxWidth: `${Math.max(280, availableCanvasWidth - 24)}px`
+      }}
+      className="fixed top-14 -translate-x-1/2 z-40 flex flex-col items-center gap-1 pointer-events-auto select-none animate-in fade-in slide-in-from-top-2 duration-150 transition-all"
     >
       {/* Primary Contextual Ribbon Bar */}
-      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-dock/95 backdrop-blur-2xl border border-cyan-500/40 shadow-dock text-text-primary text-xs">
+      <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-surface-dock/95 backdrop-blur-2xl border border-cyan-500/40 shadow-dock text-text-primary text-xs max-w-full overflow-x-auto scrollbar-none">
         {/* Context Identification Pill */}
         <div
           className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-canvas/80 border border-cyan-500/40 text-text-primary font-medium"
           title={`Active Selection: ${entityType} #${expressId}`}
         >
           {getEntityIcon(entityType)}
-          <span className="font-semibold text-xs tracking-tight truncate max-w-[110px]">
+          <span className={`font-semibold text-xs tracking-tight truncate ${availableCanvasWidth < 720 ? 'max-w-[70px]' : 'max-w-[120px]'}`}>
             {entityName}
           </span>
           <span className="text-[10px] font-mono text-cyan-400">
@@ -190,7 +213,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Element is pinned (UP to unpin)"
           >
             <Pin size={10} className="text-amber-400" />
-            <span className="uppercase tracking-wider font-semibold">Pinned</span>
+            <span className="uppercase tracking-wider font-semibold hidden sm:inline">Pinned</span>
           </div>
         )}
 
@@ -214,7 +237,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Two-Point Reference Move (M / Ctrl+D) - Pick origin then destination. Hold Ctrl to copy."
           >
             <Move size={13} className={activeInteractiveMode === 'move' ? 'text-slate-950' : 'text-cyan-400'} />
-            <span>Move</span>
+            <span className={availableCanvasWidth < 740 ? 'hidden' : 'hidden sm:inline'}>Move</span>
           </button>
 
           {/* Rotate (R / Ctrl+E) */}
@@ -234,7 +257,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
               title="Arc Rotate (R / Ctrl+E) - Pick center, baseline ray, then target angle."
             >
               <RotateCw size={13} className={activeInteractiveMode === 'rotate' ? 'text-slate-950' : 'text-cyan-400'} />
-              <span>Rotate</span>
+              <span className={availableCanvasWidth < 740 ? 'hidden' : 'hidden sm:inline'}>Rotate</span>
             </button>
             <button
               disabled={isPinned}
@@ -290,7 +313,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Mirror (Ctrl+M) - Define 2-point reflection axis line."
           >
             <FlipHorizontal size={13} className={activeInteractiveMode === 'mirror' ? 'text-slate-950' : 'text-cyan-400'} />
-            <span>Mirror</span>
+            <span className={availableCanvasWidth < 900 ? 'hidden' : 'hidden md:inline'}>Mirror</span>
           </button>
 
           {/* Elevate (E) */}
@@ -309,7 +332,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Elevate (E) - Vertical displacement along Z axis."
           >
             <ArrowUpDown size={13} className={activeInteractiveMode === 'elevate' ? 'text-slate-950' : 'text-cyan-400'} />
-            <span>Elevate</span>
+            <span className={availableCanvasWidth < 980 ? 'hidden' : 'hidden md:inline'}>Elevate</span>
           </button>
 
           {/* Multiply / Linear Array (Ctrl+U) */}
@@ -328,7 +351,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Multiply / Linear Array (Ctrl+U) - Predefine count & spacing or distribute."
           >
             <Grid3x3 size={13} className={activeInteractiveMode === 'multiply' ? 'text-slate-950' : 'text-cyan-400'} />
-            <span>Multiply</span>
+            <span className={availableCanvasWidth < 1060 ? 'hidden' : 'hidden lg:inline'}>Multiply</span>
           </button>
 
           {/* Align (AL) */}
@@ -349,7 +372,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Align element to Ground (AL)"
           >
             <AlignHorizontalJustifyCenter size={13} className="text-cyan-400" />
-            <span>Align</span>
+            <span className={availableCanvasWidth < 1140 ? 'hidden' : 'hidden lg:inline'}>Align</span>
           </button>
 
           {/* Tekla Move/Copy Special Button */}
@@ -361,7 +384,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
             title="Move / Copy Special (Tekla-Style precision dialog)"
           >
             <Settings2 size={13} />
-            <span>Special...</span>
+            <span className={availableCanvasWidth < 1200 ? 'hidden' : 'hidden xl:inline'}>Special...</span>
           </button>
         </div>
 
@@ -497,7 +520,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
               title="Assign Storey"
             >
               <Layers size={12} className="text-cyan-400" />
-              <span>Storey</span>
+              <span className={availableCanvasWidth < 840 ? 'hidden' : 'hidden sm:inline'}>Storey</span>
             </button>
             {showStoreyMenu && storeys.length > 0 && (
               <div className="absolute top-full left-0 mt-1 w-40 bg-surface-dock/95 border border-border-subtle rounded-xl shadow-2xl p-1 z-50 flex flex-col gap-0.5">
@@ -530,7 +553,7 @@ export const ContextualModifyBar: React.FC<ContextualModifyBarProps> = ({
               title="Assign Material"
             >
               <Palette size={12} className="text-cyan-400" />
-              <span>Material</span>
+              <span className={availableCanvasWidth < 880 ? 'hidden' : 'hidden sm:inline'}>Material</span>
             </button>
             {showMaterialMenu && (
               <div className="absolute top-full left-0 mt-1 w-44 bg-surface-dock/95 border border-border-subtle rounded-xl shadow-2xl p-1 z-50 grid grid-cols-2 gap-1">

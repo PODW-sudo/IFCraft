@@ -40,12 +40,21 @@ def generate_samples(samples_dir: Path):
     wall_t = 0.25
 
     for st, elev, prefix in storeys:
-        # Slab
+        # Slab (Ground floor plinth underneath; upper floor slabs cleanly inside perimeter walls)
         slab = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSlab", name=f"{prefix} Floor Slab")
-        s_rep = create_box_mesh(length, width, 0.3)
+        if elev == 0.0:
+            s_rep = create_box_mesh(length, width, 0.3)
+            m_s = np.identity(4)
+            m_s[2, 3] = elev - 0.3
+        else:
+            s_dx = max(0.1, length - wall_t * 2)
+            s_dy = max(0.1, width - wall_t * 2)
+            s_rep = create_box_mesh(s_dx, s_dy, 0.3)
+            m_s = np.identity(4)
+            m_s[0, 3] = wall_t
+            m_s[1, 3] = wall_t
+            m_s[2, 3] = elev - 0.3
         ifcopenshell.api.run("geometry.assign_representation", model, product=slab, representation=s_rep)
-        m_s = np.identity(4)
-        m_s[2, 3] = elev - 0.3
         ifcopenshell.api.run("geometry.edit_object_placement", model, product=slab, matrix=m_s)
         ifcopenshell.api.run("spatial.assign_container", model, relating_structure=st, products=[slab])
 
@@ -68,19 +77,20 @@ def generate_samples(samples_dir: Path):
         ifcopenshell.api.run("geometry.edit_object_placement", model, product=wn, matrix=mn)
         ifcopenshell.api.run("spatial.assign_container", model, relating_structure=st, products=[wn])
 
-        # West Wall
+        # West Wall (Clean butt-joint between South and North walls)
+        side_wall_len = max(0.1, width - wall_t * 2)
         ww = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=f"{prefix} West Facade Wall")
-        r_ww = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=width, height=height, thickness=wall_t)
+        r_ww = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=side_wall_len, height=height, thickness=wall_t)
         ifcopenshell.api.run("geometry.assign_representation", model, product=ww, representation=r_ww)
-        mw = np.array([[0, -1, 0, wall_t], [1, 0, 0, 0], [0, 0, 1, elev], [0, 0, 0, 1]], dtype=float)
+        mw = np.array([[0, -1, 0, wall_t], [1, 0, 0, wall_t], [0, 0, 1, elev], [0, 0, 0, 1]], dtype=float)
         ifcopenshell.api.run("geometry.edit_object_placement", model, product=ww, matrix=mw)
         ifcopenshell.api.run("spatial.assign_container", model, relating_structure=st, products=[ww])
 
-        # East Wall
+        # East Wall (Clean butt-joint between South and North walls)
         we = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=f"{prefix} East Facade Wall")
-        r_we = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=width, height=height, thickness=wall_t)
+        r_we = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=side_wall_len, height=height, thickness=wall_t)
         ifcopenshell.api.run("geometry.assign_representation", model, product=we, representation=r_we)
-        me = np.array([[0, -1, 0, length], [1, 0, 0, 0], [0, 0, 1, elev], [0, 0, 0, 1]], dtype=float)
+        me = np.array([[0, -1, 0, length], [1, 0, 0, wall_t], [0, 0, 1, elev], [0, 0, 0, 1]], dtype=float)
         ifcopenshell.api.run("geometry.edit_object_placement", model, product=we, matrix=me)
         ifcopenshell.api.run("spatial.assign_container", model, relating_structure=st, products=[we])
 
@@ -92,8 +102,9 @@ def generate_samples(samples_dir: Path):
         ifcopenshell.api.run("geometry.edit_object_placement", model, product=wi, matrix=mi)
         ifcopenshell.api.run("spatial.assign_container", model, relating_structure=st, products=[wi])
 
-        # Columns
-        for ci, (cx, cy) in enumerate([(0.0, 0.0), (length - 0.4, 0.0), (0.0, width - 0.4), (length - 0.4, width - 0.4)]):
+        # Interior Structural Columns (supporting floor spans, positioned in interior bays)
+        interior_cols = [(length * 0.25 - 0.2, width * 0.5 - 0.2), (length * 0.75 - 0.2, width * 0.5 - 0.2)]
+        for ci, (cx, cy) in enumerate(interior_cols):
             col = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcColumn", name=f"{prefix} Structural Column C{ci+1}")
             c_rep = create_box_mesh(0.4, 0.4, height)
             ifcopenshell.api.run("geometry.assign_representation", model, product=col, representation=c_rep)
@@ -160,9 +171,9 @@ def generate_samples(samples_dir: Path):
     ifcopenshell.api.run("geometry.edit_object_placement", model_p, product=roof_p, matrix=m_rp)
     ifcopenshell.api.run("spatial.assign_container", model_p, relating_structure=storey_p, products=[roof_p])
 
-    # 6 Columns on grid
-    col_x = [0.0, p_len / 2 - 0.25, p_len - 0.5]
-    col_y = [0.0, p_wid - 0.5]
+    # 6 Columns on interior colonnade grid (inset to prevent collision with glass facade walls)
+    col_x = [0.4, p_len / 2 - 0.25, p_len - 0.9]
+    col_y = [0.4, p_wid - 0.9]
     for ci, cx in enumerate(col_x):
         for cj, cy in enumerate(col_y):
             col_p = ifcopenshell.api.run("root.create_entity", model_p, ifc_class="IfcColumn", name=f"Pavilion Column C{ci+1}_{cj+1}")

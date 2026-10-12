@@ -117,6 +117,22 @@ export interface AIProvider {
   has_server_key?: boolean;
 }
 
+export interface CopilotModelsRequest {
+  provider: string;
+  api_key?: string;
+  base_url?: string;
+}
+
+export interface CopilotModelsResponse {
+  provider: string;
+  models: string[];
+  default_model: string;
+  source: 'api' | 'fallback';
+  connected?: boolean;
+  error?: string;
+}
+
+
 export type DisciplineType = 'ARCH' | 'STRUCT' | 'MEP' | 'CIVIL' | 'OTHER';
 
 export interface SubModel {

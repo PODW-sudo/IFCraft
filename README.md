@@ -1,6 +1,6 @@
 # IFC Editor — Autonomous Full-Stack OpenBIM Application
 
-A high-performance, real-time collaborative OpenBIM web application for inspecting, modifying, and authoring Industry Foundation Classes (`.ifc`) building models. Designed with an ultra-clean **Obsidian Minimalist** aesthetic (deep graphite `#0d0f12`, slate `#16191f`, hairline `#262a33` borders) inspired by Linear and Raycast.
+A high-performance, real-time collaborative OpenBIM web application for inspecting, modifying, and authoring Industry Foundation Classes (`.ifc`) building models. Features both a dark-mode **Obsidian Minimalist** CAD aesthetic and an immersive **Modern Glass — Soft / Elegant** spatial canvas with floating translucent frosted glass panels (see [MODERN_GLASS_UI_DESIGN.md](./MODERN_GLASS_UI_DESIGN.md)).
 
 ---
 

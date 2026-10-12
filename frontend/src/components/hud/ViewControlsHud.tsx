@@ -8,21 +8,24 @@ interface ViewControlsHudProps {
   activePreset?: CameraPreset | null;
   isRightDrawerOpen?: boolean;
   rightDrawerWidth?: number;
+  isModifyBarVisible?: boolean;
 }
 
 export const ViewControlsHud: React.FC<ViewControlsHudProps> = ({
   onCameraPreset,
   activePreset = null,
   isRightDrawerOpen = false,
-  rightDrawerWidth = 320
+  rightDrawerWidth = 320,
+  isModifyBarVisible = false
 }) => {
   const initialWidth = 240;
   const initialHeight = 36;
   const drawerOffset = isRightDrawerOpen ? Math.max(0, rightDrawerWidth) : 0;
   const initialX = typeof window !== 'undefined'
-    ? Math.max(16, window.innerWidth - initialWidth - 24 - drawerOffset)
+    ? Math.max(16, window.innerWidth - initialWidth - 20 - drawerOffset)
     : 1180;
-  const initialY = 72; // Cleanly below the top pill (top pill is at top: 12px, height: 45px)
+  // Positioned cleanly below top pill (top: 12px) or below contextual modify bar (top: 56px)
+  const initialY = isModifyBarVisible ? 116 : 64;
 
   const { ref, style, dragProps, isDragging } = useDraggableHud('view-controls', {
     x: initialX,

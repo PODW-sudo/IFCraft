@@ -98,7 +98,7 @@ class ToolCall(BaseModel):
 class CopilotChatRequest(BaseModel):
     project_id: str
     messages: list[ChatMessage]
-    provider: str = Field("gemini", description="'gemini', 'claude', 'openai', 'ollama', or 'local'")
+    provider: str = Field("gemini", description="'gemini', 'claude', 'openai', 'openrouter', 'custom', 'ollama', or 'local'")
     model: Optional[str] = None
     api_key: Optional[str] = None
     base_url: Optional[str] = None
@@ -108,6 +108,20 @@ class CopilotChatResponse(BaseModel):
     message: ChatMessage
     tool_calls: list[ToolCall] = []
     project_updated: bool = False
+
+class CopilotModelsRequest(BaseModel):
+    provider: str = Field("gemini", description="'gemini', 'claude', 'openai', 'openrouter', 'custom', 'ollama', or 'local'")
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+class CopilotModelsResponse(BaseModel):
+    provider: str
+    models: list[str]
+    default_model: str
+    source: str = "fallback"  # 'api' or 'fallback'
+    connected: bool = False
+    error: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # Phase 10: Federated Coordination & Clash Detection Schemas

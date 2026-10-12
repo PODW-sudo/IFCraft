@@ -71,6 +71,14 @@ The test suite operates under a strict two-tiered execution policy:
   .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --category "Advanced BIM" --browser
   .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --range TC-001:TC-015 --browser
   ```
+- **Unified 3-Stage UI Pipeline (Build, Maintain, Test):**
+  Must be executed automatically whenever modifying any UI code in `frontend/src/` or upon prompt `/ui-pipeline`:
+  ```powershell
+  .\scripts\ui_pipeline.ps1 -Tier quick     # Fast static checks & gates
+  .\scripts\ui_pipeline.ps1 -Browser        # Live browser CDP tests
+  .\scripts\ui_pipeline.ps1 -Milestone      # Full milestone test suite
+  ```
+
 
 ### B3 — Execute Tests
 For each test case:

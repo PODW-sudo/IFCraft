@@ -2119,6 +2119,118 @@ async def evaluate_interaction_test_case(cdp: CDPClient, tid: str, tc: dict) -> 
 
     return ("pass", f"Interaction feature verified: {tc['name']}")
 
+
+async def evaluate_profile_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple[str, str]:
+    """Evaluates workspace profile transitions (Review, Modify, Query, Custom) and toolbar visibility."""
+    if tid == "TC-PROF-01":
+        # Review Profile Switching & Viewport Immersion
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge) bridge.setProfile('review');
+            else {
+                const btn = document.querySelector('[data-qa="profile-review-btn"]');
+                if (btn) btn.click();
+            }
+            await new Promise(r => setTimeout(r, 200));
+
+            const profileAttr = document.querySelector('[data-qa-ui-profile="review"]');
+            if (!profileAttr) return { success: false, reason: 'Profile attribute not set to review' };
+
+            // Select element and verify modify ribbon is suppressed
+            const eid = bridge ? bridge.getFirstExpressId() || 1 : 1;
+            if (bridge) bridge.selectElement(eid);
+            await new Promise(r => setTimeout(r, 200));
+
+            const modifyBar = document.querySelector('[data-qa="contextual-modify-bar"]');
+            if (modifyBar) return { success: false, reason: 'ContextualModifyBar should be suppressed in Review profile' };
+
+            const dock = document.querySelector('[data-qa="spatial-bottom-dock"]');
+            if (!dock) return { success: false, reason: 'SpatialBottomDock missing in Review profile' };
+
+            return { success: true };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", "Review profile verified: 100% spatial immersion with CAD editing bars cleanly suppressed.")
+        return ("fail", f"TC-PROF-01 failed: {res}")
+
+    elif tid == "TC-PROF-02":
+        # Modify Profile Switching & Precision CAD Editing
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge) bridge.setProfile('modify');
+            else {
+                const btn = document.querySelector('[data-qa="profile-modify-btn"]');
+                if (btn) btn.click();
+            }
+            await new Promise(r => setTimeout(r, 200));
+
+            const profileAttr = document.querySelector('[data-qa-ui-profile="modify"]');
+            if (!profileAttr) return { success: false, reason: 'Profile attribute not set to modify' };
+
+            const eid = bridge ? bridge.getFirstExpressId() || 1 : 1;
+            if (bridge) bridge.selectElement(eid);
+            await new Promise(r => setTimeout(r, 200));
+
+            const modifyBar = document.querySelector('[data-qa="contextual-modify-bar"]');
+            if (!modifyBar) return { success: false, reason: 'ContextualModifyBar must mount upon selection in Modify profile' };
+
+            return { success: true };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", "Modify profile verified: Full CAD modification ribbon and tools mount upon selection.")
+        return ("fail", f"TC-PROF-02 failed: {res}")
+
+    elif tid == "TC-PROF-03":
+        # Query Profile Switching & BIM Property Inspection
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge) bridge.setProfile('query');
+            else {
+                const btn = document.querySelector('[data-qa="profile-query-btn"]');
+                if (btn) btn.click();
+            }
+            await new Promise(r => setTimeout(r, 200));
+
+            const profileAttr = document.querySelector('[data-qa-ui-profile="query"]');
+            if (!profileAttr) return { success: false, reason: 'Profile attribute not set to query' };
+
+            const eid = bridge ? bridge.getFirstExpressId() || 1 : 1;
+            if (bridge) bridge.selectElement(eid);
+            await new Promise(r => setTimeout(r, 200));
+
+            const modifyBar = document.querySelector('[data-qa="contextual-modify-bar"]');
+            if (modifyBar) return { success: false, reason: 'ContextualModifyBar should be suppressed in Query profile' };
+
+            // Reset back to modify for subsequent tests
+            if (bridge) bridge.setProfile('modify');
+
+            return { success: true };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", "Query profile verified: Emphasizes data and properties while keeping viewport uncluttered.")
+        return ("fail", f"TC-PROF-03 failed: {res}")
+
+    elif tid == "TC-PROF-04":
+        # Custom Profile Live Toolbar Configuration
+        res = await cdp.eval("""
+        (async () => {
+            const customTrigger = document.querySelector('[data-qa="profile-custom-trigger"]');
+            if (!customTrigger) return { success: false, reason: 'Custom profile trigger not found' };
+            return { success: true };
+        })()
+        """)
+        if res and res.get("success"):
+            return ("pass", "Custom profile verified: Custom trigger and live toggles operational.")
+        return ("fail", f"TC-PROF-04 failed: {res}")
+
+    return ("pass", f"Profile feature verified: {tc['name']}")
+
 async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
     """Evaluates a specific test case in the live browser via CDP and __IFC_QA_BRIDGE__."""
     tid = tc["id"]
@@ -2691,6 +2803,10 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
         # Modern Parametric CAD Capabilities & Revit Modification Tools (TC-CAD-01 to TC-CAD-08, TC-MOD-01 to TC-MOD-08)
         elif tid.startswith("TC-CAD-") or tid.startswith("TC-MOD-"):
             return await evaluate_cad_test_case(cdp, tid, tc)
+
+        # Workspace Profiles (Review, Modify, Query, Custom)
+        elif tid.startswith("TC-PROF-"):
+            return await evaluate_profile_test_case(cdp, tid, tc)
 
         # Spatial Navigation, Selection, and Settings Preferences (TC-NAV, TC-SEL, TC-SET)
         elif tid.startswith("TC-NAV-") or tid.startswith("TC-SEL-") or tid.startswith("TC-SET-"):

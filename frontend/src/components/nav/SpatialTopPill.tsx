@@ -20,11 +20,13 @@ import {
   ClipboardList,
   History,
   GripVertical,
-  Settings
+  Settings,
+  Sliders
 } from 'lucide-react';
 import { useDraggableHud } from '../hud/HudLayoutContext';
 import type { ProjectMetadata, SpatialNode } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
+import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 
 const CATEGORY_FILTERS = [
   { key: 'IfcWall', label: 'Walls' },
@@ -38,6 +40,10 @@ interface SpatialTopPillProps {
   currentProject: ProjectMetadata | null;
   projects?: ProjectMetadata[];
   onSelectProject?: (project: ProjectMetadata) => void;
+  activeProfile?: UiProfile;
+  onSelectProfile?: (profile: UiProfile) => void;
+  customSettings?: CustomProfileSettings;
+  onUpdateCustomSettings?: (settings: Partial<CustomProfileSettings>) => void;
   onOpenUploadModal: () => void;
   onOpenNewProjectModal: () => void;
   onDownloadProject: () => void;
@@ -68,12 +74,17 @@ interface SpatialTopPillProps {
   onToggleTimeline?: () => void;
   auditCount?: number;
   onOpenSettingsModal?: () => void;
+  onOpenMockup?: () => void;
 }
 
 export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   currentProject,
   projects = [],
   onSelectProject,
+  activeProfile = 'modify',
+  onSelectProfile,
+  customSettings,
+  onUpdateCustomSettings,
   onOpenUploadModal,
   onOpenNewProjectModal,
   onDownloadProject,
@@ -103,7 +114,8 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   isTimelineOpen = false,
   onToggleTimeline,
   auditCount = 0,
-  onOpenSettingsModal
+  onOpenSettingsModal,
+  onOpenMockup
 }) => {
   // Find spatial path for breadcrumbs
   const findBreadcrumbPath = (node: SpatialNode | null, targetId: number | null, path: string[] = []): string[] | null => {
@@ -118,34 +130,45 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
   };
 
   const breadcrumbs = findBreadcrumbPath(spatialTree, selectedExpressID);
+  const isReview = activeProfile === 'review';
 
-  const initialWidth = 1100;
-  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 60;
+  const [windowWidth, setWindowWidth] = React.useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1440
+  );
+
+  React.useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const { ref, style, dragProps, isDragging } = useDraggableHud('top-pill', {
-    x: initialX,
-    y: 12,
-    width: initialWidth,
-    height: 46
+    x: 0,
+    y: 0,
+    width: windowWidth,
+    height: 44
   });
 
   return (
     <header
       ref={ref}
-      style={style}
+      style={isDragging ? style : { ...style, left: 0, top: 0, width: '100%', maxWidth: '100vw' }}
       {...dragProps}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] select-none text-xs text-slate-200 transition-shadow ${
-        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
+      className={`fixed top-0 left-0 right-0 h-11 w-full bg-slate-950/90 backdrop-blur-md border-b border-white/[0.08] z-40 px-3 flex items-center justify-between select-none text-xs text-slate-200 transition-shadow ${
+        isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : ''
       }`}
       data-qa="spatial-top-pill"
     >
-      {/* Draggable Grip Handle */}
-      <div
-        data-drag-handle="true"
-        className="flex items-center text-slate-500 hover:text-slate-300 pr-1 py-1 cursor-grab active:cursor-grabbing"
-        title="Drag to reposition Top Bar"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {/* Left Zone: Brand, Project Selector, Profiles */}
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        {/* Draggable Grip Handle */}
+        <div
+          data-drag-handle="true"
+          className="flex items-center text-slate-500 hover:text-slate-300 pr-1 py-1 cursor-grab active:cursor-grabbing"
+          title="Drag to reposition Top Bar"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
 
       {/* Brand & Project Selector */}
       <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-subtle)]">
@@ -246,236 +269,387 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
         </DropdownMenu.Root>
       </div>
 
-      {/* Spatial Breadcrumbs (Rendered when element is selected) */}
-      {breadcrumbs && breadcrumbs.length > 0 && (
-        <>
-          <div className="hidden md:flex items-center gap-1.5 text-slate-400 text-xs px-2 max-w-sm truncate">
-            {breadcrumbs.slice(-3).map((item, idx, arr) => (
-              <React.Fragment key={idx}>
-                <span
-                  className={`truncate ${idx === arr.length - 1 ? 'text-slate-100 font-medium' : 'text-slate-400'}`}
-                  title={item}
-                >
-                  {item}
-                </span>
-                {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-slate-600 flex-shrink-0" />}
-              </React.Fragment>
-            ))}
-          </div>
-          <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
-        </>
-      )}
-
-      {/* Omnibar / Command Palette Trigger */}
-      <button
-        data-qa="pill-omnibar-trigger"
-        onClick={onOpenOmnibar}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-        title="Open Command Palette (Ctrl+K)"
-      >
-        <Search className="w-3.5 h-3.5" />
-        <span className="text-[11px] font-mono text-slate-400 bg-[var(--control-bg)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">
-          Ctrl+K
-        </span>
-      </button>
-
-      {/* Category Filter Dropdown */}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
+      {/* Workspace Profile Segmented Selector: Review | Modify | Query | Custom */}
+      {onSelectProfile && (
+        <div
+          data-qa="workspace-profile-selector"
+          data-qa-ui-profile={activeProfile}
+          className="flex items-center rounded-full bg-[var(--control-bg)]/80 p-0.5 border border-[var(--border-subtle)] text-[11px] shadow-sm"
+        >
           <button
-            data-qa="pill-filter-trigger"
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
-              hiddenCategories.size > 0
-                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+            data-qa="profile-review-btn"
+            onClick={() => onSelectProfile('review')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+              activeProfile === 'review'
+                ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-semibold'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
             }`}
-            title="Filter Category Visibility"
+            title="Review Profile: 100% Immersive View, Presentations & Coordination"
           >
-            <Layers className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-xs">Filter</span>
-            {hiddenCategories.size > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            )}
+            <Eye className="w-3.5 h-3.5" />
+            <span className={windowWidth < 1280 ? 'hidden' : 'hidden xl:inline'}>Review</span>
           </button>
-        </DropdownMenu.Trigger>
 
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className="z-50 min-w-[160px] bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-xl p-1 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
-            sideOffset={8}
-            align="center"
+          <button
+            data-qa="profile-modify-btn"
+            onClick={() => onSelectProfile('modify')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+              activeProfile === 'modify'
+                ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+            }`}
+            title="Modify Profile: Direct CAD Modeling, Precision Snapping & Transformations"
           >
-            <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-              Category Visibility
+            <PenTool className="w-3.5 h-3.5" />
+            <span className={windowWidth < 1280 ? 'hidden' : 'hidden xl:inline'}>Modify</span>
+          </button>
+
+          <button
+            data-qa="profile-query-btn"
+            onClick={() => onSelectProfile('query')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium transition-all ${
+              activeProfile === 'query'
+                ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-semibold'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+            }`}
+            title="Query Profile: BIM Property Analysis & Spatial Hierarchy Inspection"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span className={windowWidth < 1280 ? 'hidden' : 'hidden xl:inline'}>Query</span>
+          </button>
+
+          {/* Custom Profile Dropdown with Live Toolbars Configuration */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                data-qa="profile-custom-trigger"
+                onClick={() => onSelectProfile('custom')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-full font-medium transition-all ${
+                  activeProfile === 'custom'
+                    ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+                }`}
+                title="Custom Profile: Configure Toolbar & Panel Visibility"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span className={windowWidth < 1280 ? 'hidden' : 'hidden xl:inline'}>Custom</span>
+                <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="center"
+                sideOffset={8}
+                className="w-72 bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-xl shadow-[var(--shadow-hud)] p-2 z-50 text-slate-200 text-xs backdrop-blur-xl animate-in fade-in"
+              >
+                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[var(--border-subtle)]">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400">Custom Profile Toolbars</span>
+                  <span className="text-[9px] text-cyan-400 font-mono">Live Toggles</span>
+                </div>
+                <div className="space-y-1">
+                  {[
+                    { key: 'showContextualModifyBar', label: 'CAD Modify Ribbon' },
+                    { key: 'showCadToolbar', label: 'CAD Modeling Palette' },
+                    { key: 'showBottomDock', label: 'Spatial Bottom Dock' },
+                    { key: 'showViewControls', label: 'View Orientation HUD' },
+                    { key: 'showCoordinateHud', label: 'Placement Coordinates HUD' },
+                    { key: 'showBreadcrumbs', label: 'Spatial Breadcrumbs' },
+                    { key: 'showSnap', label: 'Precision Snapping' },
+                    { key: 'showMeasure', label: 'Laser Measure Tool' },
+                    { key: 'showSection', label: 'Section Cut Plane' },
+                    { key: 'showRenderStyle', label: 'Render Style Selector' }
+                  ].map((item) => {
+                    const isEnabled = customSettings ? (customSettings as any)[item.key] !== false : true;
+                    return (
+                      <div
+                        key={item.key}
+                        data-qa={`custom-toggle-${item.key}`}
+                        onClick={() => {
+                          if (onUpdateCustomSettings) {
+                            onUpdateCustomSettings({ [item.key]: !isEnabled });
+                          }
+                        }}
+                        className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[var(--control-hover)] cursor-pointer select-none transition-colors"
+                      >
+                        <span className="text-slate-300 text-xs">{item.label}</span>
+                        <div
+                          className={`w-8 h-4 rounded-full transition-colors flex items-center px-0.5 ${
+                            isEnabled ? 'bg-cyan-500' : 'bg-slate-700'
+                          }`}
+                        >
+                          <div
+                            className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                              isEnabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+      )}
+      </div>
+
+      {/* Center Zone: Breadcrumbs & Omnibar */}
+      <div className="flex items-center gap-2 mx-auto px-2 min-w-0">
+        {/* Spatial Breadcrumbs (Rendered when element is selected) */}
+        {(customSettings ? customSettings.showBreadcrumbs !== false : true) && breadcrumbs && breadcrumbs.length > 0 && (
+          <>
+            <div className="hidden lg:flex items-center gap-1.5 text-slate-400 text-xs px-2 max-w-xs truncate">
+              {windowWidth < 1366 ? (
+                <span className="truncate text-slate-100 font-medium max-w-[110px]" title={breadcrumbs[breadcrumbs.length - 1]}>
+                  {breadcrumbs[breadcrumbs.length - 1]}
+                </span>
+              ) : (
+                breadcrumbs.slice(-3).map((item, idx, arr) => (
+                  <React.Fragment key={idx}>
+                    <span
+                      className={`truncate ${idx === arr.length - 1 ? 'text-slate-100 font-medium' : 'text-slate-400'}`}
+                      title={item}
+                    >
+                      {item}
+                    </span>
+                    {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-slate-600 flex-shrink-0" />}
+                  </React.Fragment>
+                ))
+              )}
             </div>
-            {CATEGORY_FILTERS.map((cat) => {
-              const isHidden = hiddenCategories.has(cat.key);
-              return (
-                <DropdownMenu.Item
-                  key={cat.key}
-                  data-qa={`category-filter-${cat.key}`}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    if (onToggleCategory) onToggleCategory(cat.key);
-                  }}
-                  className="flex items-center justify-between px-2.5 py-1.5 text-xs text-slate-200 rounded-lg cursor-pointer hover:bg-[var(--control-hover)] focus:bg-[var(--control-hover)] outline-none transition-colors"
-                >
-                  <span className={isHidden ? 'text-slate-500 line-through' : 'text-slate-200'}>
-                    {cat.label}
-                  </span>
-                  {isHidden ? (
-                    <EyeOff className="w-3.5 h-3.5 text-slate-500" />
-                  ) : (
-                    <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                  )}
-                </DropdownMenu.Item>
-              );
-            })}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-
-      {/* Federation Button */}
-      <button
-        data-qa="pill-federation-toggle"
-        onClick={onToggleFederation}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
-          isFederationOpen
-            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-        }`}
-        title="Federated Model Coordination"
-      >
-        <Layers className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline text-xs">Federation</span>
-        {subModelCount > 0 && (
-          <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
-            +{subModelCount}
-          </span>
+            <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
+          </>
         )}
-      </button>
 
-      {/* Clashes Button */}
-      <button
-        data-qa="pill-clashes-toggle"
-        onClick={onToggleClash}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
-          isClashOpen
-            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-        }`}
-        title="Spatial Clash Detection"
-      >
-        <AlertTriangle className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline text-xs">Clashes</span>
-        {clashCount > 0 && (
-          <span className="text-[9px] font-mono px-1 rounded-full bg-amber-500/30 text-amber-300 font-bold">
-            {clashCount}
-          </span>
-        )}
-      </button>
-
-      {/* Parametric CAD Modeling Tool Toggle */}
-      <button
-        data-qa="pill-cad-toggle"
-        onClick={onToggleCad}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
-          isCadOpen
-            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-        }`}
-        title="Parametric 3D Modeling Tools"
-      >
-        <PenTool className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline text-xs">Model</span>
-      </button>
-
-      {/* BCF Issues & Collaboration Toggle */}
-      <button
-        data-qa="pill-bcf-toggle"
-        onClick={onToggleBcf}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
-          isBcfOpen
-            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-        }`}
-        title="BCF Issues & Viewpoints"
-      >
-        <ClipboardList className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline text-xs">BCF</span>
-        {bcfTopicCount > 0 && (
-          <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
-            {bcfTopicCount}
-          </span>
-        )}
-      </button>
-
-      {/* Audit Timeline Scrubber Toggle */}
-      <button
-        data-qa="pill-timeline-toggle"
-        onClick={onToggleTimeline}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
-          isTimelineOpen
-            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-        }`}
-        title="Session Playback & Change Audit"
-      >
-        <History className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline text-xs">Timeline</span>
-        {auditCount > 0 && (
-          <span className="text-[9px] font-mono px-1 rounded-full bg-slate-700 text-slate-300">
-            {auditCount}
-          </span>
-        )}
-      </button>
-
-      <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
-
-      {/* Drawer Toggle Controls */}
-      <div className="flex items-center gap-1">
+        {/* Omnibar / Command Palette Trigger */}
         <button
-          data-qa="pill-tree-toggle"
-          onClick={onToggleTree}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
-            isTreeOpen
-              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-          }`}
-          title="Toggle Spatial Hierarchy Drawer"
+          data-qa="pill-omnibar-trigger"
+          onClick={onOpenOmnibar}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+          title="Open Command Palette (Ctrl+K)"
         >
-          <FolderTree className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Tree</span>
-        </button>
-
-        <button
-          data-qa="pill-inspect-toggle"
-          onClick={onToggleProperty}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
-            isPropertyOpen
-              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-          }`}
-          title="Toggle Properties Drawer"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Inspect</span>
-        </button>
-
-        <button
-          data-qa="pill-copilot-toggle"
-          onClick={onToggleCopilot}
-          className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-            isCopilotOpen
-              ? 'bg-[var(--control-active)] text-cyan-300 border border-[var(--border-focus)] shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
-          }`}
-          title="Toggle AI Copilot Assistant (Ctrl+J)"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">Copilot</span>
+          <Search className="w-3.5 h-3.5" />
+          <span className={`text-[11px] font-mono text-slate-400 bg-[var(--control-bg)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] ${windowWidth < 1050 ? 'hidden' : 'hidden md:inline'}`}>
+            Ctrl+K
+          </span>
         </button>
       </div>
+
+      {/* Right Zone: Tools, Drawers, Avatars, Settings, Export */}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Category Filter Dropdown (hidden in Review mode) */}
+        {!isReview && (
+          <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              data-qa="pill-filter-trigger"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+                hiddenCategories.size > 0
+                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+              }`}
+              title="Filter Category Visibility"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>Filter</span>
+              {hiddenCategories.size > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              )}
+            </button>
+          </DropdownMenu.Trigger>
+
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className="z-50 min-w-[160px] bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-xl p-1 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+              sideOffset={8}
+              align="center"
+            >
+              <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Category Visibility
+              </div>
+              {CATEGORY_FILTERS.map((cat) => {
+                const isHidden = hiddenCategories.has(cat.key);
+                return (
+                  <DropdownMenu.Item
+                    key={cat.key}
+                    data-qa={`category-filter-${cat.key}`}
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      if (onToggleCategory) onToggleCategory(cat.key);
+                    }}
+                    className="flex items-center justify-between px-2.5 py-1.5 text-xs text-slate-200 rounded-lg cursor-pointer hover:bg-[var(--control-hover)] focus:bg-[var(--control-hover)] outline-none transition-colors"
+                  >
+                    <span className={isHidden ? 'text-slate-500 line-through' : 'text-slate-200'}>
+                      {cat.label}
+                    </span>
+                    {isHidden ? (
+                      <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                    )}
+                  </DropdownMenu.Item>
+                );
+              })}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      )}
+
+      {/* Federation Button (Query & Custom profiles) */}
+      {(activeProfile === 'query' || activeProfile === 'custom') && (
+        <button
+          data-qa="pill-federation-toggle"
+          onClick={onToggleFederation}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+            isFederationOpen
+              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+          }`}
+          title="Federated Model Coordination"
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>Federation</span>
+          {subModelCount > 0 && (
+            <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
+              +{subModelCount}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Clashes Button (Query & Custom profiles) */}
+      {(activeProfile === 'query' || activeProfile === 'custom') && (
+        <button
+          data-qa="pill-clashes-toggle"
+          onClick={onToggleClash}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${
+            isClashOpen
+              ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+          }`}
+          title="Spatial Clash Detection"
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>Clashes</span>
+          {clashCount > 0 && (
+            <span className="text-[9px] font-mono px-1 rounded-full bg-amber-500/30 text-amber-300 font-bold">
+              {clashCount}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Parametric CAD Modeling Tool Toggle (Modify & Custom profiles) */}
+      {(activeProfile === 'modify' || (activeProfile === 'custom' && customSettings?.showCadToolbar !== false)) && (
+        <button
+          data-qa="pill-cad-toggle"
+          onClick={onToggleCad}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+            isCadOpen
+              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+          }`}
+          title="Parametric 3D Modeling Tools"
+        >
+          <PenTool className="w-3.5 h-3.5" />
+          <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>Model</span>
+        </button>
+      )}
+
+      {/* BCF Issues & Collaboration Toggle (Query & Custom profiles) */}
+      {(activeProfile === 'query' || activeProfile === 'custom') && (
+        <button
+          data-qa="pill-bcf-toggle"
+          onClick={onToggleBcf}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+            isBcfOpen
+              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+          }`}
+          title="BCF Issues & Viewpoints"
+        >
+          <ClipboardList className="w-3.5 h-3.5" />
+          <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>BCF</span>
+          {bcfTopicCount > 0 && (
+            <span className="text-[9px] font-mono px-1 rounded-full bg-cyan-500/25 text-cyan-300">
+              {bcfTopicCount}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Audit Timeline Scrubber Toggle (Query & Custom profiles) */}
+      {(activeProfile === 'query' || activeProfile === 'custom') && (
+        <button
+          data-qa="pill-timeline-toggle"
+          onClick={onToggleTimeline}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
+            isTimelineOpen
+              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+          }`}
+          title="Session Playback & Change Audit"
+        >
+          <History className="w-3.5 h-3.5" />
+          <span className={windowWidth < 1500 ? 'hidden' : 'hidden 2xl:inline text-xs'}>Timeline</span>
+          {auditCount > 0 && (
+            <span className="text-[9px] font-mono px-1 rounded-full bg-slate-700 text-slate-300">
+              {auditCount}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Drawer Toggle Controls (hidden in Review mode) */}
+      {!isReview && (
+        <>
+          <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
+          <div className="flex items-center gap-1">
+            <button
+              data-qa="pill-tree-toggle"
+              onClick={onToggleTree}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
+                isTreeOpen
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+              }`}
+              title="Toggle Spatial Hierarchy Drawer"
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+              <span className={windowWidth < 1300 ? 'hidden' : 'hidden xl:inline'}>Tree</span>
+            </button>
+
+            <button
+              data-qa="pill-inspect-toggle"
+              onClick={onToggleProperty}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
+                isPropertyOpen
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+              }`}
+              title="Toggle Properties Drawer"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className={windowWidth < 1300 ? 'hidden' : 'hidden xl:inline'}>Inspect</span>
+            </button>
+
+            <button
+              data-qa="pill-copilot-toggle"
+              onClick={onToggleCopilot}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
+                isCopilotOpen
+                  ? 'bg-[var(--control-active)] text-cyan-300 border border-[var(--border-focus)] shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[var(--control-hover)]'
+              }`}
+              title="Toggle AI Copilot Assistant (Ctrl+J)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span className={windowWidth < 1300 ? 'hidden' : 'hidden xl:inline'}>Copilot</span>
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="h-4 w-[1px] bg-[var(--border-subtle)]" />
 
@@ -493,6 +667,19 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
             </div>
           ))}
         </div>
+      )}
+
+      {/* Modern Glass Mockup Preview Trigger */}
+      {onOpenMockup && (
+        <button
+          data-qa="pill-modern-glass-toggle"
+          onClick={onOpenMockup}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium text-sky-300 hover:text-white bg-sky-500/10 hover:bg-sky-500/20 border border-sky-400/30 shadow-sm transition-all cursor-pointer"
+          title="Preview Modern Glass UI Mockup"
+        >
+          <Box className="w-3.5 h-3.5 text-sky-400" />
+          <span className={windowWidth < 1200 ? 'hidden' : 'hidden lg:inline'}>Modern Glass</span>
+        </button>
       )}
 
       {/* Settings Modal Trigger */}
@@ -520,8 +707,9 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
         title="Export current IFC model"
       >
         <Download className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Export</span>
+        <span className={windowWidth < 1100 ? 'hidden' : 'hidden lg:inline'}>Export</span>
       </button>
+      </div>
     </header>
   );
 };

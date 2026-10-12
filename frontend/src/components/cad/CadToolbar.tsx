@@ -8,9 +8,9 @@ import {
   Undo2, 
   Redo2, 
   History, 
-  X,
-  Sliders,
-  GripVertical
+  X, 
+  Sliders, 
+  GripHorizontal 
 } from 'lucide-react';
 import type { CadToolMode, CadHistoryItem } from '../../types/ifc';
 import { useDraggableHud } from '../hud/HudLayoutContext';
@@ -29,6 +29,7 @@ interface CadToolbarProps {
   setWallHeight: (v: number) => void;
   wallThickness: number;
   setWallThickness: (v: number) => void;
+  leftOffset?: number;
 }
 
 export const CadToolbar: React.FC<CadToolbarProps> = ({
@@ -45,6 +46,7 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
   setWallHeight,
   wallThickness,
   setWallThickness,
+  leftOffset = 16
 }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -75,9 +77,9 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
     }
   };
 
-  const initialWidth = 540;
-  const initialHeight = 48;
-  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 450;
+  const initialWidth = 48;
+  const initialHeight = 360;
+  const initialX = leftOffset;
   const initialY = 72;
 
   const { ref, style, dragProps, isDragging } = useDraggableHud('cad-toolbar', {
@@ -93,23 +95,24 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
       style={style}
       {...dragProps}
       data-qa="cad-toolbar"
-      className={`z-40 flex flex-col items-center gap-2 pointer-events-auto select-none transition-shadow ${
+      data-qa-cad-mode={activeMode}
+      className={`z-40 flex flex-col items-center gap-1.5 pointer-events-auto select-none transition-shadow ${
         isDragging ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/40 cursor-grabbing' : 'cursor-grab'
       }`}
     >
-      {/* Primary Toolbar Pill */}
-      <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-surface-dock/90 backdrop-blur-xl border border-border-subtle shadow-dock">
+      {/* Primary Vertical Toolbar Shelf */}
+      <div className="flex flex-col items-center gap-1 p-1 rounded-2xl bg-surface-dock/90 backdrop-blur-xl border border-border-subtle shadow-dock">
         {/* Draggable Grip Handle */}
         <div
           data-drag-handle="true"
-          className="flex items-center text-text-secondary hover:text-text-primary px-1 py-1 cursor-grab active:cursor-grabbing"
+          className="flex items-center justify-center w-full py-1 text-text-secondary hover:text-text-primary cursor-grab active:cursor-grabbing border-b border-border-subtle"
           title="Drag to reposition CAD Toolbar"
         >
-          <GripVertical size={16} />
+          <GripHorizontal size={14} />
         </div>
 
-        {/* Tool Palette */}
-        <div className="flex items-center gap-1 pr-1.5 border-r border-border-subtle">
+        {/* Modeling Tools (Vertical Stack) */}
+        <div className="flex flex-col items-center gap-1 py-1 border-b border-border-subtle w-full">
           {tools.map((t) => {
             const isActive = activeMode === t.id;
             return (
@@ -118,28 +121,26 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
                 data-qa={`cad-tool-${t.id}`}
                 onClick={() => onSelectMode(t.id)}
                 title={`${t.label} (${t.shortcut})`}
-                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                className={`relative flex items-center justify-center w-9 h-9 rounded-xl text-xs font-medium transition-all ${
                   isActive
                     ? 'bg-action-primary-bg text-action-primary-text shadow-sm'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-canvas/50'
                 }`}
               >
                 {t.icon}
-                <span>{t.label}</span>
-                <span className="text-[10px] opacity-60 ml-0.5">{t.shortcut}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Undo / Redo Actions */}
-        <div className="flex items-center gap-1 px-1.5 border-r border-border-subtle">
+        {/* Undo / Redo / History Stack */}
+        <div className="flex flex-col items-center gap-1 py-1 border-b border-border-subtle w-full">
           <button
             data-qa="cad-undo-btn"
             disabled={!canUndo}
             onClick={onUndo}
             title="Undo last CAD action (Ctrl+Z)"
-            className={`p-1.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               canUndo
                 ? 'text-text-primary hover:bg-surface-canvas/60 active:scale-95'
                 : 'text-text-secondary/40 cursor-not-allowed'
@@ -152,7 +153,7 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
             disabled={!canRedo}
             onClick={onRedo}
             title="Redo last CAD action (Ctrl+Y)"
-            className={`p-1.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               canRedo
                 ? 'text-text-primary hover:bg-surface-canvas/60 active:scale-95'
                 : 'text-text-secondary/40 cursor-not-allowed'
@@ -165,9 +166,10 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
             onClick={() => {
               onRefreshHistory();
               setShowHistory(!showHistory);
+              if (!showHistory) setShowSettings(false);
             }}
             title="CAD Transaction History"
-            className={`p-1.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               showHistory
                 ? 'bg-action-primary-bg text-action-primary-text'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60'
@@ -177,13 +179,16 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
           </button>
         </div>
 
-        {/* Parametric Settings Toggle */}
-        <div className="flex items-center gap-1 pl-1">
+        {/* Settings & Close */}
+        <div className="flex flex-col items-center gap-1 pt-0.5 w-full">
           <button
             data-qa="cad-settings-btn"
-            onClick={() => setShowSettings(!showSettings)}
+            onClick={() => {
+              setShowSettings(!showSettings);
+              if (!showSettings) setShowHistory(false);
+            }}
             title="CAD Dimensions Settings"
-            className={`p-1.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               showSettings
                 ? 'bg-action-primary-bg text-action-primary-text'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60'
@@ -195,28 +200,28 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
             data-qa="cad-close-btn"
             onClick={onClose}
             title="Exit CAD Mode"
-            className="p-1.5 rounded-xl text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60 transition-all"
+            className="p-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-surface-canvas/60 transition-all"
           >
             <X size={16} />
           </button>
         </div>
       </div>
 
-      {/* Helper Status Tip */}
+      {/* Helper Status Tip (Flyout to the right) */}
       {activeMode !== 'select' && (
         <div
           data-qa="cad-status-banner"
-          className="px-3 py-1 rounded-full bg-surface-dock/90 backdrop-blur-md border border-border-subtle text-[11px] text-text-secondary shadow-sm animate-in fade-in slide-in-from-top-1"
+          className="absolute left-full ml-3 top-2 whitespace-nowrap px-3 py-1 rounded-full bg-surface-dock/90 backdrop-blur-md border border-border-subtle text-[11px] text-text-secondary shadow-sm animate-in fade-in slide-in-from-left-1 pointer-events-none"
         >
           {getHelperText(activeMode)}
         </div>
       )}
 
-      {/* Flyout: Parametric Dimensions */}
+      {/* Flyout: Parametric Dimensions (Opens to the right) */}
       {showSettings && (
         <div
           data-qa="cad-settings-card"
-          className="w-72 p-3 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2.5 animate-in fade-in zoom-in-95 text-xs text-text-primary"
+          className="absolute left-full ml-3 bottom-0 w-72 p-3.5 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2.5 animate-in fade-in slide-in-from-left-2 text-xs text-text-primary z-50 pointer-events-auto"
         >
           <div className="font-semibold text-text-primary border-b border-border-subtle pb-1">
             Parametric Settings
@@ -250,11 +255,11 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
         </div>
       )}
 
-      {/* Flyout: Transaction History */}
+      {/* Flyout: Transaction History (Opens to the right) */}
       {showHistory && (
         <div
           data-qa="cad-history-card"
-          className="w-80 max-h-72 overflow-y-auto p-3 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2 animate-in fade-in zoom-in-95 text-xs text-text-primary"
+          className="absolute left-full ml-3 top-16 w-80 max-h-80 overflow-y-auto p-3.5 rounded-2xl bg-surface-dock/95 backdrop-blur-xl border border-border-subtle shadow-dock flex flex-col gap-2 animate-in fade-in slide-in-from-left-2 text-xs text-text-primary z-50 pointer-events-auto"
         >
           <div className="flex items-center justify-between font-semibold text-text-primary border-b border-border-subtle pb-1">
             <span>Transaction Stack</span>

@@ -21,6 +21,7 @@ import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import { FederatedModelManager } from './components/federation/FederatedModelManager';
 import { ClashInspector } from './components/federation/ClashInspector';
 import { CadToolbar } from './components/cad/CadToolbar';
+import { ModernGlassMockup } from './components/mockup/ModernGlassMockup';
 import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
 import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
 import { SettingsModal } from './components/modals/SettingsModal';
@@ -28,6 +29,12 @@ import { MoveCopySpecialModal } from './components/cad/MoveCopySpecialModal';
 import type { InteractiveEditMode } from './types/cadEditing';
 import { loadEditorSettings, saveEditorSettings } from './services/settings';
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from './types/settings';
+import {
+  type UiProfile,
+  type CustomProfileSettings,
+  DEFAULT_CUSTOM_PROFILE_SETTINGS,
+  getEffectiveProfileSettings
+} from './types/profiles';
 import type { 
   GeometryData, 
   SpatialNode, 
@@ -120,7 +127,24 @@ export const App: React.FC = () => {
   }, [lockNotification]);
 
   // UI State
-  const [isTreeOpen, setIsTreeOpen] = useState(true);
+  const [isTreeOpen, setIsTreeOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_ui_profile');
+      if (saved === 'query') return true;
+      if (saved === 'review' || saved === 'modify') return false;
+    } catch {}
+    return false;
+  });
+  const [isModernGlassMockup, setIsModernGlassMockup] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mockup') === 'modern-glass') return true;
+        return localStorage.getItem('ifc_editor_view_mode') === 'modern-glass';
+      }
+    } catch {}
+    return false;
+  });
   const [isPropertyOpen, setIsPropertyOpen] = useState(true);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [treeWidth, setTreeWidth] = useState(288);
@@ -143,7 +167,14 @@ export const App: React.FC = () => {
   const [isClashLoading, setIsClashLoading] = useState(false);
 
   // Phase 11 State: Advanced Spatial Modeling (CAD) & Undo/Redo
-  const [isCadOpen, setIsCadOpen] = useState(false);
+  const [isCadOpen, setIsCadOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_ui_profile');
+      return saved === 'modify' || !saved;
+    } catch {
+      return true;
+    }
+  });
   const [cadToolMode, setCadToolMode] = useState<CadToolMode>('select');
   const [cadWallHeight, setCadWallHeight] = useState(3.0);
   const [cadWallThickness, setCadWallThickness] = useState(0.2);
@@ -164,6 +195,70 @@ export const App: React.FC = () => {
   // Settings State & Persistence
   const [settings, setSettings] = useState<EditorSettings>(() => loadEditorSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // UI Profile State: Review | Modify | Query | Custom
+  const [activeProfile, setActiveProfile] = useState<UiProfile>(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_ui_profile');
+      if (saved === 'review' || saved === 'modify' || saved === 'query' || saved === 'custom') {
+        return saved as UiProfile;
+      }
+    } catch {}
+    return 'modify';
+  });
+
+  const [customSettings, setCustomSettings] = useState<CustomProfileSettings>(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_custom_profile_config');
+      if (saved) {
+        return { ...DEFAULT_CUSTOM_PROFILE_SETTINGS, ...JSON.parse(saved) };
+      }
+    } catch {}
+    return DEFAULT_CUSTOM_PROFILE_SETTINGS;
+  });
+
+  const effectiveProfileSettings = useMemo(() => {
+    return getEffectiveProfileSettings(activeProfile, customSettings);
+  }, [activeProfile, customSettings]);
+
+  const handleSelectProfile = (newProfile: UiProfile) => {
+    setActiveProfile(newProfile);
+    try {
+      localStorage.setItem('ifc_editor_ui_profile', newProfile);
+    } catch {}
+    if (newProfile === 'query') {
+      setIsTreeOpen(true);
+      setIsCadOpen(false);
+      setActiveInteractiveMode('none');
+      if (selectedExpressID !== null) {
+        setIsPropertyOpen(true);
+      }
+    } else if (newProfile === 'review') {
+      setIsTreeOpen(false);
+      setIsPropertyOpen(false);
+      setIsCadOpen(false);
+      setActiveInteractiveMode('none');
+    } else if (newProfile === 'modify') {
+      setIsTreeOpen(false);
+      setIsCadOpen(true);
+      if (selectedExpressID !== null) {
+        setIsPropertyOpen(true);
+      }
+    } else if (newProfile === 'custom') {
+      setIsTreeOpen(customSettings.showTreeDrawer);
+      setIsCadOpen(customSettings.showCadToolbar);
+    }
+  };
+
+  const handleUpdateCustomSettings = (partial: Partial<CustomProfileSettings>) => {
+    setCustomSettings((prev) => {
+      const updated = { ...prev, ...partial };
+      try {
+        localStorage.setItem('ifc_editor_custom_profile_config', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
 
   const handleUpdateSettings = useCallback((updated: EditorSettings) => {
     setSettings(updated);
@@ -489,9 +584,7 @@ export const App: React.FC = () => {
         setSelectedExpressID(expressID);
         setIsPropertyOpen(true);
         setIsCopilotOpen(false);
-        if (transformMode === 'select') {
-          setTransformMode('translate');
-        }
+        // Retain select mode so inactive element displays a subtle pivot dot instead of large axes
         // Acquire lock via WebSocket
         collabClientRef.current?.selectElement(expressID);
       } else {
@@ -1256,7 +1349,9 @@ export const App: React.FC = () => {
     pinnedExpressIds: Array.from(pinnedExpressIds),
     firstExpressID: geometries.length > 0 ? geometries[0].expressID : 128,
     settings,
-    isSettingsOpen
+    isSettingsOpen,
+    activeProfile,
+    effectiveProfileSettings
   };
 
   useEffect(() => {
@@ -1264,6 +1359,9 @@ export const App: React.FC = () => {
       (window as any).__IFC_QA_BRIDGE__ = {
         getState: () => latestStateRef.current,
         getFirstExpressId: () => (geometries.length > 0 ? geometries[0].expressID : 128),
+        getProfile: () => activeProfile,
+        setProfile: (p: UiProfile) => handleSelectProfile(p),
+        updateCustomSettings: (cfg: Partial<CustomProfileSettings>) => handleUpdateCustomSettings(cfg),
         openSettingsModal: () => setIsSettingsOpen(true),
         closeSettingsModal: () => setIsSettingsOpen(false),
         updateSettings: (s: EditorSettings) => handleUpdateSettings(s),
@@ -1443,6 +1541,22 @@ export const App: React.FC = () => {
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
   const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
 
+  if (isModernGlassMockup) {
+    return (
+      <ModernGlassMockup
+        onBackToApp={() => {
+          setIsModernGlassMockup(false);
+          try {
+            localStorage.removeItem('ifc_editor_view_mode');
+            const url = new URL(window.location.href);
+            url.searchParams.delete('mockup');
+            window.history.replaceState({}, '', url.toString());
+          } catch {}
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className="relative w-screen h-screen bg-[var(--canvas-bg)] text-slate-100 overflow-hidden font-sans select-none"
@@ -1466,6 +1580,7 @@ export const App: React.FC = () => {
       data-qa-bcf-count={bcfTopics.length}
       data-qa-timeline-open={isTimelineOpen ? 'true' : 'false'}
       data-qa-audit-count={auditTimeline.length}
+      data-qa-ui-profile={activeProfile}
     >
       {/* 1. 100% Viewport Canvas (Full window immersion) */}
       <div
@@ -1483,6 +1598,7 @@ export const App: React.FC = () => {
           activeClash={activeClash}
           auditDiff={auditDiff}
           transformMode={transformMode}
+          onSetTransformMode={setTransformMode}
           snapEnabled={snapEnabled}
           onTransformEnd={handleTransformEnd}
           onTransformChange={handleTransformChange}
@@ -1539,6 +1655,10 @@ export const App: React.FC = () => {
           currentProject={currentProject}
           projects={projects}
           onSelectProject={loadProject}
+          activeProfile={activeProfile}
+          onSelectProfile={handleSelectProfile}
+          customSettings={customSettings}
+          onUpdateCustomSettings={handleUpdateCustomSettings}
           onOpenUploadModal={() => setIsUploadModalOpen(true)}
           onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           onDownloadProject={handleDownloadProject}
@@ -1575,16 +1695,24 @@ export const App: React.FC = () => {
           }}
           auditCount={auditTimeline.length}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
+          onOpenMockup={() => {
+            setIsModernGlassMockup(true);
+            try {
+              localStorage.setItem('ifc_editor_view_mode', 'modern-glass');
+            } catch {}
+          }}
         />
 
         {/* 2b. Contextual Modification Tab (Archicad 29 & Tekla 2025 Ribbon Below Top Pill) */}
-        {selectedExpressID !== null && (
+        {selectedExpressID !== null && effectiveProfileSettings.showContextualModifyBar && (
           <ContextualModifyBar
             expressId={selectedExpressID}
             elementDetails={selectedElementDetails}
             storeys={storeys}
             isPinned={pinnedExpressIds.has(selectedExpressID)}
             activeInteractiveMode={activeInteractiveMode}
+            leftDrawerOffset={isTreeOpen ? treeWidth : 0}
+            rightDrawerOffset={isPropertyOpen ? propertyWidth : isCopilotOpen ? copilotWidth : 0}
             onTogglePin={handleTogglePin}
             onStartMove={() => setActiveInteractiveMode('move')}
             onStartRotate={() => setActiveInteractiveMode('rotate')}
@@ -1607,15 +1735,18 @@ export const App: React.FC = () => {
         )}
 
         {/* 2a. Floating View Orientation Controls */}
-        <ViewControlsHud
-          onCameraPreset={handleCameraPreset}
-          activePreset={cameraPresetTrigger?.preset ?? null}
-          isRightDrawerOpen={isRightDrawerOpen}
-          rightDrawerWidth={activeRightDrawerWidth}
-        />
+        {effectiveProfileSettings.showViewControls && (
+          <ViewControlsHud
+            onCameraPreset={handleCameraPreset}
+            activePreset={cameraPresetTrigger?.preset ?? null}
+            isRightDrawerOpen={isRightDrawerOpen}
+            rightDrawerWidth={activeRightDrawerWidth}
+            isModifyBarVisible={selectedExpressID !== null && effectiveProfileSettings.showContextualModifyBar}
+          />
+        )}
 
       {/* 2b. Floating CAD Modeling Toolbar */}
-      {isCadOpen && (
+      {isCadOpen && effectiveProfileSettings.showCadToolbar && (
         <CadToolbar
           activeMode={cadToolMode}
           onSelectMode={setCadToolMode}
@@ -1630,6 +1761,7 @@ export const App: React.FC = () => {
           setWallHeight={setCadWallHeight}
           wallThickness={cadWallThickness}
           setWallThickness={setCadWallThickness}
+          leftOffset={isTreeOpen ? treeWidth + 12 : 16}
         />
       )}
 
@@ -1668,36 +1800,45 @@ export const App: React.FC = () => {
       />
 
       {/* 6. Contextual Floating Tool Dock (Bottom Center) */}
-      <SpatialBottomDock
-        transformMode={transformMode}
-        onSetTransformMode={setTransformMode}
-        cadToolMode={cadToolMode}
-        onSelectCadTool={(mode) => setCadToolMode(mode)}
-        canUndo={cadCanUndo}
-        canRedo={cadCanRedo}
-        onUndo={handleCadUndo}
-        onRedo={handleCadRedo}
-        snapEnabled={snapEnabled}
-        onToggleSnap={() => setSnapEnabled((prev) => !prev)}
-        isMeasureActive={isMeasureActive}
-        onToggleMeasure={() => setIsMeasureActive((p) => !p)}
-        measurementCount={measurements.length}
-        onClearMeasurements={handleClearMeasurements}
-        sectionConfig={sectionConfig}
-        onUpdateSection={setSectionConfig}
-        onCameraPreset={handleCameraPreset}
-        renderStyle={renderStyle}
-        onSetRenderStyle={setRenderStyle}
-      />
+      {effectiveProfileSettings.showBottomDock && (
+        <SpatialBottomDock
+          transformMode={transformMode}
+          onSetTransformMode={setTransformMode}
+          cadToolMode={cadToolMode}
+          onSelectCadTool={(mode) => setCadToolMode(mode)}
+          canUndo={cadCanUndo}
+          canRedo={cadCanRedo}
+          onUndo={handleCadUndo}
+          onRedo={handleCadRedo}
+          snapEnabled={snapEnabled}
+          onToggleSnap={() => setSnapEnabled((prev) => !prev)}
+          isMeasureActive={isMeasureActive}
+          onToggleMeasure={() => setIsMeasureActive((p) => !p)}
+          measurementCount={measurements.length}
+          onClearMeasurements={handleClearMeasurements}
+          sectionConfig={sectionConfig}
+          onUpdateSection={setSectionConfig}
+          onCameraPreset={handleCameraPreset}
+          renderStyle={renderStyle}
+          onSetRenderStyle={setRenderStyle}
+          profile={activeProfile}
+          customSettings={customSettings}
+          selectedExpressID={selectedExpressID}
+          leftDrawerOffset={isTreeOpen ? treeWidth : 0}
+          rightDrawerOffset={isPropertyOpen ? propertyWidth : isCopilotOpen ? copilotWidth : 0}
+        />
+      )}
 
       {/* 7. Bottom-Left Coordinate & Viewport Status HUD */}
-      <CoordinateHud
-        selectedExpressID={selectedExpressID}
-        transformInfo={transformInfo}
-        elementCount={geometries.length}
-        isTreeOpen={isTreeOpen}
-        treeWidth={treeWidth}
-      />
+      {effectiveProfileSettings.showCoordinateHud && (
+        <CoordinateHud
+          selectedExpressID={selectedExpressID}
+          transformInfo={transformInfo}
+          elementCount={geometries.length}
+          isTreeOpen={isTreeOpen}
+          treeWidth={treeWidth}
+        />
+      )}
 
       {/* 7a. Floating Dimension Info HUD with exact XYZ Deltas */}
       {activeDimension && (

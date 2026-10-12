@@ -49,6 +49,16 @@ Before marking any phase complete in `ROADMAP.md`, you must run and pass the fol
 - **Git Checkpoint:**
   - After passing all gates, commit changes with message: `feat(phase-X): complete <phase name>`.
 
+### 3.1 Autonomous UI Pipeline Rule (Build, Maintain, Test)
+Whenever creating, modifying, or refactoring any UI code in `frontend/src/` (components, styles, tokens, HUDs, or workers), the agent **MUST automatically execute the 3-stage UI Pipeline**:
+1. **Stage 1 (UI Builder):** TypeScript strict compilation (`pnpm exec tsc -b`) & Three.js `.dispose()` leak prevention.
+2. **Stage 2 (Design Critic & Gates):** Objective gates (`python scripts/gates/run_gates.py`: Zero Emoji, DTCG Hardcodes, Semantic Intent, APCA Contrast) and HUD overlap verification.
+3. **Stage 3 (QA Test Agent):** Harness validation (`scripts/qa_runner.py check`), live browser CDP verification, and development handoff logging.
+
+- **Automatic Execution Command:** Run `.\scripts\ui_pipeline.ps1 -Tier quick` (or with `-Browser` if dev server is up).
+- **Single Prompt Invocation:** Whenever the user asks `/ui-pipeline`, "run ui pipeline", or "verify UI", execute `.\scripts\ui_pipeline.ps1`.
+
+
 ---
 
 ## 4. Agent QA Harness Integration & Continuous Verification

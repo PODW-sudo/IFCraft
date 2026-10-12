@@ -121,7 +121,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
     showGrid: true,
     gridSize: 50,
     gridDivisions: 50,
-    gridAccentColor: '#22d3ee',
+    gridAccentColor: '#252b36',
     gridBaseColor: '#252b36',
     showAxes: false,
     shadowQuality: 'high'

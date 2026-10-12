@@ -110,21 +110,21 @@ OPENAI_TOOLS = [
 # ---------------------------------------------------------------------------
 
 class AIService:
-    @staticmethod
-    def get_supported_providers() -> list[dict[str, Any]]:
+    @classmethod
+    def get_supported_providers(cls) -> list[dict[str, Any]]:
         return [
             {
                 "id": "gemini",
                 "name": "Google Gemini",
-                "models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
-                "default_model": "gemini-2.5-flash",
+                "models": ["gemini-3.8-flash", "gemini-3.8-pro", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+                "default_model": "gemini-3.8-flash",
                 "requires_api_key": True,
                 "has_server_key": bool(settings.GEMINI_API_KEY)
             },
             {
                 "id": "claude",
                 "name": "Anthropic Claude",
-                "models": ["claude-3-7-sonnet", "claude-3-5-sonnet"],
+                "models": ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"],
                 "default_model": "claude-3-7-sonnet",
                 "requires_api_key": True,
                 "has_server_key": bool(settings.ANTHROPIC_API_KEY)
@@ -132,16 +132,41 @@ class AIService:
             {
                 "id": "openai",
                 "name": "OpenAI",
-                "models": ["gpt-4.5", "gpt-4o", "o3-mini"],
+                "models": ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "gpt-4.5-preview"],
                 "default_model": "gpt-4o",
                 "requires_api_key": True,
                 "has_server_key": bool(settings.OPENAI_API_KEY)
             },
             {
+                "id": "openrouter",
+                "name": "OpenRouter",
+                "models": [
+                    "anthropic/claude-3.7-sonnet",
+                    "openai/gpt-4o",
+                    "google/gemini-2.0-flash-001",
+                    "deepseek/deepseek-chat",
+                    "meta-llama/llama-3.3-70b-instruct",
+                    "qwen/qwen-2.5-72b-instruct"
+                ],
+                "default_model": "anthropic/claude-3.7-sonnet",
+                "default_base_url": "https://openrouter.ai/api/v1",
+                "requires_api_key": True,
+                "has_server_key": bool(settings.OPENROUTER_API_KEY)
+            },
+            {
+                "id": "custom",
+                "name": "Custom Provider (OpenAI Compatible)",
+                "models": ["custom-model"],
+                "default_model": "custom-model",
+                "default_base_url": "http://localhost:8000/v1",
+                "requires_api_key": False,
+                "has_server_key": False
+            },
+            {
                 "id": "ollama",
                 "name": "Ollama / Local LLM",
-                "models": ["llama3.1", "qwen2.5-coder", "mistral"],
-                "default_model": "llama3.1",
+                "models": ["llama3.2", "llama3.1", "qwen2.5-coder", "mistral", "deepseek-r1"],
+                "default_model": "llama3.2",
                 "default_base_url": "http://localhost:11434/v1",
                 "requires_api_key": False,
                 "has_server_key": True
@@ -155,6 +180,431 @@ class AIService:
                 "has_server_key": True
             }
         ]
+
+    @classmethod
+    async def fetch_dynamic_models(
+        cls,
+        provider: str,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Fetch live list of available models for a given provider, and verify connection status."""
+        providers = cls.get_supported_providers()
+        prov_def = next((p for p in providers if p["id"] == provider), None)
+        if not prov_def:
+            return {
+                "provider": provider,
+                "models": [],
+                "default_model": "",
+                "source": "fallback",
+                "connected": False,
+                "error": f"Unknown provider: {provider}"
+            }
+
+        fallback_models = list(prov_def["models"])
+        default_model = prov_def["default_model"]
+
+        if provider == "local":
+            return {
+                "provider": provider,
+                "models": ["deterministic-engine"],
+                "default_model": "deterministic-engine",
+                "source": "api",
+                "connected": True,
+                "error": None
+            }
+
+        effective_key = (api_key or "").strip()
+        if not effective_key:
+            if provider == "gemini":
+                effective_key = settings.GEMINI_API_KEY
+            elif provider == "claude":
+                effective_key = settings.ANTHROPIC_API_KEY
+            elif provider == "openai":
+                effective_key = settings.OPENAI_API_KEY
+            elif provider == "openrouter":
+                effective_key = settings.OPENROUTER_API_KEY
+
+        # If provider requires an API key and none is present
+        if prov_def.get("requires_api_key") and not effective_key:
+            return {
+                "provider": provider,
+                "models": fallback_models,
+                "default_model": default_model,
+                "source": "fallback",
+                "connected": False,
+                "error": f"API key required for {prov_def['name']}"
+            }
+
+        try:
+            if provider == "gemini":
+                models, err = await cls._fetch_gemini_models(effective_key)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": "gemini-3.8-flash" if "gemini-3.8-flash" in models else models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or "Failed to discover Gemini models"
+                }
+
+            elif provider == "claude":
+                models, err = await cls._fetch_claude_models(effective_key)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": "claude-3-7-sonnet" if "claude-3-7-sonnet" in models else models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or "Failed to discover Anthropic Claude models"
+                }
+
+            elif provider == "openai":
+                effective_base = base_url or "https://api.openai.com/v1"
+                models, err = await cls._fetch_openai_models(effective_key, effective_base)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": "gpt-4o" if "gpt-4o" in models else models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or "Failed to discover OpenAI models"
+                }
+
+            elif provider == "openrouter":
+                models, err = await cls._fetch_openrouter_models(effective_key)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": "anthropic/claude-3.7-sonnet" if "anthropic/claude-3.7-sonnet" in models else models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or "Failed to discover OpenRouter models"
+                }
+
+            elif provider == "custom":
+                effective_base = (base_url or "").strip()
+                if not effective_base:
+                    return {
+                        "provider": provider,
+                        "models": fallback_models,
+                        "default_model": default_model,
+                        "source": "fallback",
+                        "connected": False,
+                        "error": "Base URL required for Custom Provider"
+                    }
+                models, err = await cls._fetch_custom_models(effective_key, effective_base)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or f"Cannot connect to custom provider at {effective_base}"
+                }
+
+            elif provider == "ollama":
+                effective_base = base_url or "http://localhost:11434/v1"
+                models, err = await cls._fetch_ollama_models(effective_base)
+                if models:
+                    return {
+                        "provider": provider,
+                        "models": models,
+                        "default_model": models[0],
+                        "source": "api",
+                        "connected": True,
+                        "error": None
+                    }
+                return {
+                    "provider": provider,
+                    "models": fallback_models,
+                    "default_model": default_model,
+                    "source": "fallback",
+                    "connected": False,
+                    "error": err or f"Cannot connect to Ollama at {effective_base}"
+                }
+
+        except Exception as e:
+            logger.warning("Dynamic model discovery failed for provider %s: %s", provider, e)
+            return {
+                "provider": provider,
+                "models": fallback_models,
+                "default_model": default_model,
+                "source": "fallback",
+                "connected": False,
+                "error": str(e)
+            }
+
+        return {
+            "provider": provider,
+            "models": fallback_models,
+            "default_model": default_model,
+            "source": "fallback",
+            "connected": False,
+            "error": "Could not verify provider connection"
+        }
+
+    @classmethod
+    async def _fetch_gemini_models(cls, api_key: str) -> tuple[list[str], Optional[str]]:
+        url = "https://generativelanguage.googleapis.com/v1beta/models"
+        headers = {"x-goog-api-key": api_key}
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 400:
+                    return [], "Invalid Gemini API key (400 Bad Request)"
+                if resp.status_code == 403:
+                    return [], "Gemini API key forbidden or quota exceeded (403)"
+                if resp.status_code != 200:
+                    return [], f"Gemini API returned HTTP {resp.status_code}"
+                data = resp.json()
+                raw_models = data.get("models", [])
+
+                candidates: list[str] = []
+                for m in raw_models:
+                    methods = m.get("supportedGenerationMethods", [])
+                    if "generateContent" not in methods:
+                        continue
+                    clean_name = m.get("name", "").removeprefix("models/").strip()
+                    if not clean_name or clean_name in ("gemini-2.5-flash", "gemini-2.0-flash-exp"):
+                        continue
+                    if any(x in clean_name.lower() for x in ("embedding", "aqa", "imagen", "robotics", "computer-use")):
+                        continue
+                    candidates.append(clean_name)
+
+                def gemini_priority(name: str) -> tuple[int, str]:
+                    if name == "gemini-3.8-flash":
+                        return (0, name)
+                    if name == "gemini-3.8-pro":
+                        return (1, name)
+                    if "3.8" in name:
+                        return (2, name)
+                    if "2.5-pro" in name:
+                        return (3, name)
+                    if "2.0-flash" in name:
+                        return (4, name)
+                    if "1.5-pro" in name:
+                        return (5, name)
+                    if "1.5-flash" in name:
+                        return (6, name)
+                    return (10, name)
+
+                candidates.sort(key=gemini_priority)
+                return candidates, None
+        except Exception as e:
+            return [], f"Cannot connect to Gemini: {str(e)}"
+
+    @classmethod
+    async def _fetch_openai_models(cls, api_key: str, base_url: str) -> tuple[list[str], Optional[str]]:
+        url = f"{base_url.rstrip('/')}/models"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 401:
+                    return [], "Invalid OpenAI API key (401 Unauthorized)"
+                if resp.status_code == 403:
+                    return [], "OpenAI API access forbidden (403)"
+                if resp.status_code != 200:
+                    return [], f"OpenAI API returned HTTP {resp.status_code}"
+                data = resp.json()
+                raw_list = data.get("data", [])
+                valid_models = []
+                for item in raw_list:
+                    mid = item.get("id", "")
+                    if any(mid.startswith(p) for p in ("gpt-4", "gpt-3.5", "o1", "o3", "chatgpt")):
+                        if not any(x in mid.lower() for x in ("realtime", "audio", "transcription", "tts", "embedding", "moderation")):
+                            valid_models.append(mid)
+
+                priority_names = ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "gpt-4.5-preview"]
+                sorted_models = [m for m in priority_names if m in valid_models]
+                for m in sorted(valid_models):
+                    if m not in sorted_models:
+                        sorted_models.append(m)
+                return sorted_models, None
+        except Exception as e:
+            return [], f"Cannot connect to OpenAI: {str(e)}"
+
+    @classmethod
+    async def _fetch_claude_models(cls, api_key: str) -> tuple[list[str], Optional[str]]:
+        url = "https://api.anthropic.com/v1/models"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 401:
+                    return [], "Invalid Anthropic API key (401 Unauthorized)"
+                if resp.status_code == 403:
+                    return [], "Anthropic account access forbidden or inactive (403)"
+                if resp.status_code != 200:
+                    return [], f"Anthropic API returned HTTP {resp.status_code}"
+                data = resp.json()
+                raw_list = data.get("data", [])
+                model_ids = [item.get("id", "") for item in raw_list if item.get("id")]
+                aliases = ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
+                res = [a for a in aliases if any(a in m for m in model_ids) or a in model_ids]
+                for m in model_ids:
+                    if m not in res:
+                        res.append(m)
+                return (res if res else model_ids), None
+        except Exception as e:
+            return [], f"Cannot connect to Anthropic: {str(e)}"
+
+    @classmethod
+    async def _fetch_openrouter_models(cls, api_key: str) -> tuple[list[str], Optional[str]]:
+        url = "https://openrouter.ai/api/v1/models"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "http://localhost:5173",
+            "X-Title": "IFC Editor"
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 401:
+                    return [], "Invalid OpenRouter API key (401 Unauthorized)"
+                if resp.status_code == 403:
+                    return [], "OpenRouter account forbidden or insufficient credits (403)"
+                if resp.status_code != 200:
+                    return [], f"OpenRouter API returned HTTP {resp.status_code}"
+                data = resp.json()
+                raw_list = data.get("data", [])
+                all_ids = [item.get("id", "") for item in raw_list if item.get("id")]
+
+                priority_list = [
+                    "anthropic/claude-3.7-sonnet",
+                    "anthropic/claude-3.5-sonnet",
+                    "openai/gpt-4o",
+                    "openai/gpt-4o-mini",
+                    "google/gemini-2.0-flash-001",
+                    "google/gemini-2.5-pro",
+                    "deepseek/deepseek-chat",
+                    "deepseek/deepseek-r1",
+                    "meta-llama/llama-3.3-70b-instruct",
+                    "qwen/qwen-2.5-72b-instruct"
+                ]
+                sorted_models = [m for m in priority_list if m in all_ids]
+                for m in all_ids:
+                    if m not in sorted_models:
+                        sorted_models.append(m)
+                return (sorted_models if sorted_models else all_ids), None
+        except Exception as e:
+            return [], f"Cannot connect to OpenRouter: {str(e)}"
+
+    @classmethod
+    async def _fetch_custom_models(cls, api_key: Optional[str], base_url: str) -> tuple[list[str], Optional[str]]:
+        clean_base = base_url.rstrip("/")
+        url = f"{clean_base}/models"
+        headers: dict[str, str] = {}
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 401:
+                    return [], "Custom provider authorization failed (401 Unauthorized)"
+                if resp.status_code == 403:
+                    return [], "Custom provider access forbidden (403)"
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_list = data.get("data", [])
+                    if isinstance(raw_list, list):
+                        ids = [item.get("id", "") for item in raw_list if isinstance(item, dict) and item.get("id")]
+                        if ids:
+                            return ids, None
+                    return ["custom-model"], None
+                if resp.status_code == 404:
+                    # Endpoint exists but doesn't implement /models
+                    return ["custom-model"], None
+                return [], f"Custom provider returned HTTP {resp.status_code}"
+        except httpx.ConnectError:
+            return [], f"Cannot connect to custom server at {base_url} (Connection refused)"
+        except httpx.TimeoutException:
+            return [], f"Connection timed out reaching {base_url}"
+        except Exception as e:
+            return [], f"Custom provider error: {str(e)}"
+
+    @classmethod
+    async def _fetch_ollama_models(cls, base_url: str) -> tuple[list[str], Optional[str]]:
+        clean_base = base_url.rstrip("/")
+        root_url = clean_base[:-3] if clean_base.endswith("/v1") else clean_base
+        models: list[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                try:
+                    resp = await client.get(f"{root_url}/api/tags")
+                    if resp.status_code == 200:
+                        for m in resp.json().get("models", []):
+                            name = m.get("name", "")
+                            if name:
+                                models.append(name)
+                except Exception:
+                    pass
+
+                if not models:
+                    try:
+                        resp = await client.get(f"{clean_base}/models")
+                        if resp.status_code == 200:
+                            for m in resp.json().get("data", []):
+                                mid = m.get("id", "")
+                                if mid:
+                                    models.append(mid)
+                    except Exception:
+                        pass
+            if models:
+                return models, None
+            return [], f"No Ollama models found at {base_url}"
+        except Exception as e:
+            return [], f"Cannot connect to Ollama at {base_url}: {str(e)}"
+
 
     # -----------------------------------------------------------------------
     # Tool Execution Handlers
@@ -250,17 +700,26 @@ class AIService:
                 if building:
                     ifcopenshell.api.run("aggregate.assign_object", model, relating_object=building, products=[storey])
 
-            # 1. Floor Slab
+            # 1. Floor Slab (Ground floor plinth underneath; upper floor slabs cleanly inside perimeter walls)
             slab = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSlab", name=f"{level_name} Floor Slab")
-            slab_rep = create_box_mesh(length, width, 0.3)
+            if level_idx == 0:
+                slab_rep = create_box_mesh(length, width, 0.3)
+                mat_slab = np.identity(4)
+                mat_slab[2, 3] = elevation - 0.3
+            else:
+                slab_dx = max(0.1, length - 2.0 * wall_thickness)
+                slab_dy = max(0.1, width - 2.0 * wall_thickness)
+                slab_rep = create_box_mesh(slab_dx, slab_dy, 0.3)
+                mat_slab = np.identity(4)
+                mat_slab[0, 3] = wall_thickness
+                mat_slab[1, 3] = wall_thickness
+                mat_slab[2, 3] = elevation - 0.3
             ifcopenshell.api.run("geometry.assign_representation", model, product=slab, representation=slab_rep)
-            mat_slab = np.identity(4)
-            mat_slab[2, 3] = elevation - 0.3
             ifcopenshell.api.run("geometry.edit_object_placement", model, product=slab, matrix=mat_slab)
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[slab])
             generated_elements_count += 1
 
-            # 2. Perimeter Walls
+            # 2. Perimeter Walls (Clean butt-joints without overlapping corner volumes or coplanar Z-fighting)
             # South Wall (along X, y=0)
             w_south = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=f"{level_name} South Wall")
             rep_s = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=length, height=storey_height, thickness=wall_thickness)
@@ -280,26 +739,27 @@ class AIService:
             ifcopenshell.api.run("geometry.edit_object_placement", model, product=w_north, matrix=mn)
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[w_north])
 
-            # West Wall (along Y, x=0)
+            # West Wall (along Y, fitted cleanly between South and North walls: Y from wall_thickness to width - wall_thickness)
+            side_wall_len = max(0.1, width - 2.0 * wall_thickness)
             w_west = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=f"{level_name} West Wall")
-            rep_w = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=width, height=storey_height, thickness=wall_thickness)
+            rep_w = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=side_wall_len, height=storey_height, thickness=wall_thickness)
             ifcopenshell.api.run("geometry.assign_representation", model, product=w_west, representation=rep_w)
             mw = np.array([
                 [0.0, -1.0, 0.0, wall_thickness],
-                [1.0,  0.0, 0.0, 0.0],
+                [1.0,  0.0, 0.0, wall_thickness],
                 [0.0,  0.0, 1.0, elevation],
                 [0.0,  0.0, 0.0, 1.0]
             ])
             ifcopenshell.api.run("geometry.edit_object_placement", model, product=w_west, matrix=mw)
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[w_west])
 
-            # East Wall (along Y, x=length)
+            # East Wall (along Y, fitted cleanly between South and North walls: Y from wall_thickness to width - wall_thickness)
             w_east = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=f"{level_name} East Wall")
-            rep_e = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=width, height=storey_height, thickness=wall_thickness)
+            rep_e = ifcopenshell.api.run("geometry.add_wall_representation", model, context=body, length=side_wall_len, height=storey_height, thickness=wall_thickness)
             ifcopenshell.api.run("geometry.assign_representation", model, product=w_east, representation=rep_e)
             me = np.array([
                 [0.0, -1.0, 0.0, length],
-                [1.0,  0.0, 0.0, 0.0],
+                [1.0,  0.0, 0.0, wall_thickness],
                 [0.0,  0.0, 1.0, elevation],
                 [0.0,  0.0, 0.0, 1.0]
             ])
@@ -307,14 +767,19 @@ class AIService:
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[w_east])
             generated_elements_count += 4
 
-            # 3. Corner Columns
-            corners = [
-                (0.0, 0.0),
-                (length - col_size, 0.0),
-                (0.0, width - col_size),
-                (length - col_size, width - col_size)
-            ]
-            for c_i, (cx, cy) in enumerate(corners):
+            # 3. Interior Structural Columns (supporting floor spans, positioned in interior bays without clashing with perimeter walls)
+            col_positions = []
+            if length >= 10.0 and width >= 7.0:
+                col_positions = [
+                    (length * 0.35 - col_size / 2.0, width * 0.5 - col_size / 2.0),
+                    (length * 0.65 - col_size / 2.0, width * 0.5 - col_size / 2.0)
+                ]
+            elif length >= 6.0 and width >= 5.0:
+                col_positions = [
+                    (length * 0.5 - col_size / 2.0, width * 0.5 - col_size / 2.0)
+                ]
+
+            for c_i, (cx, cy) in enumerate(col_positions):
                 col = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcColumn", name=f"{level_name} Column C{c_i+1}")
                 col_rep = create_box_mesh(col_size, col_size, storey_height)
                 ifcopenshell.api.run("geometry.assign_representation", model, product=col, representation=col_rep)
@@ -579,6 +1044,8 @@ class AIService:
                 api_key = settings.OPENAI_API_KEY
             elif provider == "claude":
                 api_key = settings.ANTHROPIC_API_KEY
+            elif provider == "openrouter":
+                api_key = settings.OPENROUTER_API_KEY
 
         model = request.model or ""
         messages = request.messages
@@ -586,8 +1053,13 @@ class AIService:
         selected_id = request.selected_express_id
 
         # If an external cloud provider was selected but no key is present, provide structured guidance
-        if provider in ("gemini", "claude", "openai") and not api_key:
-            provider_names = {"gemini": "Google Gemini", "claude": "Anthropic Claude", "openai": "OpenAI"}
+        if provider in ("gemini", "claude", "openai", "openrouter") and not api_key:
+            provider_names = {
+                "gemini": "Google Gemini",
+                "claude": "Anthropic Claude",
+                "openai": "OpenAI",
+                "openrouter": "OpenRouter"
+            }
             disp_name = provider_names.get(provider, provider.title())
             return CopilotChatResponse(
                 message=ChatMessage(
@@ -610,14 +1082,40 @@ class AIService:
 
         # Route to provider or deterministic fallback
         if provider == "gemini" and api_key:
-            assistant_content, raw_calls = await cls._call_gemini(api_key, model or "gemini-2.5-flash", messages, selected_id)
+            gemini_model = (model or "gemini-3.8-flash").removeprefix("models/").strip()
+            if gemini_model in ("gemini-2.5-flash", "gemini-2.0-flash-exp"):
+                gemini_model = "gemini-3.8-flash"
+            assistant_content, raw_calls = await cls._call_gemini(api_key, gemini_model, messages, selected_id)
         elif provider == "claude" and api_key:
             assistant_content, raw_calls = await cls._call_anthropic(api_key, model or "claude-3-7-sonnet", messages, selected_id)
         elif provider == "openai" and api_key:
             assistant_content, raw_calls = await cls._call_openai(api_key, model or "gpt-4o", messages, request.base_url or "https://api.openai.com/v1", selected_id)
+        elif provider == "openrouter" and api_key:
+            openrouter_base = request.base_url or "https://openrouter.ai/api/v1"
+            extra_headers = {
+                "HTTP-Referer": "http://localhost:5173",
+                "X-Title": "IFC Editor"
+            }
+            assistant_content, raw_calls = await cls._call_openai(
+                api_key,
+                model or "anthropic/claude-3.7-sonnet",
+                messages,
+                openrouter_base,
+                selected_id,
+                extra_headers=extra_headers
+            )
+        elif provider == "custom":
+            custom_base = (request.base_url or "").strip() or "http://localhost:8000/v1"
+            assistant_content, raw_calls = await cls._call_openai(
+                api_key,
+                model or "custom-model",
+                messages,
+                custom_base,
+                selected_id
+            )
         elif provider == "ollama":
             base_url = request.base_url or "http://localhost:11434/v1"
-            assistant_content, raw_calls = await cls._call_openai("ollama", model or "llama3.1", messages, base_url, selected_id)
+            assistant_content, raw_calls = await cls._call_openai("ollama", model or "llama3.2", messages, base_url, selected_id)
         else:
             # Deterministic local engine (Zero-Key / Offline / Test)
             assistant_content, raw_calls = await cls._call_local_deterministic(messages, selected_id)
@@ -651,7 +1149,13 @@ class AIService:
 
     @classmethod
     async def _call_gemini(cls, api_key: str, model: str, messages: list[ChatMessage], selected_id: Optional[int]) -> tuple[str, list[dict[str, Any]]]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        clean_model = (model or "gemini-3.8-flash").removeprefix("models/").strip()
+        if clean_model in ("gemini-2.5-flash", "gemini-2.0-flash-exp"):
+            logger.info("Migrating deprecated model %s to gemini-3.8-flash", clean_model)
+            clean_model = "gemini-3.8-flash"
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+
         
         # Build Gemini contents format
         contents = []
@@ -713,12 +1217,23 @@ class AIService:
         return text, calls
 
     @classmethod
-    async def _call_openai(cls, api_key: str, model: str, messages: list[ChatMessage], base_url: str, selected_id: Optional[int]) -> tuple[str, list[dict[str, Any]]]:
+    async def _call_openai(
+        cls,
+        api_key: str,
+        model: str,
+        messages: list[ChatMessage],
+        base_url: str,
+        selected_id: Optional[int],
+        extra_headers: Optional[dict[str, str]] = None
+    ) -> tuple[str, list[dict[str, Any]]]:
         url = f"{base_url.rstrip('/')}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json"
         }
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+        if extra_headers:
+            headers.update(extra_headers)
 
         openai_msgs = [{"role": m.role, "content": m.content} for m in messages]
         if selected_id and openai_msgs:
@@ -731,7 +1246,7 @@ class AIService:
             "tool_choice": "auto"
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=35.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 raise RuntimeError(f"OpenAI API returned error {resp.status_code}: {resp.text}")

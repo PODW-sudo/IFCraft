@@ -164,7 +164,50 @@ export function useDraggableHud(
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: defaultPos.x, y: defaultPos.y });
   const [isDragging, setIsDragging] = useState(false);
+  const userMovedRef = useRef<boolean>(false);
   const dragStartRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+
+  // Sync with defaultPos if user has not manually dragged this HUD
+  useEffect(() => {
+    if (!userMovedRef.current) {
+      setPos({ x: defaultPos.x, y: defaultPos.y });
+      if (context) {
+        context.updateHudBounds(id, { x: defaultPos.x, y: defaultPos.y });
+      }
+    }
+  }, [id, defaultPos.x, defaultPos.y, context]);
+
+  // Window resize handler: re-adjust or clamp HUD positions
+  useEffect(() => {
+    const handleResize = () => {
+      const el = containerRef.current;
+      const width = el?.offsetWidth || defaultPos.width || 200;
+      const height = el?.offsetHeight || defaultPos.height || 40;
+      const maxX = Math.max(8, window.innerWidth - width - 8);
+      const maxY = Math.max(8, window.innerHeight - height - 8);
+
+      if (!userMovedRef.current) {
+        const nextX = Math.min(defaultPos.x, maxX);
+        const nextY = Math.min(defaultPos.y, maxY);
+        setPos({ x: nextX, y: nextY });
+        if (context) {
+          context.updateHudBounds(id, { x: nextX, y: nextY, width, height });
+        }
+      } else {
+        setPos((prev) => {
+          const nextX = Math.max(8, Math.min(prev.x, maxX));
+          const nextY = Math.max(8, Math.min(prev.y, maxY));
+          if (context) {
+            context.updateHudBounds(id, { x: nextX, y: nextY, width, height });
+          }
+          return { x: nextX, y: nextY };
+        });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [id, defaultPos.x, defaultPos.y, defaultPos.width, defaultPos.height, context]);
 
   // Register on mount
   useEffect(() => {
@@ -226,6 +269,10 @@ export function useDraggableHud(
 
       const dx = e.clientX - dragStartRef.current.startX;
       const dy = e.clientY - dragStartRef.current.startY;
+
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        userMovedRef.current = true;
+      }
 
       const candidateX = dragStartRef.current.initialX + dx;
       const candidateY = dragStartRef.current.initialY + dy;

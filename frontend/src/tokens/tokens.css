@@ -51,4 +51,16 @@
   /* Shadows */
   --shadow-hud: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   --shadow-control: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+
+  /* Modern Glass - Soft / Elegant Theme Tokens */
+  --glass-bg-canvas: #a5b9ce;
+  --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(224, 242, 254, 0.8) 0px, transparent 60%),
+    radial-gradient(at 85% 20%, rgba(241, 245, 249, 0.9) 0px, transparent 55%),
+    radial-gradient(at 50% 90%, rgba(219, 234, 254, 0.7) 0px, transparent 65%),
+    linear-gradient(135deg, #a5b9ce 0%, #cbd8e6 40%, #e2e8f0 100%);
+  --glass-surface-panel: rgba(255, 255, 255, 0.5);
+  --glass-surface-card: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 12px 36px 0 rgba(15, 23, 42, 0.08);
 }
+

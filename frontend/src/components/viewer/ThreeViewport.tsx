@@ -50,6 +50,7 @@ interface ThreeViewportProps {
   hiddenCategories: Set<string>;
   isolatedExpressID: number | null;
   transformMode: TransformMode;
+  onSetTransformMode?: (mode: TransformMode) => void;
   snapEnabled: boolean;
   onTransformEnd: (expressID: number, matrix: number[]) => void;
   onTransformChange?: (expressID: number, pos: [number, number, number], rot: [number, number, number]) => void;
@@ -622,6 +623,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   hiddenCategories,
   isolatedExpressID,
   transformMode,
+  onSetTransformMode,
   snapEnabled,
   onTransformEnd,
   onTransformChange,
@@ -682,6 +684,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const meshMapRef = useRef<Map<number, THREE.Mesh[]>>(new Map());
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
+  const pivotDotGroupRef = useRef<THREE.Group | null>(null);
   const clashMarkerGroupRef = useRef<THREE.Group | null>(null);
   const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
   const editGuidesGroupRef = useRef<THREE.Group | null>(null);
@@ -915,11 +918,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
     });
 
-    // TransformControls
+    // TransformControls (Compact, sleek CAD proportions: 0.42 instead of 0.75)
     const tControls = new TransformControls(camera, renderer.domElement);
-    tControls.size = 0.75;
+    tControls.size = 0.42;
     scene.add(tControls.getHelper());
     transformControlsRef.current = tControls;
+
+    // Inactive Pivot Dot / Origin Anchor Indicator Group
+    const pivotDotGroup = new THREE.Group();
+    pivotDotGroup.name = 'pivot-dot-group';
+    pivotDotGroup.visible = false;
+    scene.add(pivotDotGroup);
+    pivotDotGroupRef.current = pivotDotGroup;
 
     tControls.addEventListener('dragging-changed', (event) => {
       const isDragging = Boolean(event.value);
@@ -991,12 +1001,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     dirLight2.position.set(-20, -10, -20);
     scene.add(dirLight2);
 
-    // Grid (DTCG tokens: cyan accent line, subtle dark grid)
+    // Grid (Uniform subtle dark grid with zero origin axis crosshair)
+    const gridBaseCol = new THREE.Color(settings.viewport?.gridBaseColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridBaseColor).getHex();
     const gridHelper = new THREE.GridHelper(
       settings.viewport?.gridSize ?? 50,
       settings.viewport?.gridDivisions ?? 50,
-      new THREE.Color(settings.viewport?.gridAccentColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridAccentColor).getHex(),
-      new THREE.Color(settings.viewport?.gridBaseColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridBaseColor).getHex()
+      gridBaseCol,
+      gridBaseCol
     );
     gridHelper.position.y = -0.01;
     gridHelper.visible = settings.viewport?.showGrid ?? true;
@@ -1167,6 +1178,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         needsRenderRef.current = true;
       }
 
+      // Update pivot dot orientation and camera distance compensation
+      if (pivotDotGroupRef.current && pivotDotGroupRef.current.visible && camera) {
+        pivotDotGroupRef.current.quaternion.copy(camera.quaternion);
+        const dist = camera.position.distanceTo(pivotDotGroupRef.current.position);
+        const s = Math.max(0.012, dist * 0.038); // Consistent ~14px screen size
+        pivotDotGroupRef.current.scale.set(s, s, s);
+        needsRenderRef.current = true;
+      }
+
       // Render only when camera moves, animations play, or scene changes
       if (needsRenderRef.current) {
         renderer.render(scene, camera);
@@ -1330,7 +1350,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             metalness: config.metalness,
             transparent: isTransparent,
             opacity: config.opacity ?? 1.0,
-            side: THREE.DoubleSide,
+            side: isTransparent ? THREE.DoubleSide : THREE.FrontSide,
             clippingPlanes: [clipPlaneRef.current],
             clipShadows: true
           });
@@ -1429,7 +1449,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             metalness: config.metalness,
             transparent: isTransparent,
             opacity: config.opacity ?? 1.0,
-            side: THREE.DoubleSide,
+            side: isTransparent ? THREE.DoubleSide : THREE.FrontSide,
             clippingPlanes: [clipPlaneRef.current],
             clipShadows: true
           });
@@ -1532,7 +1552,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           metalness: discColor.metalness,
           transparent: false,
           opacity: 1.0,
-          side: THREE.DoubleSide,
+          side: THREE.FrontSide,
           clippingPlanes: [clipPlane],
           clipShadows: true
         });
@@ -1762,6 +1782,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (selectedExpressID === null || isMeasureActive) {
       tControls.detach();
+      if (pivotDotGroupRef.current) {
+        pivotDotGroupRef.current.visible = false;
+      }
       needsRenderRef.current = true;
       return;
     }
@@ -1769,6 +1792,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const meshes = meshMapRef.current.get(selectedExpressID);
     if (!meshes || meshes.length === 0) {
       tControls.detach();
+      if (pivotDotGroupRef.current) {
+        pivotDotGroupRef.current.visible = false;
+      }
       needsRenderRef.current = true;
       return;
     }
@@ -1844,10 +1870,65 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     selectedHighlightGroupRef.current = selGroup;
 
     const isElementPinned = Boolean(selectedExpressID && pinnedExpressIds?.has(selectedExpressID));
+
+    // Inactive Pivot Dot / Center Anchor Hub Management
+    if (pivotDotGroupRef.current) {
+      while (pivotDotGroupRef.current.children.length > 0) {
+        const c = pivotDotGroupRef.current.children[0];
+        pivotDotGroupRef.current.remove(c);
+        if ('geometry' in c && (c as any).geometry) (c as any).geometry.dispose();
+        if ('material' in c && (c as any).material) (c as any).material.dispose();
+      }
+
+      if (!isElementPinned && !isMeasureActive) {
+        primaryMesh.updateMatrixWorld(true);
+        pivotDotGroupRef.current.position.copy(primaryMesh.position);
+
+        // Core Glowing Dot (subtle, sleek CAD anchor)
+        const dotGeom = new THREE.SphereGeometry(0.12, 24, 24);
+        const dotMat = new THREE.MeshStandardMaterial({
+          color: 0x00e5ff,
+          emissive: 0x00838f,
+          emissiveIntensity: 0.9,
+          roughness: 0.15,
+          metalness: 0.85,
+          depthTest: false,
+          depthWrite: false
+        });
+        const dotSphere = new THREE.Mesh(dotGeom, dotMat);
+        dotSphere.name = 'pivot-dot-sphere';
+        dotSphere.userData = { isPivotDot: true, expressID: selectedExpressID };
+        dotSphere.renderOrder = 10000;
+        pivotDotGroupRef.current.add(dotSphere);
+
+        // Outer Halo Accent Ring
+        const haloGeom = new THREE.RingGeometry(0.18, 0.25, 32);
+        const haloMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.75,
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false
+        });
+        const haloRing = new THREE.Mesh(haloGeom, haloMat);
+        haloRing.name = 'pivot-dot-halo';
+        haloRing.userData = { isPivotDot: true, expressID: selectedExpressID };
+        haloRing.renderOrder = 10000;
+        if (cameraRef.current) haloRing.quaternion.copy(cameraRef.current.quaternion);
+        pivotDotGroupRef.current.add(haloRing);
+
+        pivotDotGroupRef.current.visible = true;
+      } else {
+        pivotDotGroupRef.current.visible = false;
+      }
+    }
+
     if (transformMode === 'select' || isElementPinned) {
       tControls.detach();
     } else {
       tControls.attach(primaryMesh);
+      tControls.size = 0.42; // Compact, sleek CAD proportions!
       tControls.setMode(transformMode);
       tControls.setTranslationSnap(snapEnabled ? 0.5 : null);
       tControls.setRotationSnap(snapEnabled ? Math.PI / 12 : null);
@@ -1865,6 +1946,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       if (selectedHighlightGroupRef.current && scene) {
         disposeHighlightGroup(selectedHighlightGroupRef.current, scene);
         selectedHighlightGroupRef.current = null;
+      }
+      if (pivotDotGroupRef.current) {
+        pivotDotGroupRef.current.visible = false;
       }
     };
   }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive, sectionConfig.enabled, settings]);
@@ -2341,6 +2425,27 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, camera);
+
+      // Inactive Pivot Dot hover check
+      if (pivotDotGroupRef.current && pivotDotGroupRef.current.visible && selectedExpressID !== null) {
+        const dotHits = raycaster.intersectObjects(pivotDotGroupRef.current.children, true);
+        if (dotHits.length > 0) {
+          if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+          const halo = pivotDotGroupRef.current.getObjectByName('pivot-dot-halo') as THREE.Mesh;
+          if (halo && halo.material instanceof THREE.MeshBasicMaterial) {
+            halo.material.opacity = 1.0;
+            halo.scale.set(1.35, 1.35, 1.35);
+          }
+          needsRenderRef.current = true;
+          return;
+        } else {
+          const halo = pivotDotGroupRef.current.getObjectByName('pivot-dot-halo') as THREE.Mesh;
+          if (halo && halo.material instanceof THREE.MeshBasicMaterial) {
+            halo.material.opacity = 0.75;
+            halo.scale.set(1.0, 1.0, 1.0);
+          }
+        }
+      }
 
       const visibleCandidates = findVisibleCandidates(
         raycaster,
@@ -3144,6 +3249,39 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             needsRenderRef.current = true;
           }
           return;
+        }
+
+        // Check if user clicked the Inactive Pivot Dot / Origin Anchor Hub
+        if (
+          pivotDotGroupRef.current &&
+          pivotDotGroupRef.current.visible &&
+          selectedExpressID !== null &&
+          dx <= 8 &&
+          dy <= 8 &&
+          dt < 800
+        ) {
+          const container = containerRef.current;
+          const camera = cameraRef.current;
+          if (container && camera) {
+            const rect = container.getBoundingClientRect();
+            const mouse = new THREE.Vector2(
+              ((event.clientX - rect.left) / rect.width) * 2 - 1,
+              -((event.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            const dotHits = raycaster.intersectObjects(pivotDotGroupRef.current.children, true);
+            if (dotHits.length > 0) {
+              event.stopPropagation();
+              if (transformMode === 'select') {
+                onSetTransformMode?.('translate');
+              } else {
+                onSetTransformMode?.('select');
+              }
+              needsRenderRef.current = true;
+              return;
+            }
+          }
         }
 
         // Direct and reliable selection on left pointerup: prevents lost selections if browser click is delayed or throttled

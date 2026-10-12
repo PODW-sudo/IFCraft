@@ -59,6 +59,22 @@ export async function fetchCopilotProviders(): Promise<import('../types/ifc').AI
   return res.json();
 }
 
+export async function fetchCopilotModels(
+  request: import('../types/ifc').CopilotModelsRequest
+): Promise<import('../types/ifc').CopilotModelsResponse> {
+  const res = await fetch(`${BASE_URL}/copilot/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Failed to fetch Copilot models');
+  }
+  return res.json();
+}
+
+
 export async function sendCopilotChat(
   request: import('../types/ifc').CopilotChatRequest
 ): Promise<import('../types/ifc').CopilotChatResponse> {

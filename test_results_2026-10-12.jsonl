@@ -1,0 +1,1 @@
+{"id": "TR-001", "test_id": "TC-001", "tier": "key", "platform": "http://localhost:5173", "status": "pass", "timestamp": "2026-10-12T22:00:10.586676", "notes": "Verified: WebGL canvas is active and spatial UI shell is mounted with zero unhandled runti"}

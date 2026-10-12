@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "gate": "python ../scripts/gates/run_gates.py",
+    "ui-pipeline": "python ../scripts/ui_pipeline.py",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -16,14 +16,41 @@ def test_phase6_ai_copilot_suite():
         prov_res = client.get("/api/copilot/providers")
         assert prov_res.status_code == 200
         providers = prov_res.json()
-        assert len(providers) >= 4
+        assert len(providers) >= 6
         provider_ids = [p["id"] for p in providers]
         assert "gemini" in provider_ids
         assert "claude" in provider_ids
         assert "openai" in provider_ids
+        assert "openrouter" in provider_ids
+        assert "custom" in provider_ids
         assert "ollama" in provider_ids
         assert "local" in provider_ids
-        print("\n[PASS] Verified Copilot providers endpoint and models.")
+        print("\n[PASS] Verified Copilot providers endpoint including OpenRouter and Custom.")
+
+        # 1b. Test connection verification and dynamic models endpoint
+        local_models_res = client.post("/api/copilot/models", json={"provider": "local"})
+        assert local_models_res.status_code == 200
+        local_data = local_models_res.json()
+        assert local_data["connected"] is True
+        assert local_data["source"] == "api"
+
+        # Anthropic without key or invalid key must NOT show connected
+        claude_no_key_res = client.post("/api/copilot/models", json={"provider": "claude", "api_key": ""})
+        assert claude_no_key_res.status_code == 200
+        claude_data = claude_no_key_res.json()
+        assert claude_data["connected"] is False
+        assert "required" in (claude_data.get("error") or "").lower()
+
+        # Custom provider with invalid unreachable base URL must NOT show connected
+        custom_bad_res = client.post("/api/copilot/models", json={
+            "provider": "custom",
+            "base_url": "http://127.0.0.1:59999/v1"
+        })
+        assert custom_bad_res.status_code == 200
+        custom_data = custom_bad_res.json()
+        assert custom_data["connected"] is False
+        assert custom_data.get("error") is not None
+        print("[PASS] Verified connection status validation (local=True, claude_no_key=False, custom_bad=False).")
 
         # 2. Create a blank project
         create_res = client.post("/api/projects", json={
