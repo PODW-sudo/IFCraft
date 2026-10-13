@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import * as Slider from '@radix-ui/react-slider';
 import type { ClashRecord, ClashCheckResponse } from '../../types/ifc';
-import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface ClashInspectorProps {
   isOpen: boolean;
@@ -34,18 +33,6 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
   const [tolerance, setTolerance] = useState(0.01); // 1cm = 0.01m
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'hard' | 'clearance'>('all');
 
-  const initialWidth = 384;
-  const initialHeight = 480;
-  const initialX = 24;
-  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 560) : 340;
-
-  const { ref, style, dragProps, isDragging } = useDraggableHud('clash-inspector', {
-    x: initialX,
-    y: initialY,
-    width: initialWidth,
-    height: initialHeight
-  });
-
   if (!isOpen) return null;
 
   const clashes = clashResult?.clashes || [];
@@ -56,15 +43,10 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
 
   return (
     <div
-      ref={ref}
-      style={style}
-      {...dragProps}
       data-qa="clash-inspector-hud"
       role="region"
       aria-label="Spatial Clash Detection Inspector"
-      className={`z-40 w-96 max-h-[520px] bg-white/85 dark:bg-slate-900/85 border border-white/60 dark:border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl p-4 text-slate-800 dark:text-slate-100 flex flex-col gap-3 duration-200 transition-shadow select-none ${
-        isDragging ? 'shadow-blue-500/20 ring-1 ring-blue-500/40 cursor-grabbing' : 'cursor-grab'
-      }`}
+      className="fixed top-20 left-6 z-40 w-96 max-h-[520px] bg-white/85 dark:bg-slate-900/85 border border-white/60 dark:border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl p-4 text-slate-800 dark:text-slate-100 flex flex-col gap-3 duration-200 transition-shadow select-none cursor-default"
     >
       <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
 

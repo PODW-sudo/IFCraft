@@ -10,7 +10,6 @@ import {
   User
 } from 'lucide-react';
 import type { AuditTimelineItem } from '../../types/ifc';
-import { useDraggableHud } from '../hud/HudLayoutContext';
 
 interface TimelineScrubberProps {
   isOpen: boolean;
@@ -56,18 +55,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     };
   }, [isPlaying, timeline, onSelectEvent]);
 
-  const initialWidth = 560;
-  const initialHeight = 120;
-  const initialX = typeof window !== 'undefined' ? Math.max(16, (window.innerWidth - initialWidth) / 2) : 440;
-  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 220) : 680;
-
-  const { ref, style, dragProps, isDragging } = useDraggableHud('timeline-scrubber', {
-    x: initialX,
-    y: initialY,
-    width: initialWidth,
-    height: initialHeight
-  });
-
   if (!isOpen) return null;
 
   const currentEvent = timeline[currentIndex] || null;
@@ -98,15 +85,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
   return (
     <div
-      ref={ref}
-      style={style}
-      {...dragProps}
       role="region"
       aria-label="Collaborative Session Playback Scrubber"
       data-qa="timeline-scrubber"
-      className={`z-40 w-11/12 max-w-xl p-3 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl flex flex-col gap-2 select-none text-xs text-slate-800 dark:text-slate-100 pointer-events-auto transition-shadow ${
-        isDragging ? 'shadow-blue-500/20 ring-1 ring-blue-500/40 cursor-grabbing' : 'cursor-grab'
-      }`}
+      className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-xl p-3 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl flex flex-col gap-2 select-none text-xs text-slate-800 dark:text-slate-100 pointer-events-auto cursor-default transition-shadow"
     >
       {/* Top Header & Event Info */}
       <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-white/10 pb-1.5">

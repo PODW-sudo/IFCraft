@@ -25,7 +25,6 @@ const CUSTOM_TOOL_OPTIONS: Array<{
   { key: 'showSection', label: 'Section Planes' },
   { key: 'showCameraPresets', label: 'Camera Presets' },
   { key: 'showRenderStyle', label: 'Render Styles' },
-  { key: 'showCoordinateHud', label: 'Coordinates HUD' },
   { key: 'showTreeDrawer', label: 'Spatial Tree Drawer' },
   { key: 'showPropertyInspector', label: 'Property Inspector' },
   { key: 'showContextualModifyBar', label: 'Contextual Modify Deck' },

@@ -94,18 +94,18 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
       <div
         data-qa="copilot-settings-modal"
-        className="bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in duration-200 backdrop-blur-xl"
+        className="bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in duration-200 backdrop-blur-xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/80 dark:border-white/10 shrink-0">
           <div className="flex items-center space-x-2">
-            <Key className="w-5 h-5 text-cyan-400" />
-            <h2 className="text-sm font-semibold text-white tracking-wide uppercase">AI Copilot Settings</h2>
+            <Key className="w-5 h-5 text-cyan-500 dark:text-cyan-400" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white tracking-wide uppercase">AI Copilot Settings</h2>
           </div>
           <button
             data-qa="copilot-settings-close-btn"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -265,10 +265,10 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 px-6 py-3.5 bg-[var(--canvas-bg)] border-t border-[var(--border-subtle)]">
+        <div className="flex items-center justify-end space-x-3 px-6 py-3.5 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-200/80 dark:border-white/10">
           <button
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors text-xs"
+            className="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs"
           >
             Cancel
           </button>

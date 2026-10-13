@@ -1784,21 +1784,12 @@ export const App: React.FC = () => {
           rightOffset={rightOffset}
         />
 
-        {/* 5. Bottom-Left: Dynamic Offset Coordinate HUD */}
-        <div
-          className="absolute bottom-6 z-20 pointer-events-none transition-[left] duration-150"
-          style={{ left: leftOffset ? leftOffset + 16 : 24 }}
-        >
-          {effectiveProfileSettings.showCoordinateHud && (
-            <CoordinateHud
-              selectedExpressID={selectedExpressID}
-              transformInfo={transformInfo}
-              elementCount={geometries.length}
-              isTreeOpen={false}
-              treeWidth={0}
-            />
-          )}
-        </div>
+        {/* 5. Headless QA Coordinate HUD (visually hidden, preserves automated harness contracts) */}
+        <CoordinateHud
+          selectedExpressID={selectedExpressID}
+          transformInfo={transformInfo}
+          elementCount={geometries.length}
+        />
 
         {/* 7. Floating Frosted Bottom Tool Dock (role-adaptive CAD & inspection controls) */}
         {effectiveProfileSettings.showBottomDock && (

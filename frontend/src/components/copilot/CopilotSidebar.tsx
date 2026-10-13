@@ -462,7 +462,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-xs font-semibold text-white tracking-wide uppercase">AI BIM Copilot</h2>
+              <h2 className="text-xs font-semibold text-slate-900 dark:text-white tracking-wide uppercase">AI BIM Copilot</h2>
               <div className="flex items-center space-x-1.5 text-[10px]">
                 {selectedProviderId === 'local' ? (
                   <>
@@ -792,7 +792,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1 bg-[var(--dock-bg)] border border-[var(--border-subtle)] focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
+              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-white/10 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-500 outline-none transition-colors"
             />
             <button
               data-qa="copilot-send-btn"

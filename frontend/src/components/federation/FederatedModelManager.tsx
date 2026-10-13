@@ -105,21 +105,21 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
       data-qa="federation-modal"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <div className="relative w-full max-w-xl bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-[var(--shadow-hud)] backdrop-blur-xl p-5 text-slate-100 flex flex-col gap-4">
+      <div className="relative w-full max-w-xl bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl p-5 text-slate-800 dark:text-slate-100 flex flex-col gap-4">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+        <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-white/10 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-500 dark:text-cyan-300">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold tracking-tight text-white flex items-center gap-2">
+              <h2 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 Federated Model Coordination
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[var(--control-bg)] text-slate-400 border border-[var(--border-subtle)]">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10">
                   {1 + subModels.length} models
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Overlay and coordinate architectural, structural, and MEP disciplines in a unified coordinate frame.
               </p>
             </div>
@@ -127,7 +127,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
           <button
             data-qa="federation-close-btn"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-[var(--control-hover)] transition-colors"
             title="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -135,8 +135,8 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
         </div>
 
         {uploadError && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-200 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500 dark:text-red-400" />
             <span>{uploadError}</span>
           </div>
         )}
@@ -144,12 +144,12 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
         {/* Model Layers List */}
         <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
           {/* Main Architectural Model */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--control-bg)] border border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+              <div className="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-300" />
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-white">{projectName || 'Main Architectural Model'}</span>
+                  <span className="text-xs font-semibold text-slate-900 dark:text-white">{projectName || 'Main Architectural Model'}</span>
                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-slate-500/20 text-slate-200 border-slate-500/40">
                     Primary / ARCH
                   </span>
@@ -183,18 +183,18 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
             return (
               <div
                 key={sm.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-[var(--control-bg)] border border-[var(--border-subtle)]"
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/10"
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-2.5 h-2.5 rounded-full ${disciplineMeta.dotColor}`} />
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-white">{sm.name}</span>
+                      <span className="text-xs font-semibold text-slate-900 dark:text-white">{sm.name}</span>
                       <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${disciplineMeta.badgeClass}`}>
                         {sm.discipline}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
                       {sm.element_count} elements • {(sm.file_size / 1024).toFixed(0)} KB
                     </div>
                   </div>
@@ -206,8 +206,8 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
                     onClick={() => onToggleModelVisibility(sm.id)}
                     className={`p-1.5 rounded-lg transition-colors ${
                       isHidden
-                        ? 'text-slate-500 hover:text-slate-300 bg-[var(--control-hover)]'
-                        : 'text-cyan-400 hover:text-cyan-300'
+                        ? 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 bg-slate-200/50 dark:bg-white/10'
+                        : 'text-cyan-500 dark:text-cyan-400 hover:text-cyan-400'
                     }`}
                     title={isHidden ? 'Show Sub-Model' : 'Hide Sub-Model'}
                   >
@@ -216,7 +216,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
                   <button
                     data-qa="submodel-delete-btn"
                     onClick={() => onDeleteSubModel(sm.id)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     title="Remove Sub-Model"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -228,9 +228,9 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
         </div>
 
         {/* Attach Discipline Model Section */}
-        <div className="p-3 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)] flex flex-col gap-3">
+        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-white/10 flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-200">Attach Discipline Model</span>
+            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Attach Discipline Model</span>
             {/* Discipline Selector */}
             <div className="flex items-center gap-1">
               {(['STRUCT', 'MEP', 'CIVIL', 'ARCH'] as DisciplineType[]).map((disc) => (
@@ -304,7 +304,7 @@ export const FederatedModelManager: React.FC<FederatedModelManagerProps> = ({
           <button
             data-qa="federation-done-btn"
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-xl bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-xs font-medium text-white transition-colors"
+            className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 transition-colors"
           >
             Done
           </button>

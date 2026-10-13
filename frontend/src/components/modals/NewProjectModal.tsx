@@ -58,19 +58,19 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
       <div
         data-qa="new-project-modal"
-        className="w-full max-w-md bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
+        className="w-full max-w-md bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/80 dark:border-white/10">
           <div className="flex items-center gap-2">
-            <PlusCircle className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-sm font-semibold text-slate-100">New Project & Onboarding</h3>
+            <PlusCircle className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">New Project & Onboarding</h3>
           </div>
           {!isLoading && (
             <button
               data-qa="new-project-close-btn"
               onClick={onClose}
-              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[var(--control-hover)] transition-colors"
+              className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -78,15 +78,15 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-[var(--border-subtle)] bg-[var(--canvas-bg)]">
+        <div className="flex border-b border-slate-200/80 dark:border-white/10 bg-slate-50 dark:bg-slate-950/40">
           <button
             type="button"
             data-qa="new-project-tab-blank"
             onClick={() => setActiveTab('blank')}
             className={`flex-1 py-2.5 text-xs font-medium text-center border-b-2 transition-colors ${
               activeTab === 'blank'
-                ? 'border-cyan-400 text-cyan-300 bg-white/5'
-                : 'border-transparent text-slate-400 hover:text-white'
+                ? 'border-cyan-500 dark:border-cyan-400 text-cyan-600 dark:text-cyan-300 bg-white/40 dark:bg-white/5 font-semibold'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
             }`}
           >
             Blank Project
@@ -97,11 +97,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             onClick={() => setActiveTab('sample')}
             className={`flex-1 py-2.5 text-xs font-medium text-center border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'sample'
-                ? 'border-cyan-400 text-cyan-300 bg-white/5'
-                : 'border-transparent text-slate-400 hover:text-white'
+                ? 'border-cyan-500 dark:border-cyan-400 text-cyan-600 dark:text-cyan-300 bg-white/40 dark:bg-white/5 font-semibold'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
             <span>Sample Architectural Models</span>
           </button>
         </div>
@@ -111,8 +111,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           {activeTab === 'blank' ? (
             <>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Project Name <span className="text-cyan-400">*</span>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Project Name <span className="text-cyan-500 dark:text-cyan-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -121,12 +121,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   placeholder="e.g. Modern Residential Villa"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-[var(--control-bg)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-[var(--border-subtle)] focus:outline-none focus:border-cyan-400/60"
+                  className="w-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Description (Optional)
                 </label>
                 <textarea
@@ -135,19 +135,19 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   placeholder="Project description, location, or notes..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-[var(--control-bg)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-[var(--border-subtle)] focus:outline-none focus:border-cyan-400/60"
+                  className="w-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   IFC Schema Version
                 </label>
                 <select
                   value={schema}
                   data-qa="new-project-schema-select"
                   onChange={(e) => setSchema(e.target.value)}
-                  className="w-full bg-[var(--control-bg)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-[var(--border-subtle)] focus:outline-none focus:border-cyan-400/60"
+                  className="w-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 focus:outline-none focus:border-cyan-500"
                 >
                   <option value="IFC4">IFC4 (Recommended standard)</option>
                   <option value="IFC2X3">IFC2X3 (Legacy compatibility)</option>
@@ -157,7 +157,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Choose a pre-built architectural model with storeys, slabs, perimeter walls, and columns:
               </p>
 
@@ -172,20 +172,20 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                       onClick={() => setSelectedSampleId(s.id)}
                       className={`p-3 rounded-xl border cursor-pointer transition-all ${
                         isSelected
-                          ? 'bg-cyan-950/40 border-cyan-400 text-white shadow-md'
-                          : 'bg-[var(--control-bg)] border-[var(--border-subtle)] text-slate-300 hover:border-slate-500'
+                          ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-500 dark:border-cyan-400 text-slate-900 dark:text-white shadow-md'
+                          : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center space-x-2">
-                          <Icon className={`w-4 h-4 ${isSelected ? 'text-cyan-400' : 'text-slate-400'}`} />
+                          <Icon className={`w-4 h-4 ${isSelected ? 'text-cyan-500 dark:text-cyan-400' : 'text-slate-400'}`} />
                           <span className="text-xs font-semibold">{s.name}</span>
                         </div>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--dock-bg)] text-slate-300 border border-[var(--border-subtle)]">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10">
                           {s.schema_version}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 leading-normal pl-6">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal pl-6">
                         {s.description}
                       </p>
                     </div>
@@ -196,12 +196,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           )}
 
           {/* Footer Actions */}
-          <div className="pt-3 flex items-center justify-end gap-2 border-t border-[var(--border-subtle)]">
+          <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-200/80 dark:border-white/10">
             <button
               type="button"
               onClick={onClose}
               disabled={isLoading}
-              className="px-3.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+              className="px-3.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Cancel
             </button>

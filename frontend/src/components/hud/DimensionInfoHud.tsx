@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Ruler, X, Copy, Check, Trash2, ArrowRight } from 'lucide-react';
-import { useDraggableHud } from './HudLayoutContext';
 import type { MeasurementRecord } from '../viewer/ThreeViewport';
 
 export interface DimensionInfoHudProps {
@@ -15,19 +14,6 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
   onDelete
 }) => {
   const [copied, setCopied] = useState(false);
-
-  // Position at upper-right below ViewControlsHud or near center-right
-  const initialWidth = 280;
-  const initialHeight = 240;
-  const initialX = typeof window !== 'undefined' ? Math.max(16, window.innerWidth - 320) : 1120;
-  const initialY = 130;
-
-  const { ref, style, dragProps, isDragging } = useDraggableHud('dimension-info-hud', {
-    x: initialX,
-    y: initialY,
-    width: initialWidth,
-    height: initialHeight
-  });
 
   if (!measurement) return null;
 
@@ -46,15 +32,9 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-
   return (
     <div
-      ref={ref}
-      style={style}
-      {...dragProps}
-      className={`z-30 select-none flex flex-col rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-xl text-xs text-slate-800 dark:text-slate-100 overflow-hidden w-[280px] transition-shadow ${
-        isDragging ? 'cursor-grabbing' : 'cursor-default'
-      }`}
+      className="fixed top-52 right-6 z-30 select-none flex flex-col rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-xl text-xs text-slate-800 dark:text-slate-100 overflow-hidden w-[280px] cursor-default pointer-events-auto"
       data-qa="dimension-info-hud"
       data-distance={measurement.distance.toFixed(3)}
       data-delta-x={absDx.toFixed(3)}
