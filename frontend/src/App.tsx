@@ -1578,11 +1578,9 @@ export const App: React.FC = () => {
   const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
 
   const leftOffset = isTreeOpen ? (isTreeCollapsed ? 56 : treeWidth) : 0;
-  const rightOffset = isCopilotOpen
-    ? copilotWidth
-    : (isPropertyOpen && selectedExpressID !== null)
-    ? (isPropertyCollapsed ? 56 : propertyWidth)
-    : 0;
+  const propOffset = isPropertyOpen ? (isPropertyCollapsed ? 56 : propertyWidth) : 0;
+  const copilotOffset = isCopilotOpen ? copilotWidth : 0;
+  const rightOffset = propOffset + copilotOffset;
 
   return (
     <div

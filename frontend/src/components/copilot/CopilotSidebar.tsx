@@ -16,7 +16,9 @@ import {
   Search,
   RefreshCw,
   Copy,
-  Check
+  Check,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 import type { ChatMessage, AIProvider } from '../../types/ifc';
@@ -71,6 +73,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   });
 
   const [input, setInput] = useState('');
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState('gemini');
@@ -419,9 +422,9 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
   useEffect(() => {
     if (onWidthChange && isOpen) {
-      onWidthChange(width);
+      onWidthChange(isPanelCollapsed ? 56 : width);
     }
-  }, [width, isOpen, onWidthChange]);
+  }, [width, isPanelCollapsed, isOpen, onWidthChange]);
 
   const currentProvider = providers.find((p) => p.id === selectedProviderId);
 
@@ -446,87 +449,145 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     <>
       <div
         data-qa="copilot-sidebar-drawer"
-        style={{ width: `${width}px` }}
-        className="fixed top-16 right-4 bottom-6 bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl flex flex-col z-30 shadow-[var(--shadow-hud)] overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4 select-text"
+        style={{ width: `${isPanelCollapsed ? 56 : width}px` }}
+        className={`fixed top-16 right-4 bottom-6 bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl flex flex-col z-30 shadow-[var(--shadow-hud)] overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4 select-text ${
+          isPanelCollapsed ? 'p-2' : ''
+        }`}
       >
-        <ResizeHandle
-          position="left"
-          onMouseDown={startResizing}
-          onDoubleClick={resetWidth}
-          isDragging={isDragging}
-        />
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)]/40">
-          <div className="flex items-center space-x-2">
-            <div className="p-1 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-xs font-semibold text-slate-900 dark:text-white tracking-wide uppercase">AI BIM Copilot</h2>
-              <div className="flex items-center space-x-1.5 text-[10px]">
-                {selectedProviderId === 'local' ? (
-                  <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                    <span className="text-cyan-300 font-mono">Offline CAD Engine</span>
-                  </>
-                ) : activeStatus.state === 'checking' || isRefreshingModels ? (
-                  <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="text-cyan-300 font-medium">Checking...</span>
-                  </>
-                ) : activeStatus.state === 'connected' ? (
-                  <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-emerald-400 font-medium">Connected</span>
-                  </>
-                ) : activeStatus.state === 'error' ? (
-                  <div className="flex items-center space-x-1.5" title={activeStatus.error || "Connection error"}>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400" />
-                    <span className="text-rose-400 font-medium max-w-[130px] truncate">
-                      {activeStatus.error?.toLowerCase().includes('401') || activeStatus.error?.toLowerCase().includes('unauthorized')
-                        ? 'Auth Error (401)'
-                        : 'Failed'}
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span className="text-amber-300 font-medium">
-                      {selectedProviderId === 'custom' ? 'Base URL Needed' : 'Key Needed'}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+        {!isPanelCollapsed && (
+          <ResizeHandle
+            position="left"
+            onMouseDown={startResizing}
+            onDoubleClick={resetWidth}
+            isDragging={isDragging}
+          />
+        )}
 
-          <div className="flex items-center space-x-1">
+        {/* Top Header */}
+        {isPanelCollapsed ? (
+          <div className="flex flex-col items-center gap-1.5 pb-2 mb-2 border-b border-[var(--border-subtle)] shrink-0 w-full">
             <button
-              data-qa="copilot-settings-btn"
-              onClick={() => setSettingsOpen(true)}
-              title="Copilot Settings & API Keys"
-              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+              type="button"
+              data-qa="copilot-uncollapse-btn"
+              onClick={() => setIsPanelCollapsed(false)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Expand Copilot"
+              aria-label="Expand Copilot"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
             <button
-              data-qa="copilot-clear-btn"
-              onClick={handleClearHistory}
-              title="Clear Chat History"
-              className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-            <button
+              type="button"
               data-qa="copilot-close-btn"
               onClick={onClose}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
               title="Close Copilot"
-              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+              aria-label="Close Copilot"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--border-subtle)] bg-[var(--control-bg)]/40 shrink-0">
+            <div className="flex items-center space-x-2">
+              <div className="p-1 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-white tracking-wide uppercase">AI BIM Copilot</h2>
+                <div className="flex items-center space-x-1.5 text-[10px]">
+                  {selectedProviderId === 'local' ? (
+                    <>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      <span className="text-cyan-300 font-mono">Offline CAD Engine</span>
+                    </>
+                  ) : activeStatus.state === 'checking' || isRefreshingModels ? (
+                    <>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-cyan-300 font-medium">Checking...</span>
+                    </>
+                  ) : activeStatus.state === 'connected' ? (
+                    <>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-emerald-400 font-medium">Connected</span>
+                    </>
+                  ) : activeStatus.state === 'error' ? (
+                    <div className="flex items-center space-x-1.5" title={activeStatus.error || "Connection error"}>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400" />
+                      <span className="text-rose-400 font-medium max-w-[130px] truncate">
+                        {activeStatus.error?.toLowerCase().includes('401') || activeStatus.error?.toLowerCase().includes('unauthorized')
+                          ? 'Auth Error (401)'
+                          : 'Failed'}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span className="text-amber-300 font-medium">
+                        {selectedProviderId === 'custom' ? 'Base URL Needed' : 'Key Needed'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1">
+              <button
+                data-qa="copilot-settings-btn"
+                onClick={() => setSettingsOpen(true)}
+                title="Copilot Settings & API Keys"
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+              <button
+                data-qa="copilot-clear-btn"
+                onClick={handleClearHistory}
+                title="Clear Chat History"
+                className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                data-qa="copilot-toggle-collapse-btn"
+                onClick={() => setIsPanelCollapsed(true)}
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors cursor-pointer"
+                title="Collapse Copilot"
+                aria-label="Collapse Copilot"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                data-qa="copilot-close-btn"
+                onClick={onClose}
+                title="Close Copilot"
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[var(--control-hover)] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isPanelCollapsed && (
+          <div
+            onClick={() => setIsPanelCollapsed(false)}
+            className="flex-1 flex flex-col items-center justify-center gap-3 cursor-pointer py-4 group"
+            title="Click to expand AI BIM Copilot"
+          >
+            <div className="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-widest text-slate-400 dark:text-slate-500 group-hover:text-slate-200 transition-colors uppercase">
+              Copilot
+            </span>
+          </div>
+        )}
+
+        {!isPanelCollapsed && (
+          <>
 
         {/* Model & Target Selector Bar */}
         <div className="px-3.5 py-2 bg-[var(--control-bg)]/30 border-b border-[var(--border-subtle)] flex flex-col gap-1.5">
@@ -808,6 +869,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             </button>
           </form>
         </div>
+        </>
+      )}
       </div>
 
       {/* Settings Modal */}

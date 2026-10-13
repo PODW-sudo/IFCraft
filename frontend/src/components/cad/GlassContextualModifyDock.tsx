@@ -135,6 +135,8 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
 
   const entityType = elementDetails?.type || 'IfcProduct';
   const entityName = elementDetails?.name || `#${expressId}`;
+  const showLabels = availableCanvasWidth >= 1350;
+  const showDimensions = availableCanvasWidth >= 1200;
 
   // Extract dimensions from element details / psets
   let heightVal = 3.0;
@@ -190,12 +192,12 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
       data-qa-dock="glass-contextual-modify-dock"
       style={{
         left: `${canvasCenterX}px`,
-        maxWidth: `${Math.max(280, availableCanvasWidth - 24)}px`
+        maxWidth: `${Math.max(760, availableCanvasWidth - 24)}px`
       }}
-      className="fixed top-18 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 pointer-events-auto select-none animate-in fade-in slide-in-from-top-2 duration-150 transition-all"
+      className="fixed top-18 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 pointer-events-auto select-none animate-in fade-in slide-in-from-top-2 duration-150 transition-all max-w-[calc(100vw-32px)]"
     >
       {/* Primary Frosted Glass Contextual Modify Ribbon */}
-      <div className="flex items-center gap-1 sm:gap-1.5 px-3 py-1.5 rounded-full bg-white/70 dark:bg-slate-900/75 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-xl shadow-slate-900/10 text-slate-800 dark:text-slate-100 text-xs max-w-full overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-1 sm:gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-xl shadow-slate-900/10 text-slate-800 dark:text-slate-100 text-xs shrink-0 box-border w-max max-w-full">
         {/* Context Identification Pill */}
         <div
           className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/70 border border-white/80 dark:border-white/10 text-slate-800 dark:text-slate-100 font-medium"
@@ -355,7 +357,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Two-Point Reference Move (M / Ctrl+D) - Pick origin then destination. Hold Ctrl to copy."
           >
             <Move size={13} className={activeInteractiveMode === 'move' ? 'text-white' : 'text-blue-600 dark:text-cyan-400'} />
-            <span className={availableCanvasWidth < 740 ? 'hidden' : 'hidden sm:inline'}>Move</span>
+            {showLabels && <span>Move</span>}
           </button>
 
           {/* Rotate (R / Ctrl+E) */}
@@ -375,7 +377,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
               title="Arc Rotate (R / Ctrl+E) - Pick center, baseline ray, then target angle."
             >
               <RotateCw size={13} className={activeInteractiveMode === 'rotate' ? 'text-white' : 'text-blue-600 dark:text-cyan-400'} />
-              <span className={availableCanvasWidth < 740 ? 'hidden' : 'hidden sm:inline'}>Rotate</span>
+              {showLabels && <span>Rotate</span>}
             </button>
             <button
               disabled={isPinned}
@@ -431,7 +433,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Mirror (Ctrl+M) - Define 2-point reflection axis line."
           >
             <FlipHorizontal size={13} className={activeInteractiveMode === 'mirror' ? 'text-white' : 'text-blue-600 dark:text-cyan-400'} />
-            <span className={availableCanvasWidth < 900 ? 'hidden' : 'hidden md:inline'}>Mirror</span>
+            {showLabels && <span>Mirror</span>}
           </button>
 
           {/* Elevate (E) */}
@@ -450,7 +452,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Elevate (E) - Vertical displacement along Z axis."
           >
             <ArrowUpDown size={13} className={activeInteractiveMode === 'elevate' ? 'text-white' : 'text-blue-600 dark:text-cyan-400'} />
-            <span className={availableCanvasWidth < 980 ? 'hidden' : 'hidden md:inline'}>Elevate</span>
+            {showLabels && <span>Elevate</span>}
           </button>
 
           {/* Multiply / Linear Array (Ctrl+U) */}
@@ -469,7 +471,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Multiply / Linear Array (Ctrl+U) - Predefine count & spacing or distribute."
           >
             <Grid3x3 size={13} className={activeInteractiveMode === 'multiply' ? 'text-white' : 'text-blue-600 dark:text-cyan-400'} />
-            <span className={availableCanvasWidth < 1060 ? 'hidden' : 'hidden lg:inline'}>Multiply</span>
+            {showLabels && <span>Multiply</span>}
           </button>
 
           {/* Align (AL) */}
@@ -490,7 +492,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Align element to Ground (AL)"
           >
             <AlignHorizontalJustifyCenter size={13} className="text-blue-600 dark:text-cyan-400" />
-            <span className={availableCanvasWidth < 1140 ? 'hidden' : 'hidden lg:inline'}>Align</span>
+            {showLabels && <span>Align</span>}
           </button>
 
           {/* Tekla Move/Copy Special Button */}
@@ -502,129 +504,133 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             title="Move / Copy Special (Tekla-Style precision dialog)"
           >
             <Settings2 size={13} />
-            <span className={availableCanvasWidth < 1200 ? 'hidden' : 'hidden xl:inline'}>Special...</span>
+            {showLabels && <span>Special...</span>}
           </button>
         </div>
 
-        <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+        {showDimensions && (
+          <>
+            <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
 
-        {/* Group 2: Parametric Geometry Inputs */}
-        <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-800/60 px-2 py-0.5 rounded-full border border-white/70 dark:border-white/10 text-[11px]">
-          {/* Height */}
-          {editingParam === 'height' ? (
-            <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
-              <span className="text-[10px] text-slate-400 font-mono">H:</span>
-              <input
-                type="number"
-                step="0.1"
-                autoFocus
-                value={tempValue}
-                onChange={(e) => setTempValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCommitEdit('height');
-                  if (e.key === 'Escape') setEditingParam(null);
-                }}
-                className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
-              />
-              <button onClick={() => handleCommitEdit('height')} className="text-emerald-500 cursor-pointer">
-                <Check size={11} />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => {
-                if (isPinned) return;
-                setEditingParam('height');
-                setTempValue(heightVal.toFixed(2));
-              }}
-              disabled={isPinned}
-              className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-              title="Click to edit height"
-            >
-              <span className="opacity-60">H:</span>
-              <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{heightVal.toFixed(2)}m</span>
-            </button>
-          )}
-
-          {/* Thickness */}
-          {(entityType.includes('Wall') || entityType.includes('Slab')) && (
-            editingParam === 'thickness' ? (
-              <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
-                <span className="text-[10px] text-slate-400 font-mono">T:</span>
-                <input
-                  type="number"
-                  step="0.05"
-                  autoFocus
-                  value={tempValue}
-                  onChange={(e) => setTempValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCommitEdit('thickness');
-                    if (e.key === 'Escape') setEditingParam(null);
+            {/* Group 2: Parametric Geometry Inputs */}
+            <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-800/60 px-2 py-0.5 rounded-full border border-white/70 dark:border-white/10 text-[11px]">
+              {/* Height */}
+              {editingParam === 'height' ? (
+                <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
+                  <span className="text-[10px] text-slate-400 font-mono">H:</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    autoFocus
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCommitEdit('height');
+                      if (e.key === 'Escape') setEditingParam(null);
+                    }}
+                    className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
+                  />
+                  <button onClick={() => handleCommitEdit('height')} className="text-emerald-500 cursor-pointer">
+                    <Check size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (isPinned) return;
+                    setEditingParam('height');
+                    setTempValue(heightVal.toFixed(2));
                   }}
-                  className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
-                />
-                <button onClick={() => handleCommitEdit('thickness')} className="text-emerald-500 cursor-pointer">
-                  <Check size={11} />
+                  disabled={isPinned}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                  title="Click to edit height"
+                >
+                  <span className="opacity-60">H:</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{heightVal.toFixed(2)}m</span>
                 </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  if (isPinned) return;
-                  setEditingParam('thickness');
-                  setTempValue(thicknessVal.toFixed(2));
-                }}
-                disabled={isPinned}
-                className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-                title="Click to edit thickness"
-              >
-                <span className="opacity-60">T:</span>
-                <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{thicknessVal.toFixed(2)}m</span>
-              </button>
-            )
-          )}
+              )}
 
-          {/* Elevation */}
-          {editingParam === 'elevation' ? (
-            <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
-              <span className="text-[10px] text-slate-400 font-mono">El:</span>
-              <input
-                type="number"
-                step="0.1"
-                autoFocus
-                value={tempValue}
-                onChange={(e) => setTempValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCommitEdit('elevation');
-                  if (e.key === 'Escape') setEditingParam(null);
-                }}
-                className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
-              />
-              <button onClick={() => handleCommitEdit('elevation')} className="text-emerald-500 cursor-pointer">
-                <Check size={11} />
-              </button>
+              {/* Thickness */}
+              {(entityType.includes('Wall') || entityType.includes('Slab')) && (
+                editingParam === 'thickness' ? (
+                  <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
+                    <span className="text-[10px] text-slate-400 font-mono">T:</span>
+                    <input
+                      type="number"
+                      step="0.05"
+                      autoFocus
+                      value={tempValue}
+                      onChange={(e) => setTempValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCommitEdit('thickness');
+                        if (e.key === 'Escape') setEditingParam(null);
+                      }}
+                      className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
+                    />
+                    <button onClick={() => handleCommitEdit('thickness')} className="text-emerald-500 cursor-pointer">
+                      <Check size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (isPinned) return;
+                      setEditingParam('thickness');
+                      setTempValue(thicknessVal.toFixed(2));
+                    }}
+                    disabled={isPinned}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                    title="Click to edit thickness"
+                  >
+                    <span className="opacity-60">T:</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{thicknessVal.toFixed(2)}m</span>
+                  </button>
+                )
+              )}
+
+              {/* Elevation */}
+              {editingParam === 'elevation' ? (
+                <div className="flex items-center gap-1 rounded px-1.5 py-0.5 border border-blue-500/50">
+                  <span className="text-[10px] text-slate-400 font-mono">El:</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    autoFocus
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCommitEdit('elevation');
+                      if (e.key === 'Escape') setEditingParam(null);
+                    }}
+                    className="w-12 bg-transparent text-slate-800 dark:text-slate-100 font-mono text-[11px] outline-none"
+                  />
+                  <button onClick={() => handleCommitEdit('elevation')} className="text-emerald-500 cursor-pointer">
+                    <Check size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (isPinned) return;
+                    setEditingParam('elevation');
+                    setTempValue(elevationVal.toFixed(2));
+                  }}
+                  disabled={isPinned}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                  title="Click to edit elevation"
+                >
+                  <span className="opacity-60">El:</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">+{elevationVal.toFixed(2)}m</span>
+                </button>
+              )}
             </div>
-          ) : (
-            <button
-              onClick={() => {
-                if (isPinned) return;
-                setEditingParam('elevation');
-                setTempValue(elevationVal.toFixed(2));
-              }}
-              disabled={isPinned}
-              className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-              title="Click to edit elevation"
-            >
-              <span className="opacity-60">El:</span>
-              <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">+{elevationVal.toFixed(2)}m</span>
-            </button>
-          )}
-        </div>
+          </>
+        )}
 
         <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
 
         {/* Group 3: Attribution, Pin, Clone, Delete */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0 ml-auto pr-0.5">
           {/* Storey Menu */}
           <div className="relative">
             <button
@@ -634,11 +640,11 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 setShowStoreyMenu(!showStoreyMenu);
                 setShowMaterialMenu(false);
               }}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1' : 'p-1.5'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
               title="Assign Storey"
             >
               <Layers size={12} className="text-blue-600 dark:text-cyan-400" />
-              <span className={availableCanvasWidth < 840 ? 'hidden' : 'hidden sm:inline'}>Storey</span>
+              {showLabels && <span>Storey</span>}
             </button>
             {showStoreyMenu && storeys.length > 0 && (
               <div className="absolute top-full left-0 mt-1 w-40 bg-white/95 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-xl shadow-2xl p-1 z-50 flex flex-col gap-0.5 text-slate-800 dark:text-slate-100">
@@ -667,11 +673,11 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 setShowMaterialMenu(!showMaterialMenu);
                 setShowStoreyMenu(false);
               }}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1' : 'p-1.5'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
               title="Assign Material"
             >
               <Palette size={12} className="text-blue-600 dark:text-cyan-400" />
-              <span className={availableCanvasWidth < 880 ? 'hidden' : 'hidden sm:inline'}>Material</span>
+              {showLabels && <span>Material</span>}
             </button>
             {showMaterialMenu && (
               <div className="absolute top-full left-0 mt-1 w-44 bg-white/95 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-xl shadow-2xl p-1 z-50 grid grid-cols-2 gap-1 text-slate-800 dark:text-slate-100">
@@ -739,10 +745,10 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             data-qa-ribbon="ribbon-delete-btn"
             disabled={isPinned}
             onClick={() => onDelete(expressId)}
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-md transition-colors cursor-pointer shrink-0 ${
               isPinned
                 ? 'opacity-40 cursor-not-allowed text-slate-400'
-                : 'text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                : 'text-rose-500 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 hover:bg-rose-500/10'
             }`}
             title={isPinned ? 'Element pinned (UP to unpin)' : 'Delete element (Del)'}
           >
@@ -753,7 +759,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
           <button
             data-qa="modify-inspector-btn"
             onClick={onOpenInspector}
-            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-cyan-400 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-cyan-400 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer shrink-0"
             title="Open Property Inspector"
           >
             <SlidersHorizontal size={13} />
@@ -763,7 +769,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
           <button
             data-qa="modify-close-btn"
             onClick={onDeselect}
-            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors ml-0.5 cursor-pointer"
+            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors ml-0.5 cursor-pointer shrink-0"
             title="Deselect element (Esc)"
           >
             <X size={13} />
