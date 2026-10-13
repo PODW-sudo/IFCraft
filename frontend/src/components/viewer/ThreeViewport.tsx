@@ -106,6 +106,7 @@ interface ThreeViewportProps {
   onOpenSpecialModal?: () => void;
   onSpecialPointsPicked?: (p1: [number, number, number], p2: [number, number, number]) => void;
   projectId?: string;
+  theme?: 'light' | 'dark';
 }
 
 const CATEGORY_COLORS: Record<string, { color: number; roughness: number; metalness: number; opacity?: number }> = {
@@ -672,6 +673,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   onOpenSpecialModal: _onOpenSpecialModal,
   onSpecialPointsPicked,
   projectId,
+  theme = 'light',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -801,12 +803,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    const initialThemeKey = settings.viewport?.theme ?? 'dark-slate';
-    const initialBg = THEME_COLOR_MAP[initialThemeKey] ?? 0x0b0d10;
+    const isLight = theme === 'light';
+    const initialThemeKey = settings.viewport?.theme ?? (isLight ? 'studio-gray' : 'dark-slate');
+    const initialBg = THEME_COLOR_MAP[initialThemeKey] ?? (isLight ? 0xdce5ef : 0x0b0d10);
     scene.background = new THREE.Color(
       initialThemeKey === 'custom' && settings.viewport?.customCanvasColor
         ? settings.viewport.customCanvasColor
-        : initialBg
+        : (isLight ? 0xdce5ef : initialBg)
     );
     sceneRef.current = scene;
 
@@ -2188,12 +2191,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const controls = controlsRef.current;
     if (!scene || !controls) return;
 
-    const themeKey = settings?.viewport?.theme ?? 'dark-slate';
-    const themeBg = THEME_COLOR_MAP[themeKey] ?? 0x0b0d10;
+    const isLight = theme === 'light';
+    const themeKey = settings?.viewport?.theme ?? (isLight ? 'studio-gray' : 'dark-slate');
+    const themeBg = THEME_COLOR_MAP[themeKey] ?? (isLight ? 0xdce5ef : 0x0b0d10);
     scene.background = new THREE.Color(
       themeKey === 'custom' && settings?.viewport?.customCanvasColor
         ? settings?.viewport?.customCanvasColor
-        : themeBg
+        : (isLight ? 0xdce5ef : themeBg)
     );
 
     if (settings?.navigation) {
@@ -2211,9 +2215,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = settings?.viewport?.showGrid ?? true;
+      const gridMat = gridHelperRef.current.material as THREE.LineBasicMaterial;
+      if (gridMat) {
+        gridMat.color.setHex(isLight ? 0x94a3b8 : (settings?.viewport?.gridBaseColor ? new THREE.Color(settings.viewport.gridBaseColor).getHex() : 0x252b36));
+      }
     }
     needsRenderRef.current = true;
-  }, [settings]);
+  }, [settings, theme, geometries.length]);
 
   // Reset CAD preview when returning to select mode
   useEffect(() => {
@@ -3829,7 +3837,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       {/* Tab Candidate Cycling Pill (Multi-Surface Depth Selection) */}
       {hoverCandidates.length > 1 && hoveredExpressId !== null && cadToolMode === 'select' && !isMeasureActive && (
         <div
-          className="absolute bottom-14 left-1/2 -translate-x-1/2 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-bg)] text-cyan-200 border border-cyan-400/40 shadow-[var(--shadow-hud)] backdrop-blur-md text-xs font-mono select-none z-30 transition-all duration-150 animate-in fade-in"
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-bg)] text-cyan-200 border border-cyan-400/40 shadow-[var(--shadow-hud)] backdrop-blur-md text-xs font-mono select-none z-30 transition-all duration-150 animate-in fade-in"
           data-qa="tab-candidate-pill"
         >
           <kbd className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-semibold text-[10px] border border-cyan-500/40">

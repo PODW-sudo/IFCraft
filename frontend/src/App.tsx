@@ -145,6 +145,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
+    if (currentTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    } else {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+    }
     try {
       localStorage.setItem('ifc_editor_theme', currentTheme);
     } catch {}
@@ -1610,6 +1617,7 @@ export const App: React.FC = () => {
         data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
       >
         <ThreeViewport
+          theme={currentTheme}
           settings={settings}
           geometries={geometries}
           selectedExpressID={selectedExpressID}
@@ -1682,6 +1690,8 @@ export const App: React.FC = () => {
           onDownloadProject={handleDownloadProject}
           activeProfile={activeProfile}
           onSelectProfile={handleSelectProfile}
+          customSettings={customSettings}
+          onUpdateCustomSettings={handleUpdateCustomSettings}
           onOpenOmnibar={() => setIsOmnibarOpen(true)}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
           collaborators={collaborators}

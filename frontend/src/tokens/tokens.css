@@ -65,7 +65,8 @@
   --glass-shadow: 0 12px 36px 0 rgba(15, 23, 42, 0.08);
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+.dark {
   /* Modern Glass - Frosted Obsidian Theme Tokens (Dark Mode) */
   --glass-bg-canvas: #090b10;
   --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(30, 41, 59, 0.7) 0px, transparent 60%),

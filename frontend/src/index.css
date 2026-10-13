@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "./tokens/tokens.css";
 
+@variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
 @layer base {
   :root {
     --bg-main: #0d0f12;

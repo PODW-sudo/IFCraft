@@ -9,11 +9,28 @@ import {
   Settings,
   Sun,
   Moon,
-  GripVertical
+  GripVertical,
+  Check
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
-import type { UiProfile } from '../../types/profiles';
+import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
+
+const CUSTOM_TOOL_OPTIONS: Array<{
+  key: keyof CustomProfileSettings;
+  label: string;
+}> = [
+  { key: 'showCadToolbar', label: 'CAD Modeling Tools' },
+  { key: 'showSnap', label: 'Geometry Snapping' },
+  { key: 'showMeasure', label: 'Measure Dimension' },
+  { key: 'showSection', label: 'Section Planes' },
+  { key: 'showCameraPresets', label: 'Camera Presets' },
+  { key: 'showRenderStyle', label: 'Render Styles' },
+  { key: 'showCoordinateHud', label: 'Coordinates HUD' },
+  { key: 'showTreeDrawer', label: 'Spatial Tree Drawer' },
+  { key: 'showPropertyInspector', label: 'Property Inspector' },
+  { key: 'showContextualModifyBar', label: 'Contextual Modify Deck' },
+];
 
 interface GlassHeaderProps {
   currentProject: ProjectMetadata | null;
@@ -24,6 +41,8 @@ interface GlassHeaderProps {
   onDownloadProject: () => void;
   activeProfile?: UiProfile;
   onSelectProfile?: (profile: UiProfile) => void;
+  customSettings?: CustomProfileSettings;
+  onUpdateCustomSettings?: (settings: Partial<CustomProfileSettings>) => void;
   onOpenOmnibar: () => void;
   onOpenSettingsModal?: () => void;
   collaborators?: Collaborator[];
@@ -46,6 +65,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   onDownloadProject,
   activeProfile = 'modify',
   onSelectProfile,
+  customSettings,
+  onUpdateCustomSettings,
   onOpenOmnibar,
   onOpenSettingsModal,
   collaborators = [],
@@ -163,11 +184,11 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
             data-qa-ui-profile={activeProfile}
             className="hidden md:flex items-center p-0.5 rounded-full bg-white/50 dark:bg-slate-800/50 border border-white/60 dark:border-white/10 shadow-sm text-[11px] font-medium text-slate-600 dark:text-slate-300"
           >
-            {(['review', 'modify', 'query', 'custom'] as UiProfile[]).map((prof) => (
+            {(['review', 'modify', 'query'] as UiProfile[]).map((prof) => (
               <button
                 key={prof}
                 type="button"
-                data-qa={prof === 'custom' ? 'profile-custom-trigger' : `profile-${prof}-btn`}
+                data-qa={`profile-${prof}-btn`}
                 onClick={() => onSelectProfile(prof)}
                 className={`px-3 py-1 rounded-full transition-all capitalize cursor-pointer ${
                   activeProfile === prof
@@ -178,6 +199,92 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
                 {prof}
               </button>
             ))}
+
+            {/* Custom Role Combo Button: Split Switcher + Tool Checklist Dropdown */}
+            <DropdownMenu.Root>
+              <div
+                className={`flex items-center rounded-full transition-all ${
+                  activeProfile === 'custom'
+                    ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                    : 'hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <button
+                  type="button"
+                  data-qa="profile-custom-btn"
+                  onClick={() => onSelectProfile('custom')}
+                  className={`pl-3 pr-1 py-1 rounded-l-full capitalize cursor-pointer ${
+                    activeProfile === 'custom' ? 'text-white' : 'hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Switch to Custom Profile"
+                >
+                  Custom
+                </button>
+
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    type="button"
+                    data-qa="profile-custom-trigger"
+                    aria-label="Customize visible tools"
+                    title="Configure visible tools for Custom role"
+                    className={`pr-2.5 pl-1 py-1 rounded-r-full cursor-pointer flex items-center justify-center transition-colors border-l ${
+                      activeProfile === 'custom'
+                        ? 'border-white/20 text-white/90 hover:text-white hover:bg-blue-700/60'
+                        : 'border-slate-300/60 dark:border-slate-700/60 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-white/40 dark:hover:bg-slate-700/40'
+                    }`}
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </DropdownMenu.Trigger>
+              </div>
+
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  data-qa="profile-custom-dropdown"
+                  className="z-50 min-w-[240px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-white/70 dark:border-white/10 rounded-2xl p-2 shadow-2xl text-xs space-y-1 animate-in fade-in zoom-in-95 text-slate-800 dark:text-slate-200"
+                  sideOffset={8}
+                  align="end"
+                >
+                  <div className="px-2 py-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Custom Role Visible Tools
+                  </div>
+                  <div className="space-y-0.5">
+                    {CUSTOM_TOOL_OPTIONS.map((tool) => {
+                      const isChecked = customSettings ? Boolean(customSettings[tool.key]) : true;
+                      return (
+                        <div
+                          key={tool.key}
+                          role="menuitemcheckbox"
+                          aria-checked={isChecked}
+                          data-qa={`custom-tool-toggle-${tool.key}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (activeProfile !== 'custom') {
+                              onSelectProfile('custom');
+                            }
+                            onUpdateCustomSettings?.({ [tool.key]: !isChecked });
+                          }}
+                          className="flex items-center justify-between px-2.5 py-1.5 rounded-xl hover:bg-blue-50 dark:hover:bg-slate-800/80 cursor-pointer select-none transition-colors"
+                        >
+                          <span className="font-medium text-slate-700 dark:text-slate-200">
+                            {tool.label}
+                          </span>
+                          <div
+                            className={`w-4 h-4 rounded flex items-center justify-center border transition-all ${
+                              isChecked
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'border-slate-300 dark:border-slate-600 bg-white/50 dark:bg-slate-800/50'
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </div>
         )}
       </div>
