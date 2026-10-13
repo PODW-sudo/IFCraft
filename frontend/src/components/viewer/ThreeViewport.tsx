@@ -1137,12 +1137,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (!meshes || meshes.length === 0 || !cameraRef.current || !containerRef.current) return null;
         const box = new THREE.Box3();
         meshes.forEach((m) => {
-          box.union(new THREE.Box3().setFromObject(m));
+          if (m.geometry) {
+            if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+            if (m.geometry.boundingBox) {
+              box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+            }
+          } else {
+            box.union(new THREE.Box3().setFromObject(m));
+          }
         });
+        if (box.isEmpty()) return null;
         const center = new THREE.Vector3();
         box.getCenter(center);
         center.project(cameraRef.current);
-        if (center.z > 1.0) return null;
+        if (center.z > 1.0 || center.z < -1.0) return null;
         const rect = containerRef.current.getBoundingClientRect();
         return {
           x: ((center.x + 1) / 2) * rect.width + rect.left,

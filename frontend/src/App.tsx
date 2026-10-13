@@ -1357,6 +1357,8 @@ export const App: React.FC = () => {
     isUploadModalOpen,
     isNewProjectModalOpen,
     projectsCount: projects.length,
+    projects,
+    collaborators,
     geometriesCount: geometries.length,
     subModelsCount: subModels.length,
     subModels,

@@ -40,7 +40,7 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Open Items
 
-*(None at this time. All 70 test cases passing with zero P0-P3 regressions.)*
+*(None at this time. All 359 test cases passing with zero P0-P3 regressions: 113 key functionalities and 246 milestone tests.)*
 
 ---
 
@@ -122,3 +122,15 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 - **Evidence:** Phase 8 deterministic quality gates run (scripts/gates/run_gates.py).
 - **Suggested fix:** Refactored all components to use `tokens.json` CSS custom properties and Lucide React icons.
 - **Status:** Resolved
+
+### 2026-10-13 - Test Suite Browser Coverage Expansion & Deep File Export Validators
+- **Type:** Enhancement
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-001 through TC-099, TC-CAD-01..13, TC-PROF-01..04, TC-NAV-01..04, TC-C01-A..TC-C112-B
+- **Severity:** P1
+- **Observed:** 44 numeric tests and exports previously fell through to simulated fallbacks, and `getElementScreenPos` returned null for invisible proxy meshes in BatchedMesh mode.
+- **Expected:** Full 359 test cases backed by real DOM, WebGL, Three.js OrbitControls, and backend file export verification (.ifc via IfcOpenShell and .bcfzip via zipfile/XML).
+- **Evidence:** 100% pass across all 113 Key Functionalities test cases in live Google Chrome via CDP (TR-1328 through TR-1440).
+- **Suggested fix:** Implemented `validate_ifc_export` and `validate_bcf_export`, corrected Three.js invisible proxy bounding box computation in `ThreeViewport.tsx`, and updated `scripts/qa_runner.py` selectors and event dispatches.
+- **Status:** Resolved
+

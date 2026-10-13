@@ -41,9 +41,9 @@ Before marking any phase complete in `ROADMAP.md`, you must run and pass the fol
 - **Objective UX/UI Gates:**
   - `.\backend\venv\Scripts\python.exe scripts/gates/run_gates.py` (Zero Emoji, Hardcodes, Intent, Contrast all PASS)
 - **Agent QA Harness Verification:**
-  - `.\backend\venv\Scripts\python.exe scripts/qa_runner.py check` (0 syntax or configuration errors across 70 test cases)
+  - `.\backend\venv\Scripts\python.exe scripts/qa_runner.py check` (0 syntax or configuration errors across 359 test cases)
   - Execute Key Functionalities on every test run: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser`
-  - Execute Major Milestone Suite before marking any phase complete: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser` (all 70 tests in live Google Chrome)
+  - Execute Major Milestone Suite before marking any phase complete: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser` (all 359 tests in live Google Chrome)
   - Append raw results to `test_results_YYYY-MM-DD.jsonl` and compile `test_report_YYYY-MM-DD.md`
   - Record any discovered bugs, UX friction, or testability gaps in `DEVELOPMENT_HANDOFF.md`
 - **Git Checkpoint:**

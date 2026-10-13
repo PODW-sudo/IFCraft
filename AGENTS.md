@@ -62,7 +62,7 @@ The test suite operates under a strict two-tiered execution policy:
   ```powershell
   .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser
   ```
-- **Major Milestone Tier (`--milestone` / `--tier full`):** Must be executed on **each major milestone** to comprehensively audit every single function in the product (all 70 test cases).
+- **Major Milestone Tier (`--milestone` / `--tier full`):** Must be executed on **each major milestone** to comprehensively audit every single function in the product (all 359 test cases).
   ```powershell
   .\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser
   ```
