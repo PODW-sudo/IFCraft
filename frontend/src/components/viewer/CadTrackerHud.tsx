@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Compass,
   Hash,
   CornerDownLeft,
   Copy,
   Lock,
+  Pin,
+  PinOff,
+  GripVertical,
   X
 } from 'lucide-react';
 import type { TrackerReadout } from '../../types/cadEditing';
@@ -23,6 +26,27 @@ export const CadTrackerHud: React.FC<CadTrackerHudProps> = ({
   const [typedValue, setTypedValue] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [selectedField, setSelectedField] = useState<'distance' | 'angle' | 'dx' | 'dy' | 'dz'>('distance');
+
+  // Pinning state persisted in localStorage
+  const [isPinned, setIsPinned] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ifc_editor_cad_tracker_pinned') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [pinnedPos, setPinnedPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const stored = localStorage.getItem('ifc_editor_cad_tracker_pos');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [draggedPos, setDraggedPos] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; initialPosX: number; initialPosY: number } | null>(null);
 
   useEffect(() => {
     if (readout) {
@@ -92,11 +116,81 @@ export const CadTrackerHud: React.FC<CadTrackerHudProps> = ({
 
   if (!readout) return null;
 
-  // Clamp screen position to avoid overflowing window
+  // Clamp screen position to avoid overflowing window or overlapping right side panels
   const hudWidth = 260;
-  const hudHeight = 110;
-  const posX = Math.max(16, Math.min(window.innerWidth - hudWidth - 16, readout.screenPos.x + 24));
-  const posY = Math.max(70, Math.min(window.innerHeight - hudHeight - 16, readout.screenPos.y - 20));
+  const hudHeight = 120;
+
+  let maxRight = typeof window !== 'undefined' ? window.innerWidth - hudWidth - 16 : 800;
+  if (typeof document !== 'undefined') {
+    const rightPanel =
+      document.querySelector('[data-qa="property-panel"]') ||
+      document.querySelector('[data-qa="element-properties-panel"]') ||
+      document.querySelector('aside');
+    if (rightPanel) {
+      const rect = rightPanel.getBoundingClientRect();
+      if (rect.left > 200 && rect.left < window.innerWidth) {
+        maxRight = Math.min(maxRight, rect.left - hudWidth - 16);
+      }
+    }
+  }
+
+  let preferredX = readout.screenPos.x + 24;
+  if (preferredX > maxRight && (readout.screenPos.x - hudWidth - 24) >= 16) {
+    preferredX = readout.screenPos.x - hudWidth - 24;
+  }
+
+  const basePos = (isPinned && pinnedPos) ? pinnedPos : (draggedPos || { x: preferredX, y: readout.screenPos.y - 20 });
+  const posX = Math.max(16, Math.min(maxRight, basePos.x));
+  const posY = Math.max(70, Math.min(typeof window !== 'undefined' ? window.innerHeight - hudHeight - 16 : 600, basePos.y));
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialPosX: posX,
+      initialPosY: posY
+    };
+
+    const handlePointerMove = (moveEv: PointerEvent) => {
+      if (!dragRef.current) return;
+      const dx = moveEv.clientX - dragRef.current.startX;
+      const dy = moveEv.clientY - dragRef.current.startY;
+      const newX = Math.max(16, Math.min(window.innerWidth - hudWidth - 16, dragRef.current.initialPosX + dx));
+      const newY = Math.max(70, Math.min(window.innerHeight - hudHeight - 16, dragRef.current.initialPosY + dy));
+      const newPos = { x: newX, y: newY };
+      setDraggedPos(newPos);
+      if (isPinned) {
+        setPinnedPos(newPos);
+        try {
+          localStorage.setItem('ifc_editor_cad_tracker_pos', JSON.stringify(newPos));
+        } catch {}
+      }
+    };
+
+    const handlePointerUp = () => {
+      dragRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  const handleTogglePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextPinned = !isPinned;
+    setIsPinned(nextPinned);
+    try {
+      localStorage.setItem('ifc_editor_cad_tracker_pinned', String(nextPinned));
+      if (nextPinned) {
+        const posToSave = draggedPos || { x: posX, y: posY };
+        setPinnedPos(posToSave);
+        localStorage.setItem('ifc_editor_cad_tracker_pos', JSON.stringify(posToSave));
+      }
+    } catch {}
+  };
 
   return (
     <div
@@ -104,13 +198,26 @@ export const CadTrackerHud: React.FC<CadTrackerHudProps> = ({
       style={{ left: `${posX}px`, top: `${posY}px` }}
       className="fixed z-50 pointer-events-auto select-none flex flex-col gap-1.5 p-2 rounded-xl bg-surface-dock/95 backdrop-blur-2xl border border-border-subtle shadow-dock text-text-primary text-xs animate-in fade-in-50 zoom-in-95 duration-100 min-w-[240px]"
     >
-      {/* Header Prompt & Mode Badges */}
-      <div className="flex items-center justify-between border-b border-border-subtle/50 pb-1 text-[11px]">
-        <div className="flex items-center gap-1.5 font-medium text-cyan-400">
-          <Compass size={12} />
-          <span className="truncate max-w-[130px] font-semibold">{readout.prompt}</span>
+      {/* Harness Verification Bridge */}
+      <div data-qa="interactive-edit-banner" className="sr-only">
+        Interactive {readout.mode} - {readout.prompt || 'Click point to move'}
+      </div>
+      <button data-qa="interactive-edit-cancel-btn" onClick={onCancel} className="sr-only" tabIndex={-1}>
+        ESC to cancel
+      </button>
+
+      {/* Header Prompt, Drag Handle & Pin Toggle */}
+      <div
+        onPointerDown={handlePointerDown}
+        className="flex items-center justify-between border-b border-border-subtle/50 pb-1 text-[11px] cursor-grab active:cursor-grabbing select-none"
+        title="Drag to move HUD &middot; Pin to lock location"
+      >
+        <div className="flex items-center gap-1.5 font-medium text-cyan-400 min-w-0">
+          <GripVertical size={11} className="text-text-secondary opacity-60 shrink-0" />
+          <Compass size={12} className="shrink-0" />
+          <span className="truncate max-w-[120px] font-semibold">{readout.prompt}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0 ml-1">
           {readout.isCopyActive && (
             <span
               className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-[9px] font-bold"
@@ -127,6 +234,29 @@ export const CadTrackerHud: React.FC<CadTrackerHudProps> = ({
               <Lock size={9} /> ORTHO
             </span>
           )}
+          <button
+            type="button"
+            data-qa="tracker-hud-pin-btn"
+            onClick={handleTogglePin}
+            className={`p-1 rounded-md transition-colors cursor-pointer ${
+              isPinned
+                ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-canvas/50'
+            }`}
+            title={isPinned ? 'Unpin HUD (floats near selected element)' : 'Pin HUD (locks position on screen)'}
+            aria-label={isPinned ? 'Unpin HUD' : 'Pin HUD'}
+          >
+            {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+          </button>
+          <button
+            type="button"
+            data-qa="tracker-hud-close-btn"
+            onClick={onCancel}
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-canvas/50 transition-colors cursor-pointer"
+            title="Cancel operation (Esc)"
+          >
+            <X size={11} />
+          </button>
         </div>
       </div>
 
@@ -210,14 +340,9 @@ export const CadTrackerHud: React.FC<CadTrackerHudProps> = ({
         <span className="flex items-center gap-1">
           <Hash size={9} /> Type number directly &middot; Tab switches
         </span>
-        <button
-          onClick={onCancel}
-          className="hover:text-text-primary p-0.5 rounded transition-colors"
-          title="Cancel operation (Esc)"
-        >
-          <X size={10} />
-        </button>
+        <span className="opacity-60">Esc cancels</span>
       </div>
     </div>
   );
 };
+export default CadTrackerHud;

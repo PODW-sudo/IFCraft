@@ -2268,8 +2268,64 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         clearGroupChildren(editGuidesGroupRef.current);
       }
       needsRenderRef.current = true;
+    } else {
+      let prompt = 'Click base point';
+      if (activeInteractiveMode === 'move') {
+        prompt = 'Click base point for move (or origin)';
+      } else if (activeInteractiveMode === 'rotate') {
+        prompt = 'Click rotation center point';
+      } else if (activeInteractiveMode === 'mirror') {
+        prompt = 'Click first point of mirror axis';
+      } else if (activeInteractiveMode === 'multiply') {
+        prompt = 'Click base point for array';
+      } else if (activeInteractiveMode === 'elevate') {
+        prompt = 'Click base reference elevation';
+      } else if (activeInteractiveMode === 'special_pick') {
+        prompt = 'Click Point 1 for vector';
+      }
+
+      let initScreenX = typeof window !== 'undefined' ? window.innerWidth / 2 : 400;
+      let initScreenY = typeof window !== 'undefined' ? window.innerHeight / 2 : 300;
+      const container = containerRef.current;
+      const camera = cameraRef.current;
+      if (container && camera && selectedExpressID !== null) {
+        const selectedMeshes = meshMapRef.current.get(selectedExpressID);
+        if (selectedMeshes && selectedMeshes.length > 0) {
+          const box = new THREE.Box3();
+          for (const m of selectedMeshes) {
+            box.expandByObject(m);
+          }
+          if (!box.isEmpty()) {
+            const anchor = new THREE.Vector3();
+            box.getCenter(anchor);
+            anchor.y = box.max.y;
+            const projected = anchor.clone().project(camera);
+            const rect = container.getBoundingClientRect();
+            initScreenX = rect.left + ((projected.x + 1) * rect.width) / 2;
+            initScreenY = rect.top + ((-projected.y + 1) * rect.height) / 2;
+          }
+        }
+      }
+
+      setTrackerReadout({
+        mode: activeInteractiveMode,
+        step: 1,
+        distance: 0,
+        angle: 0,
+        dx: 0,
+        dy: 0,
+        dz: 0,
+        isCopyMode: false,
+        isCopyActive: false,
+        isOrthoLocked: false,
+        isOrthoActive: false,
+        activeField: activeInteractiveMode === 'rotate' ? 'angle' : activeInteractiveMode === 'elevate' ? 'dy' : 'distance',
+        prompt,
+        screenPos: { x: initScreenX, y: initScreenY }
+      });
+      needsRenderRef.current = true;
     }
-  }, [activeInteractiveMode]);
+  }, [activeInteractiveMode, selectedExpressID]);
 
   // Handle ESC (clear selection / cancel), TAB (cycle candidate elements), and CAD shortcut keys
   useEffect(() => {
@@ -2740,9 +2796,29 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           }
         }
 
-        const screenVec = hitPoint.clone().project(camera);
-        const hudScreenX = ((screenVec.x + 1) / 2) * rect.width + rect.left;
-        const hudScreenY = ((-screenVec.y + 1) / 2) * rect.height + rect.top;
+        // Anchor tracker HUD near selected element (stable in-canvas position, does not chase mouse pointer)
+        const selectedMeshes = selectedExpressID !== null ? meshMapRef.current.get(selectedExpressID) || [] : [];
+        const anchorWorld = new THREE.Vector3();
+        if (selectedMeshes.length > 0) {
+          const b = new THREE.Box3();
+          selectedMeshes.forEach((m) => b.expandByObject(m));
+          b.getCenter(anchorWorld);
+          anchorWorld.y = b.max.y; // anchor near top of element
+        } else if (interactiveEditState.originPoint) {
+          anchorWorld.copy(interactiveEditState.originPoint);
+        } else {
+          anchorWorld.copy(hitPoint);
+        }
+
+        const screenVec = anchorWorld.clone().project(camera);
+        let hudScreenX = ((screenVec.x + 1) / 2) * rect.width + rect.left;
+        let hudScreenY = ((-screenVec.y + 1) / 2) * rect.height + rect.top;
+
+        // If behind camera frustum, fallback to safe screen center
+        if (screenVec.z > 1.0) {
+          hudScreenX = rect.left + rect.width / 2;
+          hudScreenY = rect.top + rect.height / 2;
+        }
 
         let prompt = '';
         if (interactiveEditState.mode === 'move') {
@@ -2773,8 +2849,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           prompt,
           screenPos: { x: hudScreenX, y: hudScreenY }
         });
-
-        const selectedMeshes = selectedExpressID !== null ? meshMapRef.current.get(selectedExpressID) || [] : [];
         updateInteractiveGuides(editGroup, interactiveEditState, hitPoint, selectedMeshes);
         needsRenderRef.current = true;
         return;
@@ -3669,39 +3743,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         </div>
       )}
 
-      {/* Interactive CAD Edit Tool Banner */}
-      {interactiveEditState.mode !== 'none' && (
-        <div
-          className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-[var(--dock-translucent)] border border-cyan-500/40 backdrop-blur-xl px-4 py-1.5 rounded-full text-xs text-cyan-300 flex items-center gap-2.5 shadow-[var(--shadow-hud)] select-none animate-in fade-in slide-in-from-top-1"
-          data-qa="interactive-edit-banner"
-        >
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-          <span className="font-semibold uppercase tracking-wider text-[11px] text-cyan-400">
-            {interactiveEditState.mode === 'move' ? 'Move' :
-             interactiveEditState.mode === 'rotate' ? 'Rotate' :
-             interactiveEditState.mode === 'mirror' ? 'Mirror' :
-             interactiveEditState.mode === 'multiply' ? 'Multiply' :
-             interactiveEditState.mode === 'elevate' ? 'Elevate' : 'Pick Points'}
-          </span>
-          <span className="text-slate-500">•</span>
-          <span className="font-mono text-slate-200">
-            {trackerReadout?.prompt || `Step ${interactiveEditState.step}`}
-          </span>
-          {interactiveEditState.isCopyMode && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium">
-              Copy
-            </span>
-          )}
-          <button
-            onClick={handleCancelInteractiveEdit}
-            className="text-[10px] text-slate-400 hover:text-slate-200 font-mono ml-2 px-1.5 py-0.5 rounded bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
-            title="Cancel tool (Esc)"
-            data-qa="interactive-edit-cancel-btn"
-          >
-            ESC to cancel
-          </button>
-        </div>
-      )}
+
 
       {/* Interactive CAD Tracker HUD (Archicad 29 & Tekla 2025 Floating Input) */}
       <CadTrackerHud

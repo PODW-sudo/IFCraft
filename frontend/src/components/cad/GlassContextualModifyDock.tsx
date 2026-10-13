@@ -22,7 +22,6 @@ import {
   X,
   Move,
   Settings2,
-  Compass,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -84,7 +83,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
   onStartElevate,
   onStartMultiply,
   onOpenSpecialModal,
-  onCancelInteractiveTool,
+  onCancelInteractiveTool: _onCancelInteractiveTool,
   onClone,
   onDelete,
   onUpdateGeometry,
@@ -182,8 +181,6 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
         return <Box size={13} className="text-blue-600 dark:text-cyan-400" />;
     }
   };
-
-  const isToolActive = activeInteractiveMode !== 'none';
 
   return (
     <div
@@ -777,25 +774,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
         </div>
       </div>
 
-      {/* Active Interactive Tool Banner */}
-      {isToolActive && (
-        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/80 dark:bg-slate-800/90 border border-blue-400/40 text-blue-100 text-[11px] shadow-lg animate-in fade-in zoom-in-95 duration-100">
-          <Compass size={12} className="animate-spin text-cyan-400" />
-          <span className="font-semibold uppercase tracking-wider">
-            {activeInteractiveMode.replace('_', ' ')} active
-          </span>
-          <span className="text-[10px] text-blue-200">
-            Pick points in 3D canvas or enter values
-          </span>
-          <button
-            onClick={onCancelInteractiveTool}
-            className="ml-1 p-0.5 rounded-full hover:bg-white/20 text-white cursor-pointer"
-            title="Cancel tool (Esc)"
-          >
-            <X size={11} />
-          </button>
-        </div>
-      )}
+
     </div>
   );
 };
