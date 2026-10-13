@@ -10,7 +10,6 @@ import {
   History, 
   X, 
   Sliders, 
-  GripVertical,
   PenTool
 } from 'lucide-react';
 import type { CadToolMode, CadHistoryItem } from '../../types/ifc';
@@ -107,10 +106,10 @@ export const CadToolbar: React.FC<CadToolbarProps> = ({
         <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-200/60 dark:border-slate-800/80">
           <div
             data-drag-handle="true"
-            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-grab active:cursor-grabbing"
-            title="Drag to reposition CAD Toolbox"
+            className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            title="CAD Toolbox"
           >
-            <GripVertical size={13} className="text-slate-400" />
+            <span className="sr-only" aria-hidden="true" />
             <div className="flex items-center gap-1">
               <PenTool size={13} className="text-blue-600 dark:text-cyan-400" />
               <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 tracking-tight">CAD Modeling</span>

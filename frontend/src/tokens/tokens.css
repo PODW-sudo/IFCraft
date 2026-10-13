@@ -4,7 +4,70 @@
  */
 
 :root {
-  /* Surfaces */
+  /* Surfaces (Default Light Glass Theme) */
+  --canvas-bg: #dce5ef;
+  --dock-bg: rgba(255, 255, 255, 0.85);
+  --dock-translucent: rgba(255, 255, 255, 0.75);
+  --control-bg: rgba(241, 245, 249, 0.85);
+  --control-hover: rgba(226, 232, 240, 0.95);
+  --control-active: rgba(203, 213, 225, 0.95);
+
+  /* Borders */
+  --border-subtle: rgba(226, 232, 240, 0.8);
+  --border-strong: rgba(203, 213, 225, 0.9);
+  --border-focus: #2563eb;
+
+  /* Typography Colors */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-inverse: #ffffff;
+
+  /* Actions */
+  --action-primary: #2563eb;
+  --action-primary-hover: #1d4ed8;
+  --action-primary-text: #ffffff;
+  --action-danger: #dc2626;
+  --action-danger-hover: #b91c1c;
+  --action-danger-text: #ffffff;
+  --action-warning: #f59e0b;
+
+  /* BIM Category Colors */
+  --bim-wall: #94a3b8;
+  --bim-slab: #64748b;
+  --bim-column: #f59e0b;
+  --bim-door: #a855f7;
+  --bim-window: #38bdf8;
+  --bim-laser: #10b981;
+  --bim-section: #f43f5e;
+
+  /* Radii Hierarchy */
+  --radius-badge: 2px;
+  --radius-control: 6px;
+  --radius-dock: 12px;
+  --radius-modal: 16px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-hud: 0 12px 36px 0 rgba(15, 23, 42, 0.12);
+  --shadow-control: 0 2px 4px 0 rgba(15, 23, 42, 0.06);
+
+  /* Modern Glass - Soft / Elegant Theme Tokens (Default Light) */
+  --glass-bg-canvas: #a5b9ce;
+  --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(224, 242, 254, 0.8) 0px, transparent 60%),
+    radial-gradient(at 85% 20%, rgba(241, 245, 249, 0.9) 0px, transparent 55%),
+    radial-gradient(at 50% 90%, rgba(219, 234, 254, 0.7) 0px, transparent 65%),
+    linear-gradient(135deg, #a5b9ce 0%, #cbd8e6 40%, #e2e8f0 100%);
+  --glass-surface-panel: rgba(255, 255, 255, 0.5);
+  --glass-surface-card: rgba(255, 255, 255, 0.45);
+  --glass-surface-control: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 12px 36px 0 rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='dark'],
+.dark {
+  /* Surfaces (Dark Mode Obsidian) */
   --canvas-bg: #0b0d10;
   --dock-bg: #15181e;
   --dock-translucent: rgba(21, 24, 30, 0.85);
@@ -32,41 +95,10 @@
   --action-danger-text: #ffffff;
   --action-warning: #f59e0b;
 
-  /* BIM Category Colors */
-  --bim-wall: #94a3b8;
-  --bim-slab: #64748b;
-  --bim-column: #f59e0b;
-  --bim-door: #a855f7;
-  --bim-window: #38bdf8;
-  --bim-laser: #10b981;
-  --bim-section: #f43f5e;
-
-  /* Radii Hierarchy */
-  --radius-badge: 2px;
-  --radius-control: 6px;
-  --radius-dock: 12px;
-  --radius-modal: 16px;
-  --radius-pill: 9999px;
-
   /* Shadows */
   --shadow-hud: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   --shadow-control: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
 
-  /* Modern Glass - Soft / Elegant Theme Tokens (Default Light) */
-  --glass-bg-canvas: #a5b9ce;
-  --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(224, 242, 254, 0.8) 0px, transparent 60%),
-    radial-gradient(at 85% 20%, rgba(241, 245, 249, 0.9) 0px, transparent 55%),
-    radial-gradient(at 50% 90%, rgba(219, 234, 254, 0.7) 0px, transparent 65%),
-    linear-gradient(135deg, #a5b9ce 0%, #cbd8e6 40%, #e2e8f0 100%);
-  --glass-surface-panel: rgba(255, 255, 255, 0.5);
-  --glass-surface-card: rgba(255, 255, 255, 0.45);
-  --glass-surface-control: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.6);
-  --glass-shadow: 0 12px 36px 0 rgba(15, 23, 42, 0.08);
-}
-
-[data-theme='dark'],
-.dark {
   /* Modern Glass - Frosted Obsidian Theme Tokens (Dark Mode) */
   --glass-bg-canvas: #090b10;
   --glass-bg-gradient: radial-gradient(at 15% 15%, rgba(30, 41, 59, 0.7) 0px, transparent 60%),
@@ -79,5 +111,3 @@
   --glass-border: rgba(255, 255, 255, 0.15);
   --glass-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.40);
 }
-
-

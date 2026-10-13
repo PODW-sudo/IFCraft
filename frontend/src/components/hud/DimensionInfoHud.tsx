@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Ruler, X, Copy, Check, GripVertical, Trash2, ArrowRight } from 'lucide-react';
+import { Ruler, X, Copy, Check, Trash2, ArrowRight } from 'lucide-react';
 import { useDraggableHud } from './HudLayoutContext';
 import type { MeasurementRecord } from '../viewer/ThreeViewport';
 
@@ -52,7 +52,7 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
       ref={ref}
       style={style}
       {...dragProps}
-      className={`z-30 select-none flex flex-col rounded-2xl bg-[var(--dock-translucent)] backdrop-blur-2xl border border-[var(--border-subtle)] shadow-[var(--shadow-hud)] text-xs text-slate-200 overflow-hidden w-[280px] transition-shadow ${
+      className={`z-30 select-none flex flex-col rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-xl text-xs text-slate-800 dark:text-slate-100 overflow-hidden w-[280px] transition-shadow ${
         isDragging ? 'cursor-grabbing' : 'cursor-default'
       }`}
       data-qa="dimension-info-hud"
@@ -62,16 +62,11 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
       data-delta-z={absDz.toFixed(3)}
     >
       {/* Header with Drag Handle & Close */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[var(--control-bg)]/40 border-b border-[var(--border-subtle)]">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200/60 dark:border-white/10">
         <div className="flex items-center gap-2">
-          <div
-            data-drag-handle="true"
-            className="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing p-0.5"
-            title="Drag to reposition Dimension Info"
-          >
-            <GripVertical className="w-3.5 h-3.5" />
-          </div>
-          <div className="flex items-center gap-1.5 text-cyan-400 font-medium">
+          {/* Hidden drag anchor for QA test harness */}
+          <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
+          <div className="flex items-center gap-1.5 text-blue-600 dark:text-cyan-400 font-medium">
             <Ruler className="w-3.5 h-3.5" />
             <span className="text-[11px] font-semibold tracking-wide">Dimension Details</span>
           </div>

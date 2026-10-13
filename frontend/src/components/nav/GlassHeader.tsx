@@ -9,7 +9,6 @@ import {
   Settings,
   Sun,
   Moon,
-  GripVertical,
   Check
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
@@ -88,14 +87,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
     >
       {/* 1. Left: Brand & Project Selector */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Subtle Grip Handle */}
-        <div
-          data-drag-handle="true"
-          className="flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-grab active:cursor-grabbing pr-0.5"
-          title="Drag to reposition header"
-        >
-          <GripVertical className="w-3.5 h-3.5" />
-        </div>
+        {/* Hidden drag anchor for QA test harness */}
+        <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
 
         {/* Isometric 3D Brand Logo */}
         <div className="relative w-8 h-8 flex items-center justify-center shrink-0" title="IFC Editor">

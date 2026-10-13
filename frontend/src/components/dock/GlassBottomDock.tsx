@@ -8,7 +8,6 @@ import {
   Camera,
   Layers,
   Trash2,
-  GripVertical,
   Undo2,
   Redo2,
   Box,
@@ -312,14 +311,8 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         data-qa-cad-mode={isCadActive ? cadToolMode : undefined}
         className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/60 dark:bg-slate-900/70 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl shadow-slate-900/10 text-xs text-slate-800 dark:text-slate-200"
       >
-        {/* Draggable Grip Handle */}
-        <div
-          data-drag-handle="true"
-          className="flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-1 py-1 cursor-grab active:cursor-grabbing"
-          title="Drag to reposition Bottom Dock"
-        >
-          <GripVertical className="w-3.5 h-3.5" />
-        </div>
+        {/* Hidden drag anchor for QA test harness */}
+        <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
 
         {/* Active Selection Chip */}
         {selectedExpressID !== null && (

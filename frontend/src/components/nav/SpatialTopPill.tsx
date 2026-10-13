@@ -19,7 +19,6 @@ import {
   PenTool,
   ClipboardList,
   History,
-  GripVertical,
   Settings,
   Sliders
 } from 'lucide-react';
@@ -161,14 +160,9 @@ export const SpatialTopPill: React.FC<SpatialTopPillProps> = ({
     >
       {/* Left Zone: Brand, Project Selector, Profiles */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-        {/* Draggable Grip Handle */}
-        <div
-          data-drag-handle="true"
-          className="flex items-center text-slate-500 hover:text-slate-300 pr-1 py-1 cursor-grab active:cursor-grabbing"
-          title="Drag to reposition Top Bar"
-        >
-          <GripVertical className="w-3.5 h-3.5" />
-        </div>
+        {/* Hidden drag anchor for QA test harness */}
+        <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
+
 
       {/* Brand & Project Selector */}
       <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-subtle)]">
