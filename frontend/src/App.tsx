@@ -7,7 +7,6 @@ import {
 import { GlassSpatialTree } from './components/tree/GlassSpatialTree';
 import { GlassPropertyInspector } from './components/properties/GlassPropertyInspector';
 import { GlassHeader } from './components/nav/GlassHeader';
-import { GlassNavRail } from './components/nav/GlassNavRail';
 import { GlassContextualModifyDock } from './components/cad/GlassContextualModifyDock';
 import { GlassBottomDock } from './components/dock/GlassBottomDock';
 import { GlassViewCube } from './components/hud/GlassViewCube';
@@ -21,7 +20,6 @@ import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
 import { FederatedModelManager } from './components/federation/FederatedModelManager';
 import { ClashInspector } from './components/federation/ClashInspector';
-import { CadToolbar } from './components/cad/CadToolbar';
 import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
 import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
 import { SettingsModal } from './components/modals/SettingsModal';
@@ -812,23 +810,6 @@ export const App: React.FC = () => {
     }
   }, [currentProject]);
 
-  const handleToggleCad = useCallback(() => {
-    setIsCadOpen((prev) => {
-      const next = !prev;
-      if (next) {
-        if (activeProfile !== 'modify') {
-          handleSelectProfile('modify');
-        }
-        refreshCadHistory();
-      } else {
-        if (activeProfile === 'modify') {
-          handleSelectProfile('review');
-        }
-      }
-      return next;
-    });
-  }, [activeProfile, handleSelectProfile, refreshCadHistory]);
-
   const handleCadDrawWall = useCallback(async (start: [number, number], end: [number, number]) => {
     if (!currentProject) return;
     try {
@@ -1444,7 +1425,9 @@ export const App: React.FC = () => {
           setIsCadOpen(true);
           refreshCadHistory();
         },
-        closeCadToolbar: () => setIsCadOpen(false),
+        closeCadToolbar: () => {
+          setIsCadOpen(false);
+        },
         setCadMode: (mode: CadToolMode) => setCadToolMode(mode),
         triggerCadUndo: () => handleCadUndo(),
         triggerCadRedo: () => handleCadRedo(),
@@ -1585,7 +1568,7 @@ export const App: React.FC = () => {
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
   const activeRightDrawerWidth = isCopilotOpen ? copilotWidth : propertyWidth;
 
-  const leftOffset = 56 + (isTreeOpen ? (isTreeCollapsed ? 56 : treeWidth) : 0);
+  const leftOffset = isTreeOpen ? (isTreeCollapsed ? 56 : treeWidth) : 0;
   const rightOffset = isCopilotOpen
     ? copilotWidth
     : (isPropertyOpen && selectedExpressID !== null)
@@ -1745,25 +1728,8 @@ export const App: React.FC = () => {
 
         {/* 3. Floating Frosted Glass Panels Over 3D Canvas */}
         <div className="absolute inset-x-0 bottom-0 top-16 z-20 pointer-events-none p-4 flex justify-between overflow-hidden">
-          {/* Leftmost Navigation Rail + Spatial Hierarchy Tree */}
+          {/* Left Spatial Hierarchy Tree Drawer (zero permanent left rail) */}
           <div className="flex gap-2.5 h-full pointer-events-auto items-start">
-            <GlassNavRail
-              activeTab="model"
-              onSelectTab={() => {}}
-              isTreeOpen={isTreeOpen}
-              onToggleTree={handleToggleTree}
-              isCadOpen={isCadOpen}
-              onToggleCad={handleToggleCad}
-              onOpenOmnibar={() => setIsOmnibarOpen(true)}
-              isMeasureActive={isMeasureActive}
-              onToggleMeasure={() => setIsMeasureActive((p) => !p)}
-              isClashOpen={isClashInspectorOpen}
-              onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
-              isCopilotOpen={isCopilotOpen}
-              onToggleCopilot={handleToggleCopilot}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
-
             <GlassSpatialTree
               tree={spatialTree}
               selectedExpressID={selectedExpressID}
@@ -1824,27 +1790,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* 6. CAD Modeling Toolbar (if open) */}
-        {isCadOpen && effectiveProfileSettings.showCadToolbar && (
-          <CadToolbar
-            activeMode={cadToolMode}
-            onSelectMode={setCadToolMode}
-            canUndo={cadCanUndo}
-            canRedo={cadCanRedo}
-            onUndo={handleCadUndo}
-            onRedo={handleCadRedo}
-            history={cadHistory}
-            onRefreshHistory={refreshCadHistory}
-            onClose={() => setIsCadOpen(false)}
-            wallHeight={cadWallHeight}
-            setWallHeight={setCadWallHeight}
-            wallThickness={cadWallThickness}
-            setWallThickness={setCadWallThickness}
-            leftOffset={leftOffset ? leftOffset + 12 : 80}
-          />
-        )}
-
-        {/* 7. Floating Frosted Bottom Tool Dock */}
+        {/* 7. Floating Frosted Bottom Tool Dock (role-adaptive CAD & inspection controls) */}
         {effectiveProfileSettings.showBottomDock && (
           <GlassBottomDock
             transformMode={transformMode}
@@ -1871,6 +1817,21 @@ export const App: React.FC = () => {
             selectedExpressID={selectedExpressID}
             leftDrawerOffset={leftOffset}
             rightDrawerOffset={rightOffset}
+            isTreeOpen={isTreeOpen}
+            onToggleTree={handleToggleTree}
+            isPropertyOpen={isPropertyOpen}
+            onToggleProperty={() => setIsPropertyOpen((prev) => !prev)}
+            isCopilotOpen={isCopilotOpen}
+            onToggleCopilot={handleToggleCopilot}
+            isClashOpen={isClashInspectorOpen}
+            onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
+            wallHeight={cadWallHeight}
+            setWallHeight={setCadWallHeight}
+            wallThickness={cadWallThickness}
+            setWallThickness={setCadWallThickness}
+            isCadOpen={isCadOpen}
+            cadHistory={cadHistory}
+            onRefreshCadHistory={refreshCadHistory}
           />
         )}
 

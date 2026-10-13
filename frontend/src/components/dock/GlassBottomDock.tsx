@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Slider from '@radix-ui/react-slider';
 import {
@@ -11,11 +11,24 @@ import {
   GripVertical,
   Undo2,
   Redo2,
-  Box
+  Box,
+  MousePointer,
+  Move,
+  RotateCw,
+  Square,
+  Columns,
+  DoorOpen,
+  AppWindow,
+  Sliders,
+  History,
+  FolderTree,
+  SlidersHorizontal,
+  Sparkles,
+  Crosshair
 } from 'lucide-react';
 import type { TransformMode } from '../viewer/ThreeViewport';
 import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../../types/viewport';
-import type { CadToolMode } from '../../types/ifc';
+import type { CadToolMode, CadHistoryItem } from '../../types/ifc';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 import { useDraggableHud } from '../hud/HudLayoutContext';
 
@@ -24,6 +37,12 @@ interface GlassBottomDockProps {
   onSetTransformMode: (mode: TransformMode) => void;
   cadToolMode?: CadToolMode;
   onSelectCadTool?: (mode: CadToolMode) => void;
+  wallHeight?: number;
+  setWallHeight?: (v: number) => void;
+  wallThickness?: number;
+  setWallThickness?: (v: number) => void;
+  cadHistory?: CadHistoryItem[];
+  onRefreshCadHistory?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
@@ -44,11 +63,29 @@ interface GlassBottomDockProps {
   selectedExpressID?: number | null;
   leftDrawerOffset?: number;
   rightDrawerOffset?: number;
+  isTreeOpen?: boolean;
+  onToggleTree?: () => void;
+  isPropertyOpen?: boolean;
+  onToggleProperty?: () => void;
+  isCopilotOpen?: boolean;
+  onToggleCopilot?: () => void;
+  isClashOpen?: boolean;
+  onToggleClash?: () => void;
+  isCadOpen?: boolean;
 }
 
 export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
-  transformMode: _transformMode,
-  onSetTransformMode: _onSetTransformMode,
+  transformMode,
+  onSetTransformMode,
+  cadToolMode = 'select',
+  onSelectCadTool,
+  isCadOpen = true,
+  wallHeight = 3.0,
+  setWallHeight,
+  wallThickness = 0.2,
+  setWallThickness,
+  cadHistory = [],
+  onRefreshCadHistory,
   canUndo = false,
   canRedo = false,
   onUndo,
@@ -68,9 +105,19 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
   customSettings,
   selectedExpressID = null,
   leftDrawerOffset = 0,
-  rightDrawerOffset = 0
+  rightDrawerOffset = 0,
+  isTreeOpen = false,
+  onToggleTree,
+  isPropertyOpen = false,
+  onToggleProperty,
+  isCopilotOpen = false,
+  onToggleCopilot,
+  isClashOpen = false,
+  onToggleClash
 }) => {
-  const [windowWidth, setWindowWidth] = React.useState<number>(() =>
+  const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [windowWidth, setWindowWidth] = useState<number>(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1440
   );
 
@@ -83,9 +130,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
   const effectiveLeft = leftDrawerOffset || 0;
   const effectiveRight = rightDrawerOffset || 0;
   const availableCanvasWidth = Math.max(300, windowWidth - effectiveLeft - effectiveRight);
-  const initialWidth = Math.min(380, availableCanvasWidth - 24);
+  const initialWidth = Math.min(520, availableCanvasWidth - 24);
   const initialX = effectiveLeft + Math.max(12, (availableCanvasWidth - initialWidth) / 2);
-  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 76) : 830;
+  const initialY = typeof window !== 'undefined' ? Math.max(16, window.innerHeight - 72) : 830;
 
   const { ref, style, dragProps, isDragging } = useDraggableHud('bottom-dock', {
     x: initialX,
@@ -94,27 +141,64 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
     height: 48
   });
 
-  const showSnap = profile === 'modify' || (profile === 'custom' && customSettings?.showSnap !== false);
-  const showSection = profile === 'custom' ? customSettings?.showSection !== false : profile !== 'query';
-  const showUndoRedo = profile === 'modify' || (profile === 'custom' && customSettings?.showSnap !== false);
+  const getHelperText = (mode: CadToolMode) => {
+    switch (mode) {
+      case 'wall':
+        return 'Click ground to set start point, click again to finish';
+      case 'slab':
+        return 'Click corner 1 on ground, click corner 2 to create slab';
+      case 'column':
+        return 'Click anywhere on ground plane to place vertical column';
+      case 'door':
+        return 'Click along any existing wall to cut opening & insert door';
+      case 'window':
+        return 'Click along any existing wall to cut opening & insert window';
+      default:
+        return 'Select mode active (select and transform elements)';
+    }
+  };
+
+  const isCadActive = profile === 'modify' && isCadOpen !== false;
+  const showSnap = isCadActive || (profile === 'custom' && customSettings?.showSnap !== false);
+  const showSection = profile === 'custom' ? customSettings?.showSection !== false : true;
+
+  const cadTools: { id: CadToolMode; label: string; icon: React.ReactNode; shortcut: string }[] = [
+    { id: 'select', label: 'Select', icon: <MousePointer size={13} />, shortcut: 'Esc' },
+    { id: 'wall', label: 'Wall', icon: <Square size={13} className="rotate-45" />, shortcut: 'W' },
+    { id: 'slab', label: 'Slab', icon: <Square size={13} />, shortcut: 'S' },
+    { id: 'column', label: 'Column', icon: <Columns size={13} />, shortcut: 'C' },
+    { id: 'door', label: 'Door', icon: <DoorOpen size={13} />, shortcut: 'D' },
+    { id: 'window', label: 'Window', icon: <AppWindow size={13} />, shortcut: 'Shift+W' },
+  ];
 
   return (
     <div
       ref={ref}
       style={style}
       {...dragProps}
-      className={`z-25 flex flex-col items-center gap-2 select-none transition-shadow ${
+      className={`z-25 flex flex-col items-center gap-1.5 select-none transition-shadow ${
         isDragging ? 'shadow-blue-500/20 ring-1 ring-blue-500/40 cursor-grabbing' : 'cursor-grab'
       }`}
       data-qa="spatial-bottom-dock"
       data-qa-dock="glass-bottom-dock"
+      data-qa-draggable-hud="bottom-dock"
     >
-      {/* Section Plane Control Card (Floating Glass Card) */}
+      {/* Helper Status Tip for Active CAD Tool */}
+      {isCadActive && cadToolMode !== 'select' && (
+        <div
+          data-qa="cad-status-banner"
+          className="whitespace-nowrap px-3 py-1 rounded-full bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl border border-white/60 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xl pointer-events-none animate-in fade-in slide-in-from-bottom-1"
+        >
+          {getHelperText(cadToolMode)}
+        </div>
+      )}
+
+      {/* Section Plane Control Card (Floating Glass Card when active) */}
       {sectionConfig.enabled && (
-        <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2">
-          <div className="flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-300">
+        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2">
+          <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
             <Scissors className="w-3.5 h-3.5 text-rose-500" />
-            <span>Axis:</span>
+            <span className="text-[11px]">Axis:</span>
           </div>
 
           <div className="flex rounded-xl p-0.5 bg-white/60 dark:bg-slate-800/60 border border-white/60 dark:border-white/10">
@@ -123,7 +207,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                 key={axis}
                 data-qa={`section-axis-${axis}`}
                 onClick={() => onUpdateSection({ ...sectionConfig, axis })}
-                className={`px-2 py-0.5 rounded-lg text-[11px] font-mono uppercase transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-mono uppercase transition-colors cursor-pointer ${
                   sectionConfig.axis === axis
                     ? 'bg-rose-500 text-white font-bold shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -134,7 +218,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2 w-32">
+          <div className="flex items-center gap-2 w-28">
             <Slider.Root
               data-qa="section-slider"
               className="relative flex items-center select-none touch-none w-full h-4"
@@ -157,7 +241,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
           <button
             data-qa="section-flip-btn"
             onClick={() => onUpdateSection({ ...sectionConfig, inverted: !sectionConfig.inverted })}
-            className={`text-[10px] px-2 py-1 rounded-lg border transition-colors cursor-pointer ${
+            className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors cursor-pointer ${
               sectionConfig.inverted
                 ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/40'
                 : 'text-slate-600 dark:text-slate-400 border-white/60 dark:border-white/10 hover:text-slate-900 dark:hover:text-white'
@@ -168,12 +252,86 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         </div>
       )}
 
-      {/* Main Floating Frosted Glass Action Dock */}
-      <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/70 dark:bg-slate-900/75 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-2xl shadow-slate-900/10 text-xs text-slate-800 dark:text-slate-200">
+      {/* Flyout: Parametric Settings for CAD Wall & Slab */}
+      {showSettings && (
+        <div
+          data-qa="cad-settings-card"
+          className="flex items-center gap-3 px-3.5 py-1.5 rounded-2xl bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
+        >
+          <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">Parametric Defaults:</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-500">Height:</span>
+            <input
+              data-qa="cad-wall-height-input"
+              type="number"
+              step="0.1"
+              min="0.5"
+              max="20.0"
+              value={wallHeight}
+              onChange={(e) => setWallHeight?.(parseFloat(e.target.value) || 3.0)}
+              className="w-14 px-1.5 py-0.5 rounded-lg bg-white/90 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-right font-mono text-[11px]"
+            />
+            <span className="text-[10px] text-slate-400">m</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-500">Thickness:</span>
+            <input
+              data-qa="cad-wall-thickness-input"
+              type="number"
+              step="0.05"
+              min="0.05"
+              max="2.0"
+              value={wallThickness}
+              onChange={(e) => setWallThickness?.(parseFloat(e.target.value) || 0.2)}
+              className="w-14 px-1.5 py-0.5 rounded-lg bg-white/90 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-right font-mono text-[11px]"
+            />
+            <span className="text-[10px] text-slate-400">m</span>
+          </div>
+        </div>
+      )}
+
+      {/* Flyout: CAD History Card */}
+      {showHistory && (
+        <div
+          data-qa="cad-history-card"
+          className="w-72 max-h-48 overflow-y-auto p-2.5 rounded-2xl bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl flex flex-col gap-1.5 text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
+        >
+          <div className="flex items-center justify-between font-semibold pb-1 border-b border-slate-200 dark:border-slate-800 text-[11px]">
+            <span>Transaction Stack</span>
+            <span className="text-[10px] text-slate-400 font-mono">{cadHistory.length} events</span>
+          </div>
+          {cadHistory.length === 0 ? (
+            <div className="text-center py-2 text-slate-400 italic text-[11px]">No CAD actions</div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {cadHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className={`flex items-center justify-between p-1.5 rounded-lg border text-[10px] ${
+                    item.status === 'ACTIVE'
+                      ? 'bg-white/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                      : 'opacity-50 line-through'
+                  }`}
+                >
+                  <span className="font-medium">{item.action_type}</span>
+                  <span className="font-mono text-slate-400">#{item.express_id}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Role-Adaptive Frosted Glass Bottom Dock */}
+      <div
+        data-qa={isCadActive ? 'cad-toolbar' : undefined}
+        data-qa-cad-mode={isCadActive ? cadToolMode : undefined}
+        className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/60 dark:bg-slate-900/70 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl shadow-slate-900/10 text-xs text-slate-800 dark:text-slate-200"
+      >
         {/* Draggable Grip Handle */}
         <div
           data-drag-handle="true"
-          className="flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 pr-1 py-1 cursor-grab active:cursor-grabbing"
+          className="flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-1 py-1 cursor-grab active:cursor-grabbing"
           title="Drag to reposition Bottom Dock"
         >
           <GripVertical className="w-3.5 h-3.5" />
@@ -182,54 +340,460 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         {/* Active Selection Chip */}
         {selectedExpressID !== null && (
           <div
-            className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-700 dark:text-cyan-300 font-mono text-[11px]"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-700 dark:text-cyan-300 font-mono text-[10px]"
             title={`Selected Element #${selectedExpressID}`}
           >
             <Box className="w-3 h-3 text-blue-600 dark:text-cyan-400" />
-            <span className={availableCanvasWidth < 600 ? 'hidden' : 'inline'}>#{selectedExpressID}</span>
+            <span>#{selectedExpressID}</span>
           </div>
         )}
 
-        {/* Global Snapping Toggle */}
-        {showSnap && (
-          <button
-            data-qa="dock-snap-toggle"
-            onClick={onToggleSnap}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
-              snapEnabled
-                ? 'bg-blue-600 text-white shadow-xs font-semibold'
-                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-            }`}
-            title="Toggle Precision Snapping (Vertices, Edges, Midpoints)"
-          >
-            <Grid className="w-3.5 h-3.5" />
-            <span className={`text-[10px] font-mono ${availableCanvasWidth < 680 ? 'hidden' : 'hidden sm:inline'}`}>Snap</span>
-          </button>
+        {/* ========================================================================= */}
+        {/* ROLE A: REVIEW PROFILE (Pure Viewport Inspection & Model Navigation)     */}
+        {/* ========================================================================= */}
+        {(profile === 'review' || (profile === 'modify' && !isCadActive)) && (
+          <>
+            {/* Select Tool */}
+            <button
+              type="button"
+              data-qa="transform-mode-select"
+              data-qa-btn="tool-select"
+              onClick={() => onSetTransformMode('select')}
+              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                transformMode === 'select'
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+              }`}
+              title="Select Mode (Esc)"
+            >
+              <MousePointer className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Camera Orientation Presets Dropdown */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  data-qa="dock-camera-preset-trigger"
+                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  title="Camera Orientation Presets"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  sideOffset={10}
+                  align="center"
+                  className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
+                >
+                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Camera Preset</div>
+                  {[
+                    { id: 'iso', label: 'Isometric 3D' },
+                    { id: 'top', label: 'Top View (Plan)' },
+                    { id: 'front', label: 'Front Elevation' },
+                    { id: 'side', label: 'Side Elevation' }
+                  ].map((preset) => (
+                    <DropdownMenu.Item
+                      key={preset.id}
+                      data-qa={`camera-preset-${preset.id}`}
+                      onSelect={() => onCameraPreset(preset.id as CameraPreset)}
+                      className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
+                    >
+                      <span>{preset.label}</span>
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            {/* Render Style Dropdown */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  data-qa="dock-render-style-trigger"
+                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  title={`Render Style: ${renderStyle}`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  sideOffset={10}
+                  align="center"
+                  className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
+                >
+                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
+                  {[
+                    { id: 'shaded', label: 'Shaded Materials' },
+                    { id: 'wireframe', label: 'Wireframe CAD' },
+                    { id: 'ghost', label: 'Ghost / X-Ray' },
+                    { id: 'discipline', label: 'Discipline Mode' },
+                    { id: 'diff', label: 'Spatial Diff' }
+                  ].map((style) => (
+                    <DropdownMenu.Item
+                      key={style.id}
+                      data-qa={`render-style-${style.id}`}
+                      onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
+                        renderStyle === style.id
+                          ? 'bg-blue-600 text-white font-medium shadow-xs'
+                          : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      <span>{style.label}</span>
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+            {/* Model Tree Drawer Toggle */}
+            {onToggleTree && (
+              <button
+                type="button"
+                data-qa="dock-tree-toggle"
+                onClick={onToggleTree}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  isTreeOpen
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="Model Hierarchy Tree"
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Property Inspector Drawer Toggle */}
+            {onToggleProperty && (
+              <button
+                type="button"
+                data-qa="dock-property-toggle"
+                onClick={onToggleProperty}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  isPropertyOpen
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="Property Inspector"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Clash Inspector Toggle */}
+            {onToggleClash && (
+              <button
+                type="button"
+                data-qa="dock-clash-toggle"
+                onClick={onToggleClash}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  isClashOpen
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="Clash Detection"
+              >
+                <Crosshair className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* AI Copilot Toggle */}
+            {onToggleCopilot && (
+              <button
+                type="button"
+                data-qa="dock-copilot-toggle"
+                onClick={onToggleCopilot}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  isCopilotOpen
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="AI Copilot"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </>
         )}
 
-        {/* Laser Measure Tool */}
+        {/* ========================================================================= */}
+        {/* ROLE B: MODIFY PROFILE (CAD Modeling, Drafting & Parametric Authoring)   */}
+        {/* ========================================================================= */}
+        {isCadActive && (
+          <div className="flex items-center gap-1">
+            {/* Transform Modes Segment */}
+            <div className="flex items-center rounded-full p-0.5 bg-white/40 dark:bg-slate-800/40 border border-white/50 dark:border-white/5">
+              <button
+                type="button"
+                data-qa="transform-mode-select"
+                data-qa-btn="tool-select"
+                onClick={() => {
+                  onSetTransformMode('select');
+                  onSelectCadTool?.('select');
+                }}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  transformMode === 'select' && cadToolMode === 'select'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Select Mode (Esc)"
+              >
+                <MousePointer className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-qa="transform-mode-translate"
+                data-qa-btn="tool-translate"
+                onClick={() => onSetTransformMode('translate')}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  transformMode === 'translate'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Translate Gizmo (G)"
+              >
+                <Move className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-qa="transform-mode-rotate"
+                data-qa-btn="tool-rotate"
+                onClick={() => onSetTransformMode('rotate')}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  transformMode === 'rotate'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Rotate Gizmo (R)"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
+
+              {showSnap && (
+                <button
+                  type="button"
+                  data-qa="dock-snap-toggle"
+                  onClick={onToggleSnap}
+                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    snapEnabled
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Toggle Grid Snapping"
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+            {/* Architectural CAD Primitives (Compact 13px Icons) */}
+            <div className="flex items-center gap-0.5">
+              {cadTools.filter(t => t.id !== 'select').map((t) => {
+                const isActive = cadToolMode === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    data-qa={`cad-tool-${t.id}`}
+                    onClick={() => onSelectCadTool?.(t.id)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                    }`}
+                    title={`${t.label} (${t.shortcut})`}
+                  >
+                    {t.icon}
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                );
+              })}
+
+              {/* Parametric Settings Flyout Toggle */}
+              <button
+                type="button"
+                data-qa="cad-settings-btn"
+                onClick={() => {
+                  setShowSettings(!showSettings);
+                  if (!showSettings) setShowHistory(false);
+                }}
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  showSettings
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="CAD Parametric Settings (Height, Thickness)"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+            {/* Undo / Redo / History */}
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                data-qa="cad-undo-btn"
+                data-qa-btn="dock-undo-btn"
+                disabled={!canUndo}
+                onClick={onUndo}
+                title="Undo (Ctrl+Z)"
+                className={`p-1.5 rounded-full transition-colors ${
+                  canUndo
+                    ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
+                    : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
+                }`}
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                data-qa="cad-redo-btn"
+                data-qa-btn="dock-redo-btn"
+                disabled={!canRedo}
+                onClick={onRedo}
+                title="Redo (Ctrl+Y)"
+                className={`p-1.5 rounded-full transition-colors ${
+                  canRedo
+                    ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
+                    : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
+                }`}
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                data-qa="cad-history-btn"
+                onClick={() => {
+                  onRefreshCadHistory?.();
+                  setShowHistory(!showHistory);
+                  if (!showHistory) setShowSettings(false);
+                }}
+                title="Transaction Stack"
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  showHistory
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* ROLE C: QUERY PROFILE (BIM Hierarchy, Properties, Data Audit)            */}
+        {/* ========================================================================= */}
+        {profile === 'query' && (
+          <>
+            {/* Model Tree Toggle */}
+            {onToggleTree && (
+              <button
+                type="button"
+                data-qa="dock-tree-toggle"
+                onClick={onToggleTree}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] transition-colors cursor-pointer ${
+                  isTreeOpen
+                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="Spatial Hierarchy Tree"
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+                <span>Tree</span>
+              </button>
+            )}
+
+            {/* Property Inspector Toggle */}
+            {onToggleProperty && (
+              <button
+                type="button"
+                data-qa="dock-property-toggle"
+                onClick={onToggleProperty}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] transition-colors cursor-pointer ${
+                  isPropertyOpen
+                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                }`}
+                title="Property Inspector"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Properties</span>
+              </button>
+            )}
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+            {/* Render Style */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  data-qa="dock-render-style-trigger"
+                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  title="Render Style"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  sideOffset={10}
+                  align="center"
+                  className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
+                >
+                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
+                  {[
+                    { id: 'discipline', label: 'Discipline Mode' },
+                    { id: 'shaded', label: 'Shaded Materials' },
+                    { id: 'diff', label: 'Spatial Diff' }
+                  ].map((style) => (
+                    <DropdownMenu.Item
+                      key={style.id}
+                      data-qa={`render-style-${style.id}`}
+                      onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
+                      className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
+                    >
+                      <span>{style.label}</span>
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </>
+        )}
+
+        <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+        {/* Global Common Utilities: Measure & Section */}
+        {/* Measure Tool */}
         <div className="flex items-center gap-0.5">
           <button
+            type="button"
             data-qa="dock-measure-toggle"
             onClick={onToggleMeasure}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
               isMeasureActive
                 ? 'bg-emerald-600 text-white shadow-xs font-medium'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
             }`}
-            title="Toggle 3D Point-to-Point Laser Measure"
+            title="Laser Measure (Point-to-Point)"
           >
             <Ruler className="w-3.5 h-3.5" />
-            <span className={`text-[11px] font-medium ${availableCanvasWidth < 680 ? 'hidden' : 'hidden sm:inline'}`}>Measure</span>
-            {measurementCount > 0 && (
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-emerald-900 dark:text-emerald-100 font-mono">
-                {measurementCount}
-              </span>
-            )}
           </button>
 
           {measurementCount > 0 && (
             <button
+              type="button"
               data-qa="dock-clear-measurements"
               onClick={onClearMeasurements}
               className="p-1 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
@@ -243,138 +807,21 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         {/* Section Cut Toggle */}
         {showSection && (
           <button
+            type="button"
             data-qa="dock-section-toggle"
             onClick={() => {
               const nextState = !sectionConfig.enabled;
               onUpdateSection({ ...sectionConfig, enabled: nextState });
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
               sectionConfig.enabled
                 ? 'bg-rose-600 text-white shadow-xs font-semibold'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
             }`}
-            title="Toggle Orthogonal Section Cut"
+            title="Toggle Orthogonal Section Plane"
           >
             <Scissors className="w-3.5 h-3.5" />
-            <span className={`text-[11px] font-medium ${availableCanvasWidth < 680 ? 'hidden' : 'hidden sm:inline'}`}>Section</span>
           </button>
-        )}
-
-        <div className="h-4 w-[1px] bg-slate-300 dark:bg-slate-700" />
-
-        {/* Render Style Dropdown */}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              data-qa="dock-render-style-trigger"
-              className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
-              title={`Render Style: ${renderStyle}`}
-            >
-              <Layers className="w-4 h-4" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              sideOffset={10}
-              align="center"
-              className="w-44 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
-            >
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">
-                Render Style
-              </div>
-              {[
-                { id: 'shaded', label: 'Shaded Materials' },
-                { id: 'wireframe', label: 'Wireframe CAD' },
-                { id: 'ghost', label: 'Ghost / X-Ray' },
-                { id: 'discipline', label: 'Discipline Mode' },
-                { id: 'diff', label: 'Spatial Diff' }
-              ].map((style) => (
-                <DropdownMenu.Item
-                  key={style.id}
-                  data-qa={`render-style-${style.id}`}
-                  onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
-                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
-                    renderStyle === style.id
-                      ? 'bg-blue-600 text-white font-medium shadow-xs'
-                      : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>{style.label}</span>
-                </DropdownMenu.Item>
-              ))}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-
-        {/* Camera Orientation Presets Dropdown */}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              data-qa="dock-camera-preset-trigger"
-              className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
-              title="Camera Orientation Presets (ISO, Top, Front, Side)"
-            >
-              <Camera className="w-4 h-4" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              sideOffset={10}
-              align="center"
-              className="w-44 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
-            >
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">
-                Camera Preset
-              </div>
-              {[
-                { id: 'iso', label: 'Isometric 3D' },
-                { id: 'top', label: 'Top View (Plan)' },
-                { id: 'front', label: 'Front Elevation' },
-                { id: 'side', label: 'Side Elevation' }
-              ].map((preset) => (
-                <DropdownMenu.Item
-                  key={preset.id}
-                  data-qa={`camera-preset-${preset.id}`}
-                  onSelect={() => onCameraPreset(preset.id as CameraPreset)}
-                  className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
-                >
-                  <span>{preset.label}</span>
-                </DropdownMenu.Item>
-              ))}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-
-        {/* Undo / Redo Actions */}
-        {showUndoRedo && (onUndo || onRedo) && (
-          <div className="flex items-center gap-0.5 pl-1 border-l border-slate-300 dark:border-slate-700">
-            <button
-              data-qa="cad-undo-btn"
-              disabled={!canUndo}
-              onClick={onUndo}
-              title="Undo last action (Ctrl+Z)"
-              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                canUndo
-                  ? 'text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              <Undo2 size={13} />
-            </button>
-            <button
-              data-qa="cad-redo-btn"
-              disabled={!canRedo}
-              onClick={onRedo}
-              title="Redo last action (Ctrl+Y)"
-              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                canRedo
-                  ? 'text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              <Redo2 size={13} />
-            </button>
-          </div>
         )}
       </div>
     </div>
