@@ -1,5 +1,6 @@
 import React from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Slider from '@radix-ui/react-slider';
 import {
   ChevronDown,
   Upload,
@@ -9,11 +10,17 @@ import {
   Settings,
   Sun,
   Moon,
-  Check
+  Check,
+  FolderTree,
+  SlidersHorizontal,
+  Sliders,
+  Crosshair,
+  Sparkles
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
+import { type UiStyleMode, UI_STYLE_OPTIONS } from '../../types/settings';
 
 const CUSTOM_TOOL_OPTIONS: Array<{
   key: keyof CustomProfileSettings;
@@ -50,8 +57,14 @@ interface GlassHeaderProps {
   onToggleProperty?: () => void;
   isCopilotOpen?: boolean;
   onToggleCopilot?: () => void;
+  isClashOpen?: boolean;
+  onToggleClash?: () => void;
   currentTheme: 'light' | 'dark';
   onToggleTheme: () => void;
+  glassOpacity?: number;
+  onUpdateGlassOpacity?: (opacity: number) => void;
+  uiStyleMode?: UiStyleMode;
+  onUpdateUiStyleMode?: (style: UiStyleMode) => void;
 }
 
 export const GlassHeader: React.FC<GlassHeaderProps> = ({
@@ -68,18 +81,24 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   onOpenOmnibar,
   onOpenSettingsModal,
   collaborators = [],
-  isTreeOpen: _isTreeOpen,
-  onToggleTree: _onToggleTree,
-  isPropertyOpen: _isPropertyOpen,
-  onToggleProperty: _onToggleProperty,
-  isCopilotOpen: _isCopilotOpen,
-  onToggleCopilot: _onToggleCopilot,
+  isTreeOpen = false,
+  onToggleTree,
+  isPropertyOpen = false,
+  onToggleProperty,
+  isCopilotOpen = false,
+  onToggleCopilot,
+  isClashOpen = false,
+  onToggleClash,
   currentTheme,
-  onToggleTheme
+  onToggleTheme,
+  glassOpacity,
+  onUpdateGlassOpacity,
+  uiStyleMode = 'glass',
+  onUpdateUiStyleMode
 }) => {
   return (
     <header
-      className="h-16 px-5 flex items-center justify-between border-b border-white/50 dark:border-white/10 bg-white/45 dark:bg-slate-900/60 backdrop-blur-2xl select-none z-30 transition-colors"
+      className="h-16 px-5 flex items-center justify-between border-b border-[var(--glass-border)] glass-header bg-[var(--glass-surface-header)] backdrop-blur-2xl select-none z-30 transition-colors"
       data-qa="glass-header"
       data-qa-top="spatial-top-pill"
       data-qa-draggable-hud="top-pill"
@@ -299,8 +318,97 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
         </button>
       </div>
 
-      {/* 3. Right: Theme Switcher, Collaborators, Settings & Export */}
+      {/* 3. Right: Drawer Toggles, Theme Switcher, Collaborators, Settings & Export */}
       <div className="flex items-center gap-2">
+        {/* Drawer & Tool Fast Access Group */}
+        <div
+          data-qa="header-drawer-toggles"
+          className="flex items-center p-0.5 rounded-full bg-white/50 dark:bg-slate-800/50 border border-white/60 dark:border-white/10 shadow-sm text-xs gap-0.5"
+        >
+          {onToggleTree && (
+            <button
+              type="button"
+              data-qa="header-tree-toggle"
+              data-qa-btn="pill-tree-toggle"
+              onClick={onToggleTree}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isTreeOpen
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="Spatial Hierarchy Tree"
+              aria-label="Toggle Spatial Tree"
+              aria-pressed={isTreeOpen}
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Tree</span>
+            </button>
+          )}
+
+          {onToggleProperty && (
+            <button
+              type="button"
+              data-qa="header-property-toggle"
+              data-qa-btn="pill-property-toggle"
+              data-qa-inspect-btn="true"
+              onClick={onToggleProperty}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isPropertyOpen
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="Element Properties Inspector"
+              aria-label="Toggle Property Inspector"
+              aria-pressed={isPropertyOpen}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Props</span>
+            </button>
+          )}
+
+          {onToggleClash && (
+            <button
+              type="button"
+              data-qa="header-clash-toggle"
+              data-qa-btn="pill-clash-toggle"
+              onClick={onToggleClash}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isClashOpen
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="Spatial Clash Detection"
+              aria-label="Toggle Clash Detection"
+              aria-pressed={isClashOpen}
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Clash</span>
+            </button>
+          )}
+
+          {onToggleCopilot && (
+            <button
+              type="button"
+              data-qa="header-copilot-toggle"
+              data-qa-btn="pill-copilot-toggle"
+              onClick={onToggleCopilot}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isCopilotOpen
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="Autonomous OpenBIM AI Copilot"
+              aria-label="Toggle AI Copilot"
+              aria-pressed={isCopilotOpen}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
+              <span className="hidden xl:inline">Copilot</span>
+            </button>
+          )}
+        </div>
+
+        <div className="h-4 w-px bg-slate-300/60 dark:bg-slate-700/60 mx-0.5" />
+
         {/* Theme Switcher (Default Light <-> Dark Glass) */}
         <button
           type="button"
@@ -315,6 +423,138 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
             <Sun className="w-4 h-4 text-amber-300" />
           )}
         </button>
+
+        {/* Quick UI Glass Translucency Slider Control */}
+        {onUpdateGlassOpacity && (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                data-qa="pill-glass-transparency-toggle"
+                className="p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-all cursor-pointer border border-white/40 dark:border-white/10 shadow-xs"
+                title={`UI Glass Opacity: ${(glassOpacity ?? 0.55) <= 0.02 ? '0% (Invisible)' : `${Math.round((glassOpacity ?? 0.55) * 100)}%`} (Click to adjust)`}
+                aria-label="Adjust UI Glass Transparency"
+              >
+                <Sliders className="w-4 h-4 text-blue-600 dark:text-cyan-400" />
+              </button>
+            </DropdownMenu.Trigger>
+
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="z-50 min-w-[340px] max-w-[360px] glass-panel bg-[var(--glass-surface-panel)] backdrop-blur-2xl border border-[var(--glass-border)] rounded-2xl p-3.5 shadow-2xl text-xs space-y-3 animate-in fade-in zoom-in-95 text-slate-800 dark:text-slate-100"
+                sideOffset={8}
+                align="end"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-semibold text-xs">
+                    <Sliders className="w-3.5 h-3.5 text-blue-600 dark:text-cyan-400" />
+                    <span>UI Style & Translucency</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-blue-600 dark:text-cyan-400">
+                    {uiStyleMode === 'matte'
+                      ? 'Solid Matte'
+                      : (glassOpacity ?? 0.55) <= 0.02
+                      ? '0% (Invisible)'
+                      : `${Math.round((glassOpacity ?? 0.55) * 100)}%`}
+                  </span>
+                </div>
+
+                {/* Quick UI Style Selector */}
+                {onUpdateUiStyleMode && (
+                  <div className="space-y-2 pb-2.5 border-b border-[var(--glass-border)]">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold uppercase tracking-wider text-[10px]">Interface Concepts</span>
+                      <span className="font-mono text-[10px] text-blue-600 dark:text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-blue-500/10 dark:bg-cyan-500/10 border border-blue-500/20 dark:border-cyan-500/30 capitalize">
+                        {UI_STYLE_OPTIONS.find((s) => s.id === uiStyleMode)?.badge ?? uiStyleMode}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-[220px] overflow-y-auto pr-0.5">
+                      {UI_STYLE_OPTIONS.map((style) => {
+                        const isSelected = uiStyleMode === style.id;
+                        return (
+                          <button
+                            key={style.id}
+                            type="button"
+                            data-qa={`header-style-btn-${style.id}`}
+                            onClick={() => onUpdateUiStyleMode(style.id)}
+                            className={`px-2 py-1.5 rounded-lg text-left transition-all cursor-pointer border ${
+                              isSelected
+                                ? 'border-blue-500 dark:border-cyan-400 bg-blue-50/90 dark:bg-cyan-500/20 text-blue-700 dark:text-cyan-300 font-bold shadow-sm'
+                                : 'border-[var(--glass-border)] glass-card bg-[var(--glass-surface-card)] text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-slate-400 dark:hover:border-slate-500'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-[11px] font-semibold truncate leading-tight">{style.name.split(' (')[0]}</span>
+                              {style.badge && (
+                                <span className={`text-[8px] uppercase tracking-wider px-1 py-0.5 rounded font-mono font-bold shrink-0 ${
+                                  isSelected
+                                    ? 'bg-blue-600 dark:bg-cyan-400 text-white dark:text-slate-950'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                }`}>
+                                  {style.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 truncate mt-0.5 leading-normal">
+                              {style.description}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                    <span>0% (Clear)</span>
+                    <span>100% (Solid)</span>
+                  </div>
+                  <Slider.Root
+                    data-qa="ui-glass-opacity-slider"
+                    value={[glassOpacity ?? 0.55]}
+                    min={0.0}
+                    max={1.0}
+                    step={0.02}
+                    onValueChange={([val]) => onUpdateGlassOpacity(val)}
+                    className="relative flex items-center select-none touch-none w-full h-4"
+                  >
+                    <Slider.Track className="bg-slate-200 dark:bg-slate-700 relative grow rounded-full h-1.5">
+                      <Slider.Range className="absolute bg-blue-600 dark:bg-cyan-400 rounded-full h-full" />
+                    </Slider.Track>
+                    <Slider.Thumb
+                      className="block w-4 h-4 bg-white border border-slate-300 dark:border-slate-600 rounded-full shadow-md hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-grab active:cursor-grabbing transition-transform"
+                      aria-label="UI Glass Opacity"
+                    />
+                  </Slider.Root>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="grid grid-cols-4 gap-1 pt-1">
+                  {[
+                    { label: 'Clear', val: 0.0 },
+                    { label: 'Sheer', val: 0.25 },
+                    { label: 'Frosted', val: 0.55 },
+                    { label: 'Opaque', val: 0.90 }
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => onUpdateGlassOpacity(p.val)}
+                      className={`py-1 rounded-lg text-[10px] font-mono border text-center transition-all cursor-pointer ${
+                        Math.abs((glassOpacity ?? 0.55) - p.val) < 0.04
+                          ? 'border-blue-400 dark:border-cyan-400 bg-blue-50/80 dark:bg-cyan-500/20 text-blue-700 dark:text-cyan-300 font-bold'
+                          : 'border-[var(--glass-border)] glass-card bg-[var(--glass-surface-card)] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        )}
 
         {/* Collaborators Avatar Cluster */}
         {collaborators.length > 0 && (

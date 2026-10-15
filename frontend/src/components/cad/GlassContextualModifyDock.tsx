@@ -194,7 +194,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
       className="fixed top-18 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 pointer-events-auto select-none animate-in fade-in slide-in-from-top-2 duration-150 transition-all max-w-[calc(100vw-32px)]"
     >
       {/* Primary Frosted Glass Contextual Modify Ribbon */}
-      <div className="flex items-center gap-1 sm:gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-xl shadow-slate-900/10 text-slate-800 dark:text-slate-100 text-xs shrink-0 box-border w-max max-w-full">
+      <div className="flex items-center gap-1 sm:gap-1.5 pl-3 pr-2 py-1.5 rounded-full glass-dock bg-[var(--glass-surface-dock)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-xl shadow-slate-900/10 text-slate-800 dark:text-slate-100 text-xs shrink-0 box-border w-max max-w-full">
         {/* Context Identification Pill */}
         <div
           className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/70 border border-white/80 dark:border-white/10 text-slate-800 dark:text-slate-100 font-medium"
@@ -224,7 +224,7 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
         <div
           data-qa="selection-context-overlay"
           className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-slate-800/60 border border-white/70 dark:border-white/10 transition-all duration-200"
-          style={{ width: isExtended ? 220 : 96 }}
+          style={{ width: isExtended ? 250 : 110 }}
         >
           {!isExtended ? (
             <>
@@ -232,31 +232,31 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 type="button"
                 data-qa="selection-extend-btn"
                 onClick={() => setIsExtended(true)}
-                className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold text-blue-600 dark:text-cyan-400 hover:bg-white/50 dark:hover:bg-slate-700/50 cursor-pointer"
+                className="flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] font-semibold text-blue-600 dark:text-cyan-400 hover:bg-white/50 dark:hover:bg-slate-700/50 cursor-pointer min-h-[26px]"
                 title="Expand precision pet palette"
               >
                 <span>Pet</span>
-                <ChevronRight size={10} />
+                <ChevronRight size={11} />
               </button>
               <button
                 type="button"
                 data-qa="selection-pin-btn"
                 onClick={() => onTogglePin(expressId)}
-                className={`p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer ${
+                className={`p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer ${
                   isPinned ? 'text-amber-500' : ''
                 }`}
                 title={isPinned ? 'Unpin element (UP)' : 'Pin element (PN)'}
               >
-                {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+                {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
               </button>
               <button
                 type="button"
                 data-qa="selection-focus-btn"
                 onClick={() => onFocus(expressId)}
-                className="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
                 title="Focus Camera (F)"
               >
-                <Focus size={11} />
+                <Focus size={12} />
               </button>
             </>
           ) : (
@@ -265,70 +265,70 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 type="button"
                 data-qa="selection-collapse-btn"
                 onClick={() => setIsExtended(false)}
-                className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer mr-0.5"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer mr-0.5"
                 title="Collapse Palette"
               >
-                <ChevronLeft size={11} />
+                <ChevronLeft size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-move-btn"
                 disabled={isPinned}
                 onClick={onStartMove}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Move"
               >
-                <Move size={11} />
+                <Move size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-rotate-btn"
                 disabled={isPinned}
                 onClick={onStartRotate}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Rotate"
               >
-                <RotateCw size={11} />
+                <RotateCw size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-mirror-btn"
                 disabled={isPinned}
                 onClick={onStartMirror}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Mirror"
               >
-                <FlipHorizontal size={11} />
+                <FlipHorizontal size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-elevate-btn"
                 disabled={isPinned}
                 onClick={onStartElevate}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Elevate"
               >
-                <ArrowUpDown size={11} />
+                <ArrowUpDown size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-multiply-btn"
                 disabled={isPinned}
                 onClick={onStartMultiply}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Multiply"
               >
-                <Grid3x3 size={11} />
+                <Grid3x3 size={12} />
               </button>
               <button
                 type="button"
                 data-qa="pet-special-btn"
                 disabled={isPinned}
                 onClick={onOpenSpecialModal}
-                className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Move/Copy Special"
               >
-                <Settings2 size={11} />
+                <Settings2 size={12} />
               </button>
             </>
           )}

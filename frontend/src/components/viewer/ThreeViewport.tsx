@@ -3887,16 +3887,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       {/* Tab Candidate Cycling Pill (Multi-Surface Depth Selection) */}
       {hoverCandidates.length > 1 && hoveredExpressId !== null && cadToolMode === 'select' && !isMeasureActive && (
         <div
-          className="absolute bottom-24 left-1/2 -translate-x-1/2 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--dock-bg)] text-cyan-200 border border-cyan-400/40 shadow-[var(--shadow-hud)] backdrop-blur-md text-xs font-mono select-none z-30 transition-all duration-150 animate-in fade-in"
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 pointer-events-none flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 border border-slate-300/90 dark:border-cyan-400/40 shadow-xl shadow-slate-900/10 dark:shadow-black/50 backdrop-blur-xl text-xs font-mono select-none z-30 transition-all duration-150 animate-in fade-in"
           data-qa="tab-candidate-pill"
         >
-          <kbd className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-semibold text-[10px] border border-cyan-500/40">
+          <kbd className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-cyan-500/20 text-blue-700 dark:text-cyan-300 font-bold text-[10px] border border-blue-300/80 dark:border-cyan-500/40 shadow-2xs">
             Tab
           </kbd>
-          <span className="text-slate-300">
-            Cycle surface <span className="text-white font-bold">{hoverCandidateIndex + 1}</span> of <span className="text-white font-bold">{hoverCandidates.length}</span>
+          <span className="text-slate-700 dark:text-slate-200 font-medium">
+            Cycle surface{' '}
+            <strong className="text-slate-950 dark:text-white font-extrabold">
+              {hoverCandidateIndex + 1}
+            </strong>{' '}
+            <span className="text-slate-500 dark:text-slate-400 font-normal">of</span>{' '}
+            <strong className="text-slate-950 dark:text-white font-extrabold">
+              {hoverCandidates.length}
+            </strong>
           </span>
-          <span className="text-cyan-400/80 font-mono text-[11px]">
+          <span className="text-blue-700 dark:text-cyan-300 font-bold text-[11px] font-mono">
             ({hoveredElementName})
           </span>
         </div>

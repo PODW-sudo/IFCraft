@@ -450,7 +450,9 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       <div
         data-qa="copilot-sidebar-drawer"
         style={{ width: `${isPanelCollapsed ? 56 : width}px` }}
-        className={`fixed top-16 right-4 bottom-6 bg-[var(--dock-translucent)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl flex flex-col z-30 shadow-[var(--shadow-hud)] overflow-hidden transition-all duration-200 animate-in fade-in-50 slide-in-from-right-4 select-text ${
+        className={`relative flex flex-col h-[calc(100vh-5.5rem)] glass-panel bg-[var(--glass-surface-panel)] backdrop-blur-2xl rounded-3xl border border-[var(--glass-border)] shadow-2xl shadow-slate-900/10 z-20 overflow-hidden ${
+          isDragging ? '' : 'transition-[width] duration-150'
+        } animate-in fade-in-50 slide-in-from-right-4 select-text ${
           isPanelCollapsed ? 'p-2' : ''
         }`}
       >

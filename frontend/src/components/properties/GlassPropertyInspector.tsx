@@ -9,7 +9,9 @@ import {
   ChevronRight,
   ChevronLeft,
   Plus,
-  Layers
+  Layers,
+  Copy,
+  Search
 } from 'lucide-react';
 import type { ElementDetails, PropertySingle } from '../../types/ifc';
 import { useResizable } from '../../hooks/useResizable';
@@ -45,6 +47,31 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
   const [newPropName, setNewPropName] = useState('');
   const [newPropVal, setNewPropVal] = useState('');
   const [newPropType, setNewPropType] = useState('IfcLabel');
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [psetSearch, setPsetSearch] = useState('');
+
+  const handleCopyValue = (fieldKey: string, value: string | number) => {
+    const text = String(value);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '0';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch {}
+    }
+    setCopiedField(fieldKey);
+    setTimeout(() => {
+      setCopiedField((cur) => (cur === fieldKey ? null : cur));
+    }, 2000);
+  };
 
   const { width, isDragging, startResizing, resetWidth } = useResizable({
     initialWidth: 340,
@@ -201,9 +228,9 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
   return (
     <aside
       style={{ width: isPanelCollapsed ? 56 : width }}
-      className={`relative flex flex-col h-[calc(100vh-5.5rem)] bg-white/50 dark:bg-slate-900/60 backdrop-blur-2xl rounded-3xl border border-white/60 dark:border-white/10 shadow-2xl shadow-slate-900/10 ${
+      className={`relative flex flex-col h-[calc(100vh-5.5rem)] glass-panel bg-[var(--glass-surface-panel)] backdrop-blur-2xl rounded-3xl border border-[var(--glass-border)] shadow-2xl shadow-slate-900/10 ${
         isDragging ? '' : 'transition-[width] duration-150'
-      } overflow-hidden select-none z-20 ${
+      } overflow-hidden select-text z-20 ${
         isPanelCollapsed ? 'p-2' : 'p-3.5'
       }`}
       aria-label="Element Properties"
@@ -303,39 +330,59 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
           ) : details ? (
             <>
               {/* Identity Capsule */}
-              <div className="bg-white/40 dark:bg-slate-800/50 rounded-2xl p-3 border border-white/60 dark:border-white/10 space-y-2">
+              <div className="glass-card bg-[var(--glass-surface-card)] rounded-2xl p-3 border border-[var(--glass-border)] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold text-[10px] tracking-wide">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold text-[10px] tracking-wide select-text">
                     {details.type}
                   </span>
-                  <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
-                    #{details.express_id}
-                  </span>
+                  <div className="flex items-center gap-1 font-mono text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <span className="select-text">#{details.express_id}</span>
+                    <button
+                      type="button"
+                      data-qa="copy-express-id-btn"
+                      onClick={() => handleCopyValue('id', details.express_id)}
+                      className="p-1 rounded hover:bg-white/60 dark:hover:bg-slate-700/60 text-slate-400 hover:text-blue-600 dark:hover:text-cyan-400 cursor-pointer"
+                      title="Copy Express ID"
+                      aria-label="Copy Express ID"
+                    >
+                      {copiedField === 'id' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate select-text">
                   {details.name || 'Unnamed Element'}
                 </div>
-                <div className="text-[10px] font-mono text-slate-400 truncate">
-                  GUID: {details.global_id}
+                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                  <span className="truncate select-text">GUID: {details.global_id}</span>
+                  <button
+                    type="button"
+                    data-qa="copy-guid-btn"
+                    onClick={() => handleCopyValue('guid', details.global_id)}
+                    className="p-1 rounded hover:bg-white/60 dark:hover:bg-slate-700/60 text-slate-400 hover:text-blue-600 dark:hover:text-cyan-400 cursor-pointer shrink-0 ml-1"
+                    title="Copy Global ID (GUID)"
+                    aria-label="Copy Global ID"
+                  >
+                    {copiedField === 'guid' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                  </button>
                 </div>
               </div>
 
               {/* Transform Position & Orientation Readouts */}
               {transformInfo && (
-                <div className="bg-white/40 dark:bg-slate-800/50 rounded-2xl p-3 border border-white/60 dark:border-white/10 space-y-1.5 text-xs">
+                <div className="glass-card bg-[var(--glass-surface-card)] rounded-2xl p-3 border border-[var(--glass-border)] space-y-1.5 text-xs">
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                     Spatial Placement
                   </div>
                   <div className="grid grid-cols-3 gap-1 font-mono text-[11px] tabular-nums">
-                    <div className="bg-white/50 dark:bg-slate-800/80 rounded-lg p-1.5 text-center">
+                    <div className="glass-card bg-[var(--glass-surface-card)] rounded-lg p-1.5 text-center border border-[var(--glass-border)]">
                       <span className="text-slate-400 block text-[9px]">X</span>
                       <span className="text-slate-800 dark:text-slate-200 font-semibold">{transformInfo.position[0].toFixed(2)}m</span>
                     </div>
-                    <div className="bg-white/50 dark:bg-slate-800/80 rounded-lg p-1.5 text-center">
+                    <div className="glass-card bg-[var(--glass-surface-card)] rounded-lg p-1.5 text-center border border-[var(--glass-border)]">
                       <span className="text-slate-400 block text-[9px]">Y</span>
                       <span className="text-slate-800 dark:text-slate-200 font-semibold">{transformInfo.position[1].toFixed(2)}m</span>
                     </div>
-                    <div className="bg-white/50 dark:bg-slate-800/80 rounded-lg p-1.5 text-center">
+                    <div className="glass-card bg-[var(--glass-surface-card)] rounded-lg p-1.5 text-center border border-[var(--glass-border)]">
                       <span className="text-slate-400 block text-[9px]">Z</span>
                       <span className="text-slate-800 dark:text-slate-200 font-semibold">{transformInfo.position[2].toFixed(2)}m</span>
                     </div>
@@ -345,7 +392,7 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
 
               {/* Quantities */}
               {details.quantities && Object.keys(details.quantities).length > 0 && (
-                <div className="bg-white/40 dark:bg-slate-800/50 rounded-2xl p-3 border border-white/60 dark:border-white/10 space-y-2">
+                <div className="glass-card bg-[var(--glass-surface-card)] rounded-2xl p-3 border border-[var(--glass-border)] space-y-2">
                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                     <Scale className="w-3.5 h-3.5 text-blue-600" />
                     <span>Quantities</span>
@@ -380,6 +427,30 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                     <span>Add Property</span>
                   </button>
                 </div>
+
+                {/* Search Filter for Properties */}
+                {details.psets && details.psets.length > 2 && (
+                  <div className="relative flex items-center px-0.5">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Filter properties..."
+                      value={psetSearch}
+                      onChange={(e) => setPsetSearch(e.target.value)}
+                      className="w-full pl-7 pr-7 py-1 text-xs rounded-xl glass-card bg-[var(--glass-surface-card)] border border-[var(--glass-border)] text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    {psetSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setPsetSearch('')}
+                        className="absolute right-2.5 p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                        title="Clear filter"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Add Property Form */}
                 {showAddProp && (
@@ -443,10 +514,19 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                   </form>
                 )}
 
-                {details.psets?.map((pset) => (
+                {details.psets
+                  ?.filter((pset) => {
+                    if (!psetSearch.trim()) return true;
+                    const q = psetSearch.toLowerCase();
+                    if (pset.name.toLowerCase().includes(q)) return true;
+                    return pset.properties.some(
+                      (p) => p.name.toLowerCase().includes(q) || String(p.value ?? '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map((pset) => (
                   <div
                     key={pset.name}
-                    className="bg-white/40 dark:bg-slate-800/50 rounded-2xl p-3 border border-white/60 dark:border-white/10 space-y-2"
+                    className="glass-card bg-[var(--glass-surface-card)] rounded-2xl p-3 border border-[var(--glass-border)] space-y-2"
                   >
                     <div
                       data-qa="pset-header"
@@ -464,7 +544,7 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                             key={prop.name}
                             className="flex items-center justify-between text-xs py-0.5 group"
                           >
-                            <span className="text-slate-500 dark:text-slate-400 max-w-[120px] truncate" title={prop.name}>
+                            <span className="text-slate-500 dark:text-slate-400 max-w-[120px] truncate select-text" title={prop.name}>
                               {prop.name}
                             </span>
 
@@ -493,7 +573,7 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                               </div>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                <span className="font-mono text-slate-800 dark:text-slate-200 text-right max-w-[140px] truncate">
+                                <span className="font-mono text-slate-800 dark:text-slate-200 text-right max-w-[140px] truncate select-text cursor-text" title={String(prop.value ?? '')}>
                                   {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
                                 </span>
                                 <button

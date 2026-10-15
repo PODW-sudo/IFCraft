@@ -19,6 +19,7 @@ interface ClashInspectorProps {
   onSelectClash: (clash: ClashRecord | null) => void;
   onRunClashCheck: (tolerance: number) => Promise<void>;
   isLoading: boolean;
+  leftOffset?: number;
 }
 
 export const ClashInspector: React.FC<ClashInspectorProps> = ({
@@ -28,7 +29,8 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
   activeClash,
   onSelectClash,
   onRunClashCheck,
-  isLoading
+  isLoading,
+  leftOffset = 0
 }) => {
   const [tolerance, setTolerance] = useState(0.01); // 1cm = 0.01m
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'hard' | 'clearance'>('all');
@@ -46,12 +48,13 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
       data-qa="clash-inspector-hud"
       role="region"
       aria-label="Spatial Clash Detection Inspector"
-      className="fixed top-20 left-6 z-40 w-96 max-h-[520px] bg-white/85 dark:bg-slate-900/85 border border-white/60 dark:border-white/10 rounded-2xl shadow-2xl backdrop-blur-2xl p-4 text-slate-800 dark:text-slate-100 flex flex-col gap-3 duration-200 transition-shadow select-none cursor-default"
+      style={{ left: leftOffset ? `${leftOffset + 24}px` : '24px' }}
+      className="fixed top-20 z-40 w-96 max-h-[520px] glass-panel bg-[var(--glass-surface-panel)] border border-[var(--glass-border)] rounded-3xl shadow-2xl backdrop-blur-2xl p-4 text-slate-800 dark:text-slate-100 flex flex-col gap-3 duration-200 transition-all select-none cursor-default"
     >
       <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-white/10 pb-2.5">
+      <div className="flex items-center justify-between border-b border-[var(--glass-border)] pb-2.5">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 dark:text-amber-400">
             <AlertTriangle className="w-4 h-4" />
@@ -73,7 +76,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
         <button
           data-qa="clash-close-btn"
           onClick={onClose}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-white/40 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
           title="Close Inspector"
         >
           <X className="w-3.5 h-3.5" />
@@ -81,7 +84,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
       </div>
 
       {/* Tolerance & Run Action */}
-      <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-white/10">
+      <div className="flex flex-col gap-2 p-2.5 rounded-2xl glass-card bg-[var(--glass-surface-card)] border border-[var(--glass-border)] shadow-xs">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-slate-700 dark:text-slate-300 font-medium flex items-center gap-1">
             <Sliders className="w-3 h-3 text-blue-600 dark:text-cyan-400" />
@@ -131,7 +134,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors cursor-pointer ${
               filterSeverity === 'all'
                 ? 'bg-blue-50 dark:bg-slate-700/60 text-blue-700 dark:text-white border-blue-300 dark:border-slate-500 font-semibold'
-                : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                : 'border-[var(--glass-border)] glass-card bg-[var(--glass-surface-card)] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             All ({clashResult.total_clashes})
@@ -142,7 +145,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors cursor-pointer ${
               filterSeverity === 'hard'
                 ? 'bg-red-50 dark:bg-red-500/20 text-red-600 dark:text-red-300 border-red-300 dark:border-red-500/40 font-bold'
-                : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-300'
+                : 'border-[var(--glass-border)] glass-card bg-[var(--glass-surface-card)] text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-300'
             }`}
           >
             Hard ({clashResult.hard_clashes})
@@ -153,7 +156,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
             className={`flex-1 py-1 px-2 rounded-lg border text-center transition-colors cursor-pointer ${
               filterSeverity === 'clearance'
                 ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40 font-bold'
-                : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-300'
+                : 'border-[var(--glass-border)] glass-card bg-[var(--glass-surface-card)] text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-300'
             }`}
           >
             Clearance ({clashResult.clearance_clashes})
@@ -189,7 +192,7 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
                 className={`p-2 rounded-xl border text-xs cursor-pointer transition-all ${
                   isSelected
                     ? 'bg-blue-50/80 dark:bg-cyan-500/15 border-blue-400 dark:border-cyan-400 shadow-md ring-1 ring-blue-400/40 dark:ring-cyan-400/40'
-                    : 'bg-white/60 dark:bg-slate-800/60 border-slate-200/70 dark:border-white/10 hover:border-slate-400 dark:hover:border-slate-600'
+                    : 'glass-card bg-[var(--glass-surface-card)] border-[var(--glass-border)] hover:border-slate-400 dark:hover:border-slate-600'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">

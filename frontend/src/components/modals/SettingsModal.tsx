@@ -2,19 +2,22 @@ import React, { useState } from 'react';
 import {
   X,
   SlidersHorizontal,
+  Sliders,
   Layers,
   Compass,
   Ruler,
   RotateCcw,
   Check,
-  Eye
+  Eye,
+  ChevronDown
 } from 'lucide-react';
 import type {
   EditorSettings,
   ViewportThemeId,
-  DistanceUnit
+  DistanceUnit,
+  UiStyleMode
 } from '../../types/settings';
-import { COLOR_PRESETS, THEME_OPTIONS } from '../../types/settings';
+import { COLOR_PRESETS, THEME_OPTIONS, UI_STYLE_OPTIONS } from '../../types/settings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -60,6 +63,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateSettings({
       ...settings,
       snapping: { ...settings.snapping, ...partial }
+    });
+  };
+
+  const updateUi = (partial: Partial<NonNullable<EditorSettings['ui']>>) => {
+    onUpdateSettings({
+      ...settings,
+      ui: {
+        styleMode: 'glass',
+        glassOpacity: 0.55,
+        ...settings.ui,
+        ...partial
+      }
     });
   };
 
@@ -432,6 +447,164 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <p className="text-[10px] text-slate-500">World origin coordinate triad marker</p>
                     </div>
                   </label>
+                </div>
+              </div>
+
+              {/* UI Style & Surface Translucency */}
+              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-sky-400" />
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">UI Style & Material Translucency</h3>
+                      <p className="text-[10px] text-slate-400">Controls interface material styling and surface translucency across floating HUDs</p>
+                    </div>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-sky-400 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30">
+                    {settings.ui?.styleMode === 'matte'
+                      ? 'Solid Matte'
+                      : (settings.ui?.glassOpacity ?? 0.55) <= 0.02
+                      ? '0% (Invisible)'
+                      : `${Math.round((settings.ui?.glassOpacity ?? 0.55) * 100)}%`}
+                  </span>
+                </div>
+
+                {/* Two-Column Layout: UI Style Dropdown next to Translucency Slider */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start pt-1">
+                  {/* Column 1: UI Style Dropdown */}
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="ui-style-select" className="text-xs font-semibold text-slate-200">
+                        Interface Style
+                      </label>
+                      <span className="text-[10px] text-sky-400 font-mono font-medium capitalize">
+                        {settings.ui?.styleMode ?? 'glass'}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        id="ui-style-select"
+                        data-qa="settings-ui-style-dropdown"
+                        value={settings.ui?.styleMode ?? 'glass'}
+                        onChange={(e) => updateUi({ styleMode: e.target.value as UiStyleMode })}
+                        className="w-full appearance-none bg-slate-900 border border-slate-700 hover:border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 font-medium focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer pr-8"
+                      >
+                        {UI_STYLE_OPTIONS.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-relaxed min-h-[32px]">
+                      {UI_STYLE_OPTIONS.find((opt) => opt.id === (settings.ui?.styleMode ?? 'glass'))?.description}
+                    </p>
+                  </div>
+
+                  {/* Column 2: Translucency Slider */}
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-950/40 border border-slate-800/80">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-200">Surface Translucency</span>
+                      <span className="font-mono text-sky-300 font-bold">
+                        {(settings.ui?.glassOpacity ?? 0.55) <= 0.02 ? '0% (Invisible)' : `${Math.round((settings.ui?.glassOpacity ?? 0.55) * 100)}%`}
+                      </span>
+                    </div>
+
+                    <input
+                      type="range"
+                      data-qa="settings-glass-opacity-slider"
+                      min="0.0"
+                      max="1.0"
+                      step="0.02"
+                      value={settings.ui?.glassOpacity ?? 0.55}
+                      onChange={(e) => updateUi({ glassOpacity: parseFloat(e.target.value) })}
+                      className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+
+                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                      <span>0% (Clear)</span>
+                      <span>55% (Balanced)</span>
+                      <span>100% (Solid)</span>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="grid grid-cols-4 gap-1 pt-1 border-t border-slate-800/60">
+                      {[
+                        { label: 'Clear', val: 0.0 },
+                        { label: 'Sheer', val: 0.25 },
+                        { label: 'Frost', val: 0.55 },
+                        { label: 'Opaque', val: 0.90 }
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => updateUi({ glassOpacity: preset.val })}
+                          className={`py-1 px-1.5 rounded-md text-[10px] font-mono border text-center transition-all cursor-pointer ${
+                            Math.abs((settings.ui?.glassOpacity ?? 0.55) - preset.val) < 0.04
+                              ? 'border-sky-400 bg-sky-500/20 text-white font-semibold'
+                              : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Concept Selector Strip */}
+                <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Design System Concepts (ui-ux-pro-max)
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {UI_STYLE_OPTIONS.length} styles available
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {UI_STYLE_OPTIONS.map((style) => {
+                      const isSelected = (settings.ui?.styleMode ?? 'glass') === style.id;
+                      return (
+                        <button
+                          key={style.id}
+                          type="button"
+                          onClick={() => updateUi({ styleMode: style.id })}
+                          className={`p-2 rounded-lg text-left transition-all cursor-pointer border flex flex-col justify-between ${
+                            isSelected
+                              ? 'border-sky-400 bg-sky-500/15 text-white shadow-sm'
+                              : 'border-slate-800/80 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1 w-full mb-1">
+                            <span className="text-[11px] font-semibold truncate text-slate-200">
+                              {style.name.split(' (')[0]}
+                            </span>
+                            {style.badge && (
+                              <span
+                                className={`text-[8px] uppercase tracking-wider px-1 py-0.5 rounded font-mono font-bold shrink-0 ${
+                                  isSelected
+                                    ? 'bg-sky-400 text-slate-950'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {style.badge}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500 line-clamp-2 leading-tight">
+                            {style.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

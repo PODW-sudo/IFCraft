@@ -11,6 +11,10 @@ export function loadEditorSettings(): EditorSettings {
     // Deep merge to ensure all keys exist
     return {
       version: DEFAULT_EDITOR_SETTINGS.version,
+      ui: {
+        ...DEFAULT_EDITOR_SETTINGS.ui,
+        ...(parsed.ui || {})
+      },
       highlighting: {
         ...DEFAULT_EDITOR_SETTINGS.highlighting,
         ...(parsed.highlighting || {})

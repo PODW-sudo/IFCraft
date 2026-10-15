@@ -195,7 +195,7 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
   return (
     <aside
       style={{ width: isPanelCollapsed ? 56 : width }}
-      className={`relative flex flex-col h-[calc(100vh-5.5rem)] bg-white/50 dark:bg-slate-900/60 backdrop-blur-2xl rounded-3xl border border-white/60 dark:border-white/10 shadow-2xl shadow-slate-900/10 ${
+      className={`relative flex flex-col h-[calc(100vh-5.5rem)] glass-panel bg-[var(--glass-surface-panel)] backdrop-blur-2xl rounded-3xl border border-[var(--glass-border)] shadow-2xl shadow-slate-900/10 ${
         isDragging ? '' : 'transition-[width] duration-150'
       } overflow-hidden select-none z-20 ${
         isPanelCollapsed ? 'p-2' : 'p-3.5'
@@ -299,7 +299,7 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Filter hierarchy..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 bg-white/50 dark:bg-slate-800/50 rounded-xl border border-white/60 dark:border-white/10 outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+              className="w-full pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 glass-card bg-[var(--glass-surface-card)] rounded-xl border border-[var(--glass-border)] outline-none focus:ring-1 focus:ring-blue-500 transition-all"
             />
           </div>
 

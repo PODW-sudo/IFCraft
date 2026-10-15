@@ -9,9 +9,11 @@ import {
   Scissors,
   Download,
   Sparkles,
-  Command
+  Command,
+  Palette
 } from 'lucide-react';
 import type { GeometryData, SpatialNode } from '../../types/ifc';
+import { type UiStyleMode, UI_STYLE_OPTIONS } from '../../types/settings';
 
 interface SpatialOmnibarProps {
   isOpen: boolean;
@@ -20,13 +22,14 @@ interface SpatialOmnibarProps {
   spatialTree: SpatialNode | null;
   onSelectElement: (expressID: number) => void;
   onTriggerTool: (toolId: string) => void;
+  onUpdateUiStyleMode?: (mode: UiStyleMode) => void;
 }
 
 interface OmnibarItem {
   id: string;
   title: string;
   subtitle: string;
-  category: 'element' | 'spatial' | 'tool';
+  category: 'element' | 'spatial' | 'tool' | 'style';
   icon: React.ReactNode;
   action: () => void;
 }
@@ -37,7 +40,8 @@ export const SpatialOmnibar: React.FC<SpatialOmnibarProps> = ({
   geometries,
   spatialTree,
   onSelectElement,
-  onTriggerTool
+  onTriggerTool,
+  onUpdateUiStyleMode
 }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -138,8 +142,22 @@ export const SpatialOmnibar: React.FC<SpatialOmnibarProps> = ({
       });
     });
 
+    // UI Style concepts (ui-ux-pro-max)
+    if (onUpdateUiStyleMode) {
+      UI_STYLE_OPTIONS.forEach((style) => {
+        list.push({
+          id: `style-${style.id}`,
+          title: `UI Style: ${style.name}`,
+          subtitle: `${style.badge ?? 'Style'} | ${style.description}`,
+          category: 'style',
+          icon: <Palette className="w-4 h-4 text-sky-400" />,
+          action: () => onUpdateUiStyleMode(style.id)
+        });
+      });
+    }
+
     return list;
-  }, [geometries, spatialNodes, onSelectElement, onTriggerTool]);
+  }, [geometries, spatialNodes, onSelectElement, onTriggerTool, onUpdateUiStyleMode]);
 
   // Filter items based on user query
   const filtered = useMemo(() => {
@@ -186,7 +204,7 @@ export const SpatialOmnibar: React.FC<SpatialOmnibarProps> = ({
               data-qa="omnibar-input"
               type="text"
               autoFocus
-              placeholder="Search elements (#124, IfcWall), storeys, or tools..."
+              placeholder="Search elements (#124), storeys, tools, or UI styles (Cyber-BIM, VisionOS, Bento)..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}

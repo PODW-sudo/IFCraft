@@ -34,7 +34,7 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
 
   return (
     <div
-      className="fixed top-52 right-6 z-30 select-none flex flex-col rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-xl text-xs text-slate-800 dark:text-slate-100 overflow-hidden w-[280px] cursor-default pointer-events-auto"
+      className="fixed top-52 right-6 z-30 select-none flex flex-col rounded-2xl glass-card bg-[var(--glass-surface-card)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-xl text-xs text-slate-800 dark:text-slate-100 overflow-hidden w-[280px] cursor-default pointer-events-auto"
       data-qa="dimension-info-hud"
       data-distance={measurement.distance.toFixed(3)}
       data-delta-x={absDx.toFixed(3)}
@@ -42,7 +42,7 @@ export const DimensionInfoHud: React.FC<DimensionInfoHudProps> = ({
       data-delta-z={absDz.toFixed(3)}
     >
       {/* Header with Drag Handle & Close */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200/60 dark:border-white/10">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--glass-border)]">
         <div className="flex items-center gap-2">
           {/* Hidden drag anchor for QA test harness */}
           <span data-drag-handle="true" className="sr-only" aria-hidden="true" />

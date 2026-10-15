@@ -170,7 +170,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
       {isCadActive && cadToolMode !== 'select' && (
         <div
           data-qa="cad-status-banner"
-          className="whitespace-nowrap px-3 py-1 rounded-full bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl border border-white/60 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xl pointer-events-none animate-in fade-in slide-in-from-bottom-1"
+          className="whitespace-nowrap px-3 py-1 rounded-full glass-card bg-[var(--glass-surface-card)] backdrop-blur-xl border border-[var(--glass-border)] text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xl pointer-events-none animate-in fade-in slide-in-from-bottom-1"
         >
           {getHelperText(cadToolMode)}
         </div>
@@ -178,7 +178,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
 
       {/* Section Plane Control Card (Floating Glass Card when active) */}
       {sectionConfig.enabled && (
-        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/80 dark:border-white/10 shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2">
+        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl glass-card bg-[var(--glass-surface-card)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2">
           <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
             <Scissors className="w-3.5 h-3.5 text-rose-500" />
             <span className="text-[11px]">Axis:</span>
@@ -239,7 +239,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
       {showSettings && (
         <div
           data-qa="cad-settings-card"
-          className="flex items-center gap-3 px-3.5 py-1.5 rounded-2xl bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
+          className="flex items-center gap-3 px-3.5 py-1.5 rounded-2xl glass-card bg-[var(--glass-surface-card)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-2xl text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
         >
           <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">Parametric Defaults:</span>
           <div className="flex items-center gap-1.5">
@@ -277,7 +277,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
       {showHistory && (
         <div
           data-qa="cad-history-card"
-          className="w-72 max-h-48 overflow-y-auto p-2.5 rounded-2xl bg-white/85 dark:bg-slate-900/90 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl flex flex-col gap-1.5 text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
+          className="w-72 max-h-48 overflow-y-auto p-2.5 rounded-2xl glass-card bg-[var(--glass-surface-card)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-2xl flex flex-col gap-1.5 text-xs text-slate-800 dark:text-slate-200 animate-in fade-in-50 slide-in-from-bottom-2"
         >
           <div className="flex items-center justify-between font-semibold pb-1 border-b border-slate-200 dark:border-slate-800 text-[11px]">
             <span>Transaction Stack</span>
@@ -309,7 +309,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
       <div
         data-qa={isCadActive ? 'cad-toolbar' : undefined}
         data-qa-cad-mode={isCadActive ? cadToolMode : undefined}
-        className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/60 dark:bg-slate-900/70 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-2xl shadow-slate-900/10 text-xs text-slate-800 dark:text-slate-200"
+        className="flex items-center gap-1 px-3 py-1 rounded-full glass-dock bg-[var(--glass-surface-dock)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-2xl shadow-slate-900/10 text-xs text-slate-800 dark:text-slate-200"
       >
         {/* Hidden drag anchor for QA test harness */}
         <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
@@ -664,6 +664,75 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               >
                 <History className="w-3.5 h-3.5" />
               </button>
+            </div>
+
+            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
+
+            {/* Panel & Drawer Fast Access in Modify Profile */}
+            <div className="flex items-center gap-0.5">
+              {onToggleTree && (
+                <button
+                  type="button"
+                  data-qa="dock-tree-toggle"
+                  onClick={onToggleTree}
+                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    isTreeOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                  }`}
+                  title="Model Hierarchy Tree"
+                >
+                  <FolderTree className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onToggleProperty && (
+                <button
+                  type="button"
+                  data-qa="dock-property-toggle"
+                  onClick={onToggleProperty}
+                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    isPropertyOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                  }`}
+                  title="Property Inspector"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onToggleClash && (
+                <button
+                  type="button"
+                  data-qa="dock-clash-toggle"
+                  onClick={onToggleClash}
+                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    isClashOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                  }`}
+                  title="Clash Detection"
+                >
+                  <Crosshair className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onToggleCopilot && (
+                <button
+                  type="button"
+                  data-qa="dock-copilot-toggle"
+                  onClick={onToggleCopilot}
+                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    isCopilotOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                  }`}
+                  title="AI Copilot"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
+                </button>
+              )}
             </div>
           </div>
         )}

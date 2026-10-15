@@ -52,8 +52,39 @@ export interface UnitsSnappingSettings {
   screenSnapRadiusMidpoint: number;// Pixel threshold for edge midpoint snapping (default 18)
 }
 
+export type UiStyleMode =
+  | 'glass'
+  | 'matte'
+  | 'obsidian'
+  | 'cyber-bim'
+  | 'spatial'
+  | 'bento';
+
+export interface UiStyleOption {
+  id: UiStyleMode;
+  name: string;
+  description: string;
+  badge?: string;
+  category?: 'Spatial' | 'Engineering' | 'Aesthetic';
+}
+
+export const UI_STYLE_OPTIONS: UiStyleOption[] = [
+  { id: 'glass', name: 'Frosted Glass (Default)', description: 'Translucent spatial canvas with dynamic backdrop blur', badge: 'Spatial', category: 'Spatial' },
+  { id: 'matte', name: 'Solid Matte (Classic CAD)', description: 'Opaque architectural surfaces, zero blur, classic CAD finish', badge: 'Classic CAD', category: 'Engineering' },
+  { id: 'obsidian', name: 'Obsidian OLED', description: 'Deep pure pitch black surfaces with electric CAD borders', badge: 'OLED', category: 'Aesthetic' },
+  { id: 'cyber-bim', name: 'Cyber-BIM HUD (FUI)', description: 'Holographic telemetry HUD with neon cyan brackets, glow borders & mono readouts', badge: 'Sci-Fi HUD', category: 'Spatial' },
+  { id: 'spatial', name: 'Spatial VisionOS', description: 'Deep 32px progressive blur, specular rim lighting and floating pill depth geometry', badge: 'VisionOS', category: 'Spatial' },
+  { id: 'bento', name: 'Technical Bento Grid', description: 'High-density modular tiles, 8px micro-grid spacing and compact tabular BIM metrics', badge: 'Bento Grid', category: 'Engineering' }
+];
+
+export interface UiAppearanceSettings {
+  styleMode?: UiStyleMode;         // 'glass' | 'matte' | 'obsidian' | 'cyber-bim' | 'spatial' | 'bento'
+  glassOpacity: number;            // 0.0 - 1.0 (default 0.55 = 55% opacity, down to 0.0 = completely transparent/invisible)
+}
+
 export interface EditorSettings {
   version: number;
+  ui?: UiAppearanceSettings;
   highlighting: SelectionHighlightSettings;
   navigation: NavigationCameraSettings;
   viewport: ViewportEnvironmentSettings;
@@ -93,6 +124,10 @@ export const COLOR_PRESETS = [
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   version: 1,
+  ui: {
+    styleMode: 'glass',
+    glassOpacity: 0.55
+  },
   highlighting: {
     selectionColor: '#00f0ff',
     selectionEdgeColor: '#00f0ff',

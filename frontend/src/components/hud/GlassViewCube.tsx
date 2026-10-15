@@ -15,7 +15,7 @@ export const GlassViewCube: React.FC<GlassViewCubeProps> = ({
 }) => {
   return (
     <div
-      className="absolute top-20 z-20 pointer-events-auto transition-[right] duration-150 select-none p-2 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-xl flex flex-col items-center gap-1.5 w-32"
+      className="absolute top-20 z-20 pointer-events-auto transition-[right] duration-150 select-none p-2 rounded-2xl glass-card bg-[var(--glass-surface-card)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-xl flex flex-col items-center gap-1.5 w-32"
       style={{ right: rightOffset ? rightOffset + 16 : 24 }}
       title="Camera View Navigator — Click to align 3D viewport"
       data-qa="glass-viewcube"
@@ -26,7 +26,7 @@ export const GlassViewCube: React.FC<GlassViewCubeProps> = ({
       <span data-drag-handle="true" className="sr-only" aria-hidden="true" />
 
       {/* Compass Orientation Header */}
-      <div className="flex items-center justify-between w-full px-1 text-[10px] text-slate-500 dark:text-slate-400 font-semibold tracking-wider uppercase border-b border-slate-200/60 dark:border-white/10 pb-1">
+      <div className="flex items-center justify-between w-full px-1 text-[10px] text-slate-500 dark:text-slate-400 font-semibold tracking-wider uppercase border-b border-[var(--glass-border)] pb-1">
         <div className="flex items-center gap-1">
           <Compass className="w-3 h-3 text-blue-600 dark:text-cyan-400" />
           <span>View</span>

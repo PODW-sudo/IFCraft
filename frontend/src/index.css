@@ -26,6 +26,24 @@
     user-select: none;
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Accessible Keyboard Focus Rings (WCAG 2.2 AA SC 2.4.7) */
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--border-focus, #2563eb) !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Selectable Text Utility Override */
+  .select-text,
+  .select-text * {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+  }
 }
 
 /* Custom scrollbars */
@@ -46,3 +64,113 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #384050;
 }
+
+/* Frosted Glass Dynamic Utility Classes (Driven by --glass-opacity & --glass-blur tokens) */
+.glass-panel {
+  background-color: var(--glass-surface-panel) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.glass-card {
+  background-color: var(--glass-surface-card) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.glass-header {
+  background-color: var(--glass-surface-header) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.glass-dock {
+  background-color: var(--glass-surface-dock) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Ensure dynamic --glass-blur scales all floating frosted HUDs and docks */
+[data-qa-dock],
+[data-qa-drawer],
+[data-qa-draggable-hud] {
+  backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) !important;
+}
+
+/* Zero-blur performance overrides for Solid Matte, Obsidian OLED, and Neo-Brutalist styles */
+[data-ui-style='matte'] .glass-panel,
+[data-ui-style='matte'] .glass-card,
+[data-ui-style='matte'] .glass-header,
+[data-ui-style='matte'] .glass-dock,
+[data-ui-style='matte'] [data-qa-dock],
+[data-ui-style='matte'] [data-qa-drawer],
+[data-ui-style='matte'] [data-qa-draggable-hud],
+[data-ui-style='obsidian'] .glass-panel,
+[data-ui-style='obsidian'] .glass-card,
+[data-ui-style='obsidian'] .glass-header,
+[data-ui-style='obsidian'] .glass-dock,
+[data-ui-style='obsidian'] [data-qa-dock],
+[data-ui-style='obsidian'] [data-qa-drawer],
+[data-ui-style='obsidian'] [data-qa-draggable-hud] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* -------------------------------------------------------------------------
+   Concept 1: Cyber-BIM HUD (ui-ux-pro-max: hud-sci-fi-fui)
+   Holographic telemetry HUD with neon cyan glow, 4px corners, and tech precision
+   ------------------------------------------------------------------------- */
+[data-ui-style='cyber-bim'] .glass-panel,
+[data-ui-style='cyber-bim'] .glass-card,
+[data-ui-style='cyber-bim'] .glass-dock,
+[data-ui-style='cyber-bim'] [data-qa-dock],
+[data-ui-style='cyber-bim'] [data-qa-drawer],
+[data-ui-style='cyber-bim'] [data-qa-draggable-hud] {
+  border-radius: 6px !important;
+  border-width: 1.5px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* -------------------------------------------------------------------------
+   Concept 3: Spatial VisionOS (ui-ux-pro-max: spatial-ui-visionos)
+   Ultra-deep progressive blur, luminous specular rims, 22px pill geometry
+   ------------------------------------------------------------------------- */
+[data-ui-style='spatial'] .glass-panel,
+[data-ui-style='spatial'] .glass-card,
+[data-ui-style='spatial'] .glass-dock,
+[data-ui-style='spatial'] [data-qa-dock],
+[data-ui-style='spatial'] [data-qa-drawer],
+[data-ui-style='spatial'] [data-qa-draggable-hud] {
+  border-radius: 20px !important;
+  backdrop-filter: blur(var(--glass-blur, 32px)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 32px)) saturate(180%) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* -------------------------------------------------------------------------
+   Concept 4: Technical Bento Grid (ui-ux-pro-max: bento-box-grid + data-dense)
+   Modular dashboard tiles, 12px corners, crisp micro-borders, dense telemetry
+   ------------------------------------------------------------------------- */
+[data-ui-style='bento'] .glass-panel,
+[data-ui-style='bento'] .glass-card,
+[data-ui-style='bento'] .glass-dock,
+[data-ui-style='bento'] [data-qa-dock],
+[data-ui-style='bento'] [data-qa-drawer],
+[data-ui-style='bento'] [data-qa-draggable-hud] {
+  border-radius: 12px !important;
+  border-width: 1px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+
+
+

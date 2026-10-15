@@ -46,6 +46,49 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Resolved Items
 
+### 2026-10-14 - Clash Inspector Frosted Glass Transparency & Global UI Glass Opacity Control
+- **Type:** Bug / UX / Enhancement
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-075, TC-076, TC-077, TC-078, TC-SET-01, TC-SET-03
+- **Severity:** P2
+- **Observed:**
+  1. Spatial Clash Inspector rendered as an opaque white card (`bg-white/85` with nested `bg-slate-50/80`), blocking the 3D viewport canvas, ground grid, and underlying geometry.
+  2. The application lacked a global control to customize frosted glass translucency / opacity across HUDs, drawers, headers, and tool docks.
+- **Expected:**
+  1. Spatial Clash Inspector window should render as a modern translucent frosted glass card matching the design token system (`backdrop-blur-2xl`, dynamic alpha token, subtle borders, high depth clarity).
+  2. Users should be able to smoothly adjust the frosted glass transparency across the entire UI via interactive sliders with live real-time visual feedback and persistence.
+- **Evidence:** User-submitted screenshot `uploaded_media_1791980743965.png`; test runs `TR-001` through `TR-004` and `TR-030`.
+- **Implementation:**
+  1. Refactored `ClashInspector.tsx` to utilize dynamic frosted glass tokens (`glass-panel bg-[var(--glass-surface-panel)] border border-[var(--glass-border)] rounded-3xl backdrop-blur-2xl` and `glass-card bg-[var(--glass-surface-card)]`).
+  2. Established dynamic CSS variables in `tokens.css` and `index.css` (`--glass-opacity`, `--glass-surface-panel`, `--glass-surface-card`, `--glass-surface-header`, `--glass-surface-dock`).
+  3. Added `ui: UiAppearanceSettings` with `glassOpacity` (range 0.15 to 0.95, default 0.55) to `EditorSettings`, persisted in `localStorage` via `settings.ts`.
+  4. Added a quick-access Glass Translucency Slider popover in `GlassHeader.tsx` (`data-qa="pill-glass-transparency-toggle"`, `data-qa="ui-glass-opacity-slider"`) with instant presets (Sheer 25%, Frosted 55%, Opaque 85%).
+  5. Added comprehensive frosted glass opacity slider and preset chips in `SettingsModal.tsx` (`data-qa="settings-glass-opacity-slider"`) under Environment & Themes.
+  6. Connected all floating HUDs, tool docks, spatial drawers (`GlassSpatialTree`, `GlassPropertyInspector`, `CopilotSidebar`, `GlassBottomDock`, `GlassContextualModifyDock`, `DimensionInfoHud`, `GlassViewCube`) to react dynamically in real time.
+- **Status:** Resolved
+
+### 2026-10-14 - UI/UX Architecture & Spatial Viewport Ergonomics Polish
+- **Type:** UX / Accessibility / Enhancement
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-020, TC-041, TC-042, TC-043, TC-C09, TC-C15
+- **Severity:** P1
+- **Observed:** 
+  1. Default `modify` profile omitted persistent toggles for Model Tree, Property Inspector, Clash Detection, and AI Copilot, causing feature discovery failures.
+  2. `CopilotSidebar` used hardcoded `fixed right-4`, causing physical collision and overlap directly on top of `GlassPropertyInspector`.
+  3. `ClashInspector` floated at `fixed left-6`, obscuring the left `GlassSpatialTree` drawer.
+  4. Global `user-select: none` blocked engineers from highlighting or copying IFC GUIDs, express IDs, and property values.
+  5. Keyboard focus was invisible due to `outline-none` across 90 elements without `:focus-visible` styling, and micro buttons had hit areas under 20px.
+- **Expected:**
+  1. Header and Bottom Dock provide persistent quick toggles for Tree, Properties, Clash, and Copilot across all profiles.
+  2. Copilot and Property Inspector dock side-by-side cleanly in flex layout without overlap.
+  3. Clash Inspector dynamically respects `leftOffset` when the Spatial Tree is open.
+  4. Property Inspector supports text selection, quick-copy buttons for GUID/ExpressID, and real-time property filtering.
+  5. Global `:focus-visible` ring adheres to WCAG 2.2 AA (`--border-focus`) and interactive targets expand to >= 26px.
+- **Evidence:** All 4 objective quality gates (Zero Emoji, Hardcodes, Intent, Contrast) and 3-stage UI Pipeline passed cleanly (`.\scripts\ui_pipeline.ps1 -Tier quick`).
+- **Suggested fix:** Updated `GlassHeader.tsx`, `GlassBottomDock.tsx`, `CopilotSidebar.tsx`, `ClashInspector.tsx`, `GlassPropertyInspector.tsx`, `App.tsx`, and `index.css`.
+- **Status:** Resolved
+
+
 ### 2026-10-07 - Archicad 29 Pet Palette & Tekla Structures 2025 Precision Editing Suite
 - **Type:** Enhancement
 - **Platform:** http://localhost:5173

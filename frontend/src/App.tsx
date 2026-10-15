@@ -26,7 +26,7 @@ import { SettingsModal } from './components/modals/SettingsModal';
 import { MoveCopySpecialModal } from './components/cad/MoveCopySpecialModal';
 import type { InteractiveEditMode } from './types/cadEditing';
 import { loadEditorSettings, saveEditorSettings } from './services/settings';
-import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from './types/settings';
+import { DEFAULT_EDITOR_SETTINGS, type EditorSettings, type UiStyleMode } from './types/settings';
 import {
   type UiProfile,
   type CustomProfileSettings,
@@ -307,6 +307,125 @@ export const App: React.FC = () => {
   const handleResetSettings = useCallback(() => {
     setSettings(DEFAULT_EDITOR_SETTINGS);
     saveEditorSettings(DEFAULT_EDITOR_SETTINGS);
+  }, []);
+
+  // Dynamic UI Style & Frosted Glass Opacity Sync across all panels (Styles: glass, matte, outline, obsidian)
+  useEffect(() => {
+    const styleMode = settings.ui?.styleMode ?? 'glass';
+    const opacity = settings.ui?.glassOpacity ?? 0.55;
+    const root = document.documentElement;
+
+    root.setAttribute('data-ui-style', styleMode);
+
+    if (styleMode === 'glass') {
+      // Scale blur smoothly: 0px when nearly invisible, up to 24px when opaque
+      const blurPx = opacity <= 0.02 ? 0 : Math.round(opacity * 24);
+
+      // Near 0 (lowest range): make panels completely clear/invisible without milky fog or dimming
+      const panelAlpha = opacity <= 0.02 ? 0.00 : opacity;
+      const cardAlpha = opacity <= 0.02 ? 0.00 : opacity * 0.85;
+      const dockAlpha = opacity <= 0.02 ? 0.00 : Math.min(1.0, opacity * 1.05);
+      const headerAlpha = opacity <= 0.02 ? 0.00 : opacity * 0.9;
+      const borderAlpha = opacity <= 0.02 ? 0.04 : 0.04 + opacity * 0.35;
+      const shadowAlpha = opacity <= 0.02 ? 0.000 : opacity * 0.12;
+
+      root.style.setProperty('--glass-opacity', opacity.toFixed(2));
+      root.style.setProperty('--glass-opacity-panel', panelAlpha.toFixed(2));
+      root.style.setProperty('--glass-opacity-card', cardAlpha.toFixed(2));
+      root.style.setProperty('--glass-opacity-dock', dockAlpha.toFixed(2));
+      root.style.setProperty('--glass-opacity-header', headerAlpha.toFixed(2));
+      root.style.setProperty('--glass-blur', `${blurPx}px`);
+      root.style.setProperty('--glass-border-alpha', borderAlpha.toFixed(2));
+      root.style.setProperty('--glass-shadow-alpha', shadowAlpha.toFixed(3));
+    } else if (styleMode === 'matte') {
+      // Solid opaque architectural CAD panels, 0 blur, clean borders
+      root.style.setProperty('--glass-opacity', '1.00');
+      root.style.setProperty('--glass-opacity-panel', '1.00');
+      root.style.setProperty('--glass-opacity-card', '0.98');
+      root.style.setProperty('--glass-opacity-dock', '1.00');
+      root.style.setProperty('--glass-opacity-header', '0.98');
+      root.style.setProperty('--glass-blur', '0px');
+      root.style.setProperty('--glass-border-alpha', '0.80');
+      root.style.setProperty('--glass-shadow-alpha', '0.12');
+    } else if (styleMode === 'obsidian') {
+      // Pure deep pitch OLED surfaces with electric high contrast borders
+      root.style.setProperty('--glass-opacity', '0.98');
+      root.style.setProperty('--glass-opacity-panel', '0.98');
+      root.style.setProperty('--glass-opacity-card', '0.96');
+      root.style.setProperty('--glass-opacity-dock', '1.00');
+      root.style.setProperty('--glass-opacity-header', '0.98');
+      root.style.setProperty('--glass-blur', '0px');
+      root.style.setProperty('--glass-border-alpha', '0.50');
+      root.style.setProperty('--glass-shadow-alpha', '0.25');
+    } else if (styleMode === 'cyber-bim') {
+      // Cyber-BIM HUD (FUI): High-tech telemetry with neon cyan glow & wireframe markers
+      root.style.setProperty('--glass-opacity', '0.88');
+      root.style.setProperty('--glass-opacity-panel', '0.88');
+      root.style.setProperty('--glass-opacity-card', '0.92');
+      root.style.setProperty('--glass-opacity-dock', '0.94');
+      root.style.setProperty('--glass-opacity-header', '0.90');
+      root.style.setProperty('--glass-blur', '14px');
+      root.style.setProperty('--glass-border-alpha', '0.75');
+      root.style.setProperty('--glass-shadow-alpha', '0.35');
+    } else if (styleMode === 'spatial') {
+      // Spatial VisionOS: Deep 32px progressive blur with specular rim lighting & floating pill depth
+      root.style.setProperty('--glass-opacity', '0.45');
+      root.style.setProperty('--glass-opacity-panel', '0.45');
+      root.style.setProperty('--glass-opacity-card', '0.52');
+      root.style.setProperty('--glass-opacity-dock', '0.58');
+      root.style.setProperty('--glass-opacity-header', '0.48');
+      root.style.setProperty('--glass-blur', '32px');
+      root.style.setProperty('--glass-border-alpha', '0.45');
+      root.style.setProperty('--glass-shadow-alpha', '0.20');
+    } else if (styleMode === 'bento') {
+      // Technical Bento Grid: High-density modular dashboard tiles, 8px micro-grid spacing
+      root.style.setProperty('--glass-opacity', '0.94');
+      root.style.setProperty('--glass-opacity-panel', '0.94');
+      root.style.setProperty('--glass-opacity-card', '0.96');
+      root.style.setProperty('--glass-opacity-dock', '0.98');
+      root.style.setProperty('--glass-opacity-header', '0.96');
+      root.style.setProperty('--glass-blur', '16px');
+      root.style.setProperty('--glass-border-alpha', '0.85');
+      root.style.setProperty('--glass-shadow-alpha', '0.10');
+    }
+  }, [settings.ui?.styleMode, settings.ui?.glassOpacity]);
+
+  const handleUpdateGlassOpacity = useCallback((opacity: number) => {
+    setSettings((prev) => {
+      const updated: EditorSettings = {
+        ...prev,
+        ui: {
+          styleMode: 'glass',
+          ...prev.ui,
+          glassOpacity: opacity
+        }
+      };
+      saveEditorSettings(updated);
+      return updated;
+    });
+  }, []);
+
+  const handleUpdateUiStyleMode = useCallback((styleMode: UiStyleMode) => {
+    setSettings((prev) => {
+      const defaultOpacity =
+        styleMode === 'spatial'
+          ? 0.45
+          : styleMode === 'cyber-bim'
+          ? 0.88
+          : styleMode === 'matte'
+          ? 1.0
+          : 0.55;
+      const updated: EditorSettings = {
+        ...prev,
+        ui: {
+          glassOpacity: defaultOpacity,
+          ...prev.ui,
+          styleMode
+        }
+      };
+      saveEditorSettings(updated);
+      return updated;
+    });
   }, []);
 
   // Web Worker Ref
@@ -1399,6 +1518,8 @@ export const App: React.FC = () => {
         closeSettingsModal: () => setIsSettingsOpen(false),
         updateSettings: (s: EditorSettings) => handleUpdateSettings(s),
         resetSettings: () => handleResetSettings(),
+        setGlassOpacity: (op: number) => handleUpdateGlassOpacity(op),
+        setUiStyleMode: (mode: UiStyleMode) => handleUpdateUiStyleMode(mode),
         selectElement: (expressID: number | null) => handleSelectElement(expressID),
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
         setSectionConfig: (config: Partial<SectionPlaneConfig>) => setSectionConfig((prev) => ({ ...prev, ...config })),
@@ -1701,8 +1822,14 @@ export const App: React.FC = () => {
           onToggleProperty={handleToggleProperty}
           isCopilotOpen={isCopilotOpen}
           onToggleCopilot={handleToggleCopilot}
+          isClashOpen={isClashInspectorOpen}
+          onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
           currentTheme={currentTheme}
           onToggleTheme={toggleTheme}
+          glassOpacity={settings.ui?.glassOpacity ?? 0.55}
+          onUpdateGlassOpacity={handleUpdateGlassOpacity}
+          uiStyleMode={settings.ui?.styleMode ?? 'glass'}
+          onUpdateUiStyleMode={handleUpdateUiStyleMode}
         />
 
         {/* 2b. Contextual Modification Ribbon (Decked directly below top glass header) */}
@@ -1754,7 +1881,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* Rightmost Element Properties Inspector & Copilot */}
-          <div className="h-full pointer-events-auto flex items-start">
+          <div className="h-full pointer-events-auto flex items-start gap-2.5">
             {isPropertyOpen && (
               <GlassPropertyInspector
                 projectId={currentProject?.id || null}
@@ -1853,6 +1980,7 @@ export const App: React.FC = () => {
         spatialTree={spatialTree}
         onSelectElement={handleSelectElement}
         onTriggerTool={handleTriggerTool}
+        onUpdateUiStyleMode={handleUpdateUiStyleMode}
       />
 
       {/* Empty State Overlay */}
@@ -1943,6 +2071,7 @@ export const App: React.FC = () => {
         onSelectClash={setActiveClash}
         onRunClashCheck={handleRunClashCheck}
         isLoading={isClashLoading}
+        leftOffset={leftOffset}
       />
 
       {/* Phase 12: BCF 2.1 Issue Management Modal */}
