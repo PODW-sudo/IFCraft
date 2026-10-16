@@ -1648,6 +1648,7 @@ export const App: React.FC = () => {
         setTransformMode: (mode: TransformMode) => setTransformMode(mode),
         setSectionConfig: (config: Partial<SectionPlaneConfig>) => setSectionConfig((prev) => ({ ...prev, ...config })),
         setRenderStyle: (style: RenderStyle) => setRenderStyle(style),
+        getRenderStyle: () => latestStateRef.current.renderStyle,
         setSnapEnabled: (snap: boolean) => setSnapEnabled(snap),
         toggleCategory: (cat: string) => toggleCategoryVisibility(cat),
         setIsolate: (expressID: number | null) => setIsolatedExpressID(expressID),

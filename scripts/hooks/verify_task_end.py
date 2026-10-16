@@ -131,8 +131,8 @@ def main():
 
     # If execution stopped due to user cancellation, token budget, or fatal system error, do not block
     if term_reason not in ("NO_TOOL_CALL", ""):
-        print(json.dumps({"decision": "allow"}))
-        sys.exit(0)
+        print(json.dumps({"decision": "allow"}), flush=True)
+        os._exit(0)
 
     mistakes = []
     preventions = []
@@ -178,8 +178,8 @@ def main():
             "decision": "allow"
         }
 
-    print(json.dumps(response))
-    sys.exit(0)
+    print(json.dumps(response), flush=True)
+    os._exit(0)
 
 if __name__ == "__main__":
     main()

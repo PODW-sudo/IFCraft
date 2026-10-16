@@ -131,6 +131,24 @@ const DISCIPLINE_COLORS: Record<string, { color: number; roughness: number; meta
   OTHER: { color: 0xa855f7, roughness: 0.6, metalness: 0.2 }
 };
 
+const BIM_PBR_MATERIALS: Record<string, { color: number; roughness: number; metalness: number; transparent?: boolean; opacity?: number }> = {
+  IfcWindow: { color: 0x93c5fd, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.4 },
+  IfcCurtainWall: { color: 0x60a5fa, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.45 },
+  IfcPlate: { color: 0x64748b, roughness: 0.3, metalness: 0.7 },
+  IfcBeam: { color: 0x334155, roughness: 0.25, metalness: 0.85 },
+  IfcColumn: { color: 0x475569, roughness: 0.25, metalness: 0.85 },
+  IfcMember: { color: 0x334155, roughness: 0.3, metalness: 0.8 },
+  IfcWall: { color: 0xe2e8f0, roughness: 0.88, metalness: 0.02 },
+  IfcWallStandardCase: { color: 0xe2e8f0, roughness: 0.88, metalness: 0.02 },
+  IfcSlab: { color: 0xcfd8dc, roughness: 0.72, metalness: 0.08 },
+  IfcRoof: { color: 0x3b4252, roughness: 0.65, metalness: 0.1 },
+  IfcDoor: { color: 0x854d0e, roughness: 0.5, metalness: 0.15 },
+  IfcCovering: { color: 0xf1f5f9, roughness: 0.6, metalness: 0.05 },
+  IfcFlowSegment: { color: 0xb45309, roughness: 0.2, metalness: 0.9 },
+  IfcFlowFitting: { color: 0x94a3b8, roughness: 0.2, metalness: 0.85 },
+  IfcFooting: { color: 0x94a3b8, roughness: 0.95, metalness: 0.0 }
+};
+
 function inferDiscipline(type: string, explicitDiscipline?: string): string {
   if (explicitDiscipline) return explicitDiscipline;
   if (type.includes('Beam') || type.includes('Column') || type.includes('Footing') || type.includes('Reinforc') || type.includes('Member')) return 'STRUCT';
@@ -792,6 +810,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const categoryMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
   const disciplineMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
   const diffMaterialsRef = useRef<{ added: THREE.MeshStandardMaterial; modified: THREE.MeshStandardMaterial; unchanged: THREE.MeshStandardMaterial } | null>(null);
+  const transparentEdgesGroupRef = useRef<THREE.Group | null>(null);
+  const shadowGroundRef = useRef<THREE.Mesh | null>(null);
   const needsRenderRef = useRef(true);
   const isNavigatingRef = useRef(false);
   const navSettleTimerRef = useRef<number | null>(null);
@@ -1165,6 +1185,33 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures
       }),
+      getRenderStats: () => {
+        let wireframe = false;
+        let opacity = 1.0;
+        let roughness = 0.7;
+        let metalness = 0.05;
+        let sampleCount = 0;
+        meshMapRef.current.forEach((meshes) => {
+          if (sampleCount === 0 && meshes.length > 0 && meshes[0].material) {
+            const m = meshes[0].material as THREE.MeshStandardMaterial;
+            wireframe = Boolean(m.wireframe);
+            opacity = m.opacity;
+            roughness = m.roughness;
+            metalness = m.metalness;
+            sampleCount++;
+          }
+        });
+        return {
+          wireframe,
+          opacity,
+          roughness,
+          metalness,
+          shadowMapEnabled: Boolean(renderer.shadowMap.enabled),
+          shadowGroundVisible: Boolean(shadowGroundRef.current && shadowGroundRef.current.visible),
+          transparentEdgesGroupVisible: Boolean(transparentEdgesGroupRef.current && transparentEdgesGroupRef.current.visible),
+          transparentEdgesCount: transparentEdgesGroupRef.current ? transparentEdgesGroupRef.current.children.length : 0
+        };
+      },
       requestRender: () => {
         needsRenderRef.current = true;
       }
@@ -1268,6 +1315,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       endSphereMat.dispose();
       scene.remove(previewGroup);
 
+      if (transparentEdgesGroupRef.current) {
+        disposeHighlightGroup(transparentEdgesGroupRef.current, scene);
+        transparentEdgesGroupRef.current = null;
+      }
+      if (shadowGroundRef.current) {
+        scene.remove(shadowGroundRef.current);
+        shadowGroundRef.current.geometry.dispose();
+        (shadowGroundRef.current.material as THREE.Material).dispose();
+        shadowGroundRef.current = null;
+      }
+
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -1316,6 +1374,16 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (hoverHighlightGroupRef.current) {
       disposeHighlightGroup(hoverHighlightGroupRef.current, scene);
       hoverHighlightGroupRef.current = null;
+    }
+    if (transparentEdgesGroupRef.current) {
+      disposeHighlightGroup(transparentEdgesGroupRef.current, scene);
+      transparentEdgesGroupRef.current = null;
+    }
+    if (shadowGroundRef.current) {
+      if (scene) scene.remove(shadowGroundRef.current);
+      shadowGroundRef.current.geometry.dispose();
+      (shadowGroundRef.current.material as THREE.Material).dispose();
+      shadowGroundRef.current = null;
     }
 
     if (geometries.length === 0) return;
@@ -1570,7 +1638,78 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       return m;
     };
 
-    if (renderStyle === 'wireframe') {
+    if (renderStyle === 'transparent' || renderStyle === 'ghost') {
+      // 1. Transparent with Solid Edges (Architectural Ghost Contours)
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = false;
+        rendererRef.current.shadowMap.needsUpdate = false;
+      }
+
+      catMats.forEach((mat) => {
+        mat.wireframe = false;
+        mat.transparent = true;
+        mat.opacity = 0.28;
+        mat.depthWrite = true;
+        mat.needsUpdate = true;
+      });
+
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const type = mesh.userData.type as string;
+          const targetMat = catMats.get(type);
+          if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
+        });
+      });
+
+      // Show solid contour edges
+      const scene = sceneRef.current;
+      if (!transparentEdgesGroupRef.current && scene) {
+        const edgeGroup = new THREE.Group();
+        edgeGroup.name = 'transparent-edges-group';
+        scene.add(edgeGroup);
+        transparentEdgesGroupRef.current = edgeGroup;
+      }
+
+      const edgeGroup = transparentEdgesGroupRef.current;
+      if (edgeGroup) {
+        if (edgeGroup.children.length === 0) {
+          const edgeColor = theme === 'dark' ? 0x94a3b8 : 0x1e293b;
+          const edgeMat = new THREE.LineBasicMaterial({
+            color: edgeColor,
+            transparent: false,
+            opacity: 1.0,
+            depthTest: true,
+            clippingPlanes: [clipPlane]
+          });
+
+          meshMapRef.current.forEach((meshes) => {
+            meshes.forEach((mesh) => {
+              if (mesh.geometry) {
+                try {
+                  const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 24);
+                  const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
+                  lineSegs.matrixAutoUpdate = false;
+                  lineSegs.matrix.copy(mesh.matrixWorld);
+                  lineSegs.userData = { isSharedEdgeGeometry: true };
+                  edgeGroup.add(lineSegs);
+                } catch {}
+              }
+            });
+          });
+        }
+        edgeGroup.visible = true;
+      }
+
+    } else if (renderStyle === 'wireframe') {
+      // 2. Wireframe CAD
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = false;
+        rendererRef.current.shadowMap.needsUpdate = false;
+      }
+
       catMats.forEach((mat) => {
         mat.wireframe = true;
         mat.opacity = 1.0;
@@ -1584,13 +1723,71 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
         });
       });
-    } else if (renderStyle === 'ghost') {
-      catMats.forEach((mat) => {
+
+    } else if (renderStyle === 'shadowed') {
+      // 3. Shadowed (Directional Lighting & Contact Shadows)
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+
+      catMats.forEach((mat, type) => {
+        const config = CATEGORY_COLORS[type] || DEFAULT_MATERIAL_CONFIG;
         mat.wireframe = false;
-        mat.transparent = true;
-        mat.opacity = 0.25;
+        mat.transparent = Boolean(config.opacity && config.opacity < 1.0);
+        mat.opacity = config.opacity ?? 1.0;
+        mat.roughness = 0.65;
+        mat.metalness = 0.1;
+        mat.color.setHex(config.color);
         mat.needsUpdate = true;
       });
+
+      meshMapRef.current.forEach((meshes) => {
+        meshes.forEach((mesh) => {
+          const type = mesh.userData.type as string;
+          const targetMat = catMats.get(type);
+          if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        });
+      });
+
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = true;
+        rendererRef.current.shadowMap.autoUpdate = true;
+        rendererRef.current.shadowMap.needsUpdate = true;
+      }
+
+      const scene = sceneRef.current;
+      if (!shadowGroundRef.current && scene) {
+        const gGeom = new THREE.PlaneGeometry(250, 250);
+        const gMat = new THREE.ShadowMaterial({ opacity: 0.35, clippingPlanes: [clipPlane] });
+        const ground = new THREE.Mesh(gGeom, gMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.02;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        shadowGroundRef.current = ground;
+      }
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = true;
+
+    } else if (renderStyle === 'materials') {
+      // 4. Authentic BIM Materials (PBR Physical Simulation)
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+
+      catMats.forEach((mat, type) => {
+        const pbr = BIM_PBR_MATERIALS[type] || {
+          color: (CATEGORY_COLORS[type] || DEFAULT_MATERIAL_CONFIG).color,
+          roughness: 0.5,
+          metalness: 0.2
+        };
+        mat.wireframe = false;
+        mat.color.setHex(pbr.color);
+        mat.roughness = pbr.roughness;
+        mat.metalness = pbr.metalness;
+        mat.transparent = Boolean(pbr.transparent);
+        mat.opacity = pbr.opacity ?? 1.0;
+        mat.needsUpdate = true;
+      });
+
       meshMapRef.current.forEach((meshes) => {
         meshes.forEach((mesh) => {
           const type = mesh.userData.type as string;
@@ -1598,14 +1795,38 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           if (targetMat && mesh.material !== targetMat) mesh.material = targetMat;
         });
       });
+
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = true;
+        rendererRef.current.shadowMap.autoUpdate = true;
+        rendererRef.current.shadowMap.needsUpdate = true;
+      }
+
     } else if (renderStyle === 'discipline') {
+      // 5. Discipline Mode
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = false;
+        rendererRef.current.shadowMap.needsUpdate = false;
+      }
+
       meshMapRef.current.forEach((meshes) => {
         meshes.forEach((mesh) => {
           const disc = (mesh.userData.discipline as string) || inferDiscipline(mesh.userData.type as string);
           mesh.material = getDiscMat(disc);
         });
       });
+
     } else if (renderStyle === 'diff') {
+      // 6. Spatial Diff Mode
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = false;
+        rendererRef.current.shadowMap.needsUpdate = false;
+      }
+
       if (!diffMaterialsRef.current) {
         diffMaterialsRef.current = {
           added: new THREE.MeshStandardMaterial({ color: 0x10b981, transparent: false, opacity: 1.0, clippingPlanes: [clipPlane] }),
@@ -1624,13 +1845,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           else mesh.material = dm.unchanged;
         });
       });
+
     } else {
-      // Standard shaded
+      // 7. Solid CAD Mode (Default / Shaded)
+      if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
+      if (shadowGroundRef.current) shadowGroundRef.current.visible = false;
+      if (rendererRef.current) {
+        rendererRef.current.shadowMap.enabled = false;
+        rendererRef.current.shadowMap.needsUpdate = false;
+      }
+
       catMats.forEach((mat, type) => {
         const config = CATEGORY_COLORS[type] || DEFAULT_MATERIAL_CONFIG;
         mat.wireframe = false;
         mat.transparent = Boolean(config.opacity && config.opacity < 1.0);
         mat.opacity = config.opacity ?? 1.0;
+        mat.roughness = config.roughness ?? 0.7;
+        mat.metalness = config.metalness ?? 0.05;
         mat.color.setHex(config.color);
         mat.needsUpdate = true;
       });
@@ -1643,7 +1874,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       });
     }
     needsRenderRef.current = true;
-  }, [renderStyle, auditDiff]);
+  }, [renderStyle, auditDiff, theme]);
 
   // 4b. Render 3D Clash Collision Marker & Wireframe Box
   useEffect(() => {

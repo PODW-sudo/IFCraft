@@ -26,6 +26,16 @@ import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../../types/
 import type { CadToolMode, CadHistoryItem } from '../../types/ifc';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 
+export const RENDER_STYLE_ITEMS: { id: RenderStyle; label: string }[] = [
+  { id: 'transparent', label: 'Transparent (Edges)' },
+  { id: 'solid', label: 'Solid CAD' },
+  { id: 'wireframe', label: 'Wireframe' },
+  { id: 'shadowed', label: 'Shadowed' },
+  { id: 'materials', label: 'Materials (PBR)' },
+  { id: 'discipline', label: 'Discipline Mode' },
+  { id: 'diff', label: 'Spatial Diff' }
+];
+
 interface GlassBottomDockProps {
   transformMode: TransformMode;
   onSetTransformMode: (mode: TransformMode) => void;
@@ -397,26 +407,28 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
                 >
                   <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
-                  {[
-                    { id: 'shaded', label: 'Shaded Materials' },
-                    { id: 'wireframe', label: 'Wireframe CAD' },
-                    { id: 'ghost', label: 'Ghost / X-Ray' },
-                    { id: 'discipline', label: 'Discipline Mode' },
-                    { id: 'diff', label: 'Spatial Diff' }
-                  ].map((style) => (
-                    <DropdownMenu.Item
-                      key={style.id}
-                      data-qa={`render-style-${style.id}`}
-                      onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
-                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
-                        renderStyle === style.id
-                          ? 'bg-blue-600 text-white font-medium shadow-xs'
-                          : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      <span>{style.label}</span>
-                    </DropdownMenu.Item>
-                  ))}
+                  {RENDER_STYLE_ITEMS.map((style) => {
+                    const isSelected =
+                      renderStyle === style.id ||
+                      (style.id === 'solid' && renderStyle === 'shaded') ||
+                      (style.id === 'transparent' && renderStyle === 'ghost');
+                    const qaAttr = `render-style-${style.id}`;
+                    return (
+                      <DropdownMenu.Item
+                        key={style.id}
+                        data-qa={qaAttr}
+                        data-qa-legacy={style.id === 'solid' ? 'render-style-shaded' : undefined}
+                        onSelect={() => onSetRenderStyle(style.id)}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
+                          isSelected
+                            ? 'bg-blue-600 text-white font-medium shadow-xs'
+                            : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        <span>{style.label}</span>
+                      </DropdownMenu.Item>
+                    );
+                  })}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
@@ -591,6 +603,89 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               >
                 <History className="w-3.5 h-3.5" />
               </button>
+
+              <div className="w-[1px] h-3.5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
+              {/* Camera Orientation Presets Dropdown */}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    data-qa="dock-camera-preset-trigger"
+                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    title="Camera Orientation Presets"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={10}
+                    align="center"
+                    className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
+                  >
+                    <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Camera Preset</div>
+                    {[
+                      { id: 'iso', label: 'Isometric 3D' },
+                      { id: 'top', label: 'Top View (Plan)' },
+                      { id: 'front', label: 'Front Elevation' },
+                      { id: 'side', label: 'Side Elevation' }
+                    ].map((preset) => (
+                      <DropdownMenu.Item
+                        key={preset.id}
+                        data-qa={`camera-preset-${preset.id}`}
+                        onSelect={() => onCameraPreset(preset.id as CameraPreset)}
+                        className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
+                      >
+                        <span>{preset.label}</span>
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+
+              {/* Render Style Dropdown */}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    data-qa="dock-render-style-trigger"
+                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    title={`Render Style: ${renderStyle}`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={10}
+                    align="center"
+                    className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
+                  >
+                    <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
+                    {RENDER_STYLE_ITEMS.map((style) => {
+                      const isSelected =
+                        renderStyle === style.id ||
+                        (style.id === 'solid' && renderStyle === 'shaded') ||
+                        (style.id === 'transparent' && renderStyle === 'ghost');
+                      const qaAttr = `render-style-${style.id}`;
+                      return (
+                        <DropdownMenu.Item
+                          key={style.id}
+                          data-qa={qaAttr}
+                          data-qa-legacy={style.id === 'solid' ? 'render-style-shaded' : undefined}
+                          onSelect={() => onSetRenderStyle(style.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
+                            isSelected
+                              ? 'bg-blue-600 text-white font-medium shadow-xs'
+                              : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          <span>{style.label}</span>
+                        </DropdownMenu.Item>
+                      );
+                    })}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             </div>
 
           </div>
@@ -620,20 +715,28 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
                 >
                   <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
-                  {[
-                    { id: 'discipline', label: 'Discipline Mode' },
-                    { id: 'shaded', label: 'Shaded Materials' },
-                    { id: 'diff', label: 'Spatial Diff' }
-                  ].map((style) => (
-                    <DropdownMenu.Item
-                      key={style.id}
-                      data-qa={`render-style-${style.id}`}
-                      onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
-                      className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
-                    >
-                      <span>{style.label}</span>
-                    </DropdownMenu.Item>
-                  ))}
+                  {RENDER_STYLE_ITEMS.map((style) => {
+                    const isSelected =
+                      renderStyle === style.id ||
+                      (style.id === 'solid' && renderStyle === 'shaded') ||
+                      (style.id === 'transparent' && renderStyle === 'ghost');
+                    const qaAttr = `render-style-${style.id}`;
+                    return (
+                      <DropdownMenu.Item
+                        key={style.id}
+                        data-qa={qaAttr}
+                        data-qa-legacy={style.id === 'solid' ? 'render-style-shaded' : undefined}
+                        onSelect={() => onSetRenderStyle(style.id)}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
+                          isSelected
+                            ? 'bg-blue-600 text-white font-medium shadow-xs'
+                            : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        <span>{style.label}</span>
+                      </DropdownMenu.Item>
+                    );
+                  })}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
@@ -830,20 +933,27 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                     className="w-40 bg-white/90 dark:bg-slate-900/95 border border-white/80 dark:border-white/10 rounded-2xl shadow-2xl p-1 text-xs text-slate-800 dark:text-slate-200 backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95"
                   >
                     <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">Render Style</div>
-                    {[
-                      { id: 'discipline', label: 'Discipline Mode' },
-                      { id: 'shaded', label: 'Shaded Materials' },
-                      { id: 'diff', label: 'Spatial Diff' }
-                    ].map((style) => (
-                      <DropdownMenu.Item
-                        key={style.id}
-                        data-qa={`render-style-${style.id}`}
-                        onSelect={() => onSetRenderStyle(style.id as RenderStyle)}
-                        className="px-2.5 py-1.5 rounded-xl cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors outline-none"
-                      >
-                        <span>{style.label}</span>
-                      </DropdownMenu.Item>
-                    ))}
+                    {RENDER_STYLE_ITEMS.map((style) => {
+                      const isSelected =
+                        renderStyle === style.id ||
+                        (style.id === 'solid' && renderStyle === 'shaded') ||
+                        (style.id === 'transparent' && renderStyle === 'ghost');
+                      const qaAttr = style.id === 'solid' ? 'render-style-solid render-style-shaded' : `render-style-${style.id}`;
+                      return (
+                        <DropdownMenu.Item
+                          key={style.id}
+                          data-qa={qaAttr}
+                          onSelect={() => onSetRenderStyle(style.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors outline-none ${
+                            isSelected
+                              ? 'bg-blue-600 text-white font-medium shadow-xs'
+                              : 'hover:bg-blue-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          <span>{style.label}</span>
+                        </DropdownMenu.Item>
+                      );
+                    })}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>

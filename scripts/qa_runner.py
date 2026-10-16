@@ -960,7 +960,7 @@ async def evaluate_ui_control_scenario(cdp: CDPClient, code: str, scen: str, tc:
             has_item = False
             for _ in range(10):
                 await asyncio.sleep(0.1)
-                has_item = await cdp.eval("Boolean(document.querySelector('[data-qa=render-style-shaded]') || document.querySelector('[role=menuitem]'))")
+                has_item = await cdp.eval("Boolean(document.querySelector('[data-qa=render-style-solid]') || document.querySelector('[data-qa=render-style-shaded]') || document.querySelector('[data-qa-legacy=render-style-shaded]') || document.querySelector('[role=menuitem]'))")
                 if has_item:
                     break
             await cdp.eval("document.body.click()")
@@ -2648,6 +2648,134 @@ async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple
 
     return "fail", f"Unknown Xeokit test {tid}"
 
+async def evaluate_render_style_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple[str, str]:
+    """Evaluates 5 distinct render styles (transparent, solid, wireframe, shadowed, materials) in Three.js and Xeokit."""
+    if tid == "TC-RST-01":
+        # Three.js 5 visual styles
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (!bridge) return { success: false, reason: 'Bridge missing' };
+
+            // Ensure Three.js engine active
+            if (bridge.setViewportEngine) bridge.setViewportEngine('three');
+            await new Promise(r => setTimeout(r, 400));
+
+            const stylesToTest = ['transparent', 'solid', 'wireframe', 'shadowed', 'materials'];
+            const styleResults = {};
+
+            for (const st of stylesToTest) {
+                bridge.setRenderStyle(st);
+                await new Promise(r => setTimeout(r, 200));
+
+                const current = bridge.getRenderStyle ? bridge.getRenderStyle() : null;
+                const threeStats = window.__THREE_VIEWPORT_STATS__ && window.__THREE_VIEWPORT_STATS__.getRenderStats ? window.__THREE_VIEWPORT_STATS__.getRenderStats() : null;
+                
+                styleResults[st] = {
+                    current,
+                    threeStats
+                };
+            }
+
+            // Restore solid
+            bridge.setRenderStyle('solid');
+
+            const trans = styleResults['transparent'];
+            const solid = styleResults['solid'];
+            const wire = styleResults['wireframe'];
+            const shadow = styleResults['shadowed'];
+            const mat = styleResults['materials'];
+
+            const transOk = trans && trans.current === 'transparent' && trans.threeStats && trans.threeStats.transparentEdgesGroupVisible;
+            const solidOk = solid && trans.current !== 'solid' && solid.current === 'solid' && solid.threeStats && !solid.threeStats.wireframe && !solid.threeStats.transparentEdgesGroupVisible;
+            const wireOk = wire && wire.current === 'wireframe' && wire.threeStats && wire.threeStats.wireframe;
+            const shadowOk = shadow && shadow.current === 'shadowed' && shadow.threeStats && shadow.threeStats.shadowMapEnabled && shadow.threeStats.shadowGroundVisible;
+            const matOk = mat && mat.current === 'materials' && mat.threeStats && !mat.threeStats.wireframe;
+
+            return {
+                success: Boolean(transOk && solidOk && wireOk && shadowOk && matOk),
+                details: { transOk, solidOk, wireOk, shadowOk, matOk },
+                styleResults
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", "Three.js 5 Render Styles verified: transparent (solid edges), solid (opaque CAD), wireframe (lines), shadowed (PCF soft shadows + ground), materials (PBR)."
+        return "fail", f"TC-RST-01 failed: {res}"
+
+    elif tid == "TC-RST-02":
+        # Xeokit 5 visual styles
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (!bridge) return { success: false, reason: 'Bridge missing' };
+
+            // Switch to Xeokit engine
+            if (bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            await new Promise(r => setTimeout(r, 500));
+
+            const stylesToTest = ['transparent', 'solid', 'wireframe', 'shadowed', 'materials'];
+            const styleResults = {};
+
+            for (const st of stylesToTest) {
+                bridge.setRenderStyle(st);
+                await new Promise(r => setTimeout(r, 250));
+
+                const current = bridge.getRenderStyle ? bridge.getRenderStyle() : null;
+                const badge = document.querySelector('[data-qa="xeokit-render-style-badge"]');
+                const badgeText = badge ? badge.textContent.trim() : '';
+
+                const viewer = window.__XEOKIT_VIEWER__;
+                let viewerStats = null;
+                if (viewer && viewer.scene) {
+                    const xrayedIds = viewer.scene.xrayedObjectIds || [];
+                    viewerStats = {
+                        saoEnabled: viewer.scene.sao ? viewer.scene.sao.enabled : false,
+                        pbrEnabled: viewer.scene.pbrEnabled,
+                        xrayFill: viewer.scene.xrayMaterial ? viewer.scene.xrayMaterial.fill : false,
+                        xrayEdges: viewer.scene.xrayMaterial ? viewer.scene.xrayMaterial.edges : false,
+                        edgeAlpha: viewer.scene.edgeMaterial ? viewer.scene.edgeMaterial.edgeAlpha : 0,
+                        numXRayed: viewer.scene.numXRayedObjects !== undefined ? viewer.scene.numXRayedObjects : xrayedIds.length
+                    };
+                }
+
+                styleResults[st] = {
+                    current,
+                    badgeText,
+                    viewerStats
+                };
+            }
+
+            // Restore Three.js engine and solid style
+            bridge.setRenderStyle('solid');
+            bridge.setViewportEngine('three');
+            await new Promise(r => setTimeout(r, 300));
+
+            const trans = styleResults['transparent'];
+            const solid = styleResults['solid'];
+            const wire = styleResults['wireframe'];
+            const shadow = styleResults['shadowed'];
+            const mat = styleResults['materials'];
+
+            const transOk = trans && trans.current === 'transparent' && trans.viewerStats && trans.viewerStats.xrayFill && trans.viewerStats.xrayEdges;
+            const solidOk = solid && solid.current === 'solid' && solid.viewerStats && (!solid.viewerStats.xrayFill || solid.viewerStats.numXRayed === 0);
+            const wireOk = wire && wire.current === 'wireframe' && wire.viewerStats && !wire.viewerStats.xrayFill && wire.viewerStats.xrayEdges;
+            const shadowOk = shadow && shadow.current === 'shadowed' && shadow.viewerStats && shadow.viewerStats.saoEnabled;
+            const matOk = mat && mat.current === 'materials' && mat.viewerStats && mat.viewerStats.pbrEnabled;
+
+            return {
+                success: Boolean(transOk && solidOk && wireOk && shadowOk && matOk),
+                details: { transOk, solidOk, wireOk, shadowOk, matOk },
+                styleResults
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", "Xeokit AEC BIM 5 Render Styles verified: transparent (xray fill+edges), solid (opaque+edges), wireframe (pure edges), shadowed (SAO enabled), materials (PBR pipeline)."
+        return "fail", f"TC-RST-02 failed: {res}"
+
+    return "fail", f"Unknown render style test: {tid}"
+
 async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
     """Evaluates a specific test case in the live browser via CDP and __IFC_QA_BRIDGE__."""
     tid = tc["id"]
@@ -3747,6 +3875,10 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
         # Xeokit AEC BIM Viewport Engine & Authentic 3D NavCube (TC-XKT-01 to TC-XKT-06)
         elif tid.startswith("TC-XKT-"):
             return await evaluate_xeokit_test_case(cdp, tid, tc)
+
+        # Render Styles (transparent, solid, wireframe, shadowed, materials) (TC-RST-01 to TC-RST-02)
+        elif tid.startswith("TC-RST-"):
+            return await evaluate_render_style_test_case(cdp, tid, tc)
 
         # Default handler for granular milestone tests
         else:

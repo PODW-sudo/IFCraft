@@ -83,9 +83,9 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
       const viewer = new Viewer({
         canvasElement: canvasRef.current,
         transparent: true,
-        pbrEnabled: false,
-        saoEnabled: false,
-        colorTextureEnabled: false
+        pbrEnabled: true,
+        saoEnabled: true,
+        colorTextureEnabled: true
       });
 
       viewerRef.current = viewer;
@@ -387,24 +387,114 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
   }, [isolatedExpressID, hiddenCategories, geometries]);
 
   // Synchronize Render Styles (shaded, wireframe, ghost)
+  // Synchronize Render Styles (transparent, solid, wireframe, shadowed, materials)
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer || !modelLoadedRef.current) return;
 
     try {
       const allIds = geometries.map((g) => String(g.expressID));
-      if (renderStyle === 'wireframe') {
+
+      if (renderStyle === 'transparent' || renderStyle === 'ghost') {
+        // 1. Transparent with Solid Edges (Architectural Ghost Contours)
         viewer.scene.setObjectsXRayed(allIds, true);
-        viewer.scene.edgeMaterial.edges = true;
-      } else if (renderStyle === 'ghost') {
+        if (viewer.scene.xrayMaterial) {
+          viewer.scene.xrayMaterial.fill = true;
+          viewer.scene.xrayMaterial.fillAlpha = 0.25;
+          viewer.scene.xrayMaterial.fillColor = [0.65, 0.75, 0.88];
+          viewer.scene.xrayMaterial.edges = true;
+          viewer.scene.xrayMaterial.edgeAlpha = 1.0;
+          viewer.scene.xrayMaterial.edgeColor = theme === 'dark' ? [0.65, 0.75, 0.9] : [0.12, 0.16, 0.24];
+          viewer.scene.xrayMaterial.edgeWidth = 2;
+        }
+        if (viewer.scene.edgeMaterial) {
+          viewer.scene.edgeMaterial.edges = true;
+          viewer.scene.edgeMaterial.edgeAlpha = 1.0;
+        }
+        if (viewer.scene.sao) viewer.scene.sao.enabled = false;
+        viewer.scene.pbrEnabled = false;
+
+      } else if (renderStyle === 'wireframe') {
+        // 2. Wireframe CAD
         viewer.scene.setObjectsXRayed(allIds, true);
-        viewer.scene.edgeMaterial.edges = false;
-      } else {
+        if (viewer.scene.xrayMaterial) {
+          viewer.scene.xrayMaterial.fill = false;
+          viewer.scene.xrayMaterial.fillAlpha = 0.0;
+          viewer.scene.xrayMaterial.edges = true;
+          viewer.scene.xrayMaterial.edgeAlpha = 1.0;
+          viewer.scene.xrayMaterial.edgeColor = theme === 'dark' ? [0.25, 0.75, 1.0] : [0.08, 0.12, 0.2];
+          viewer.scene.xrayMaterial.edgeWidth = 1.5;
+        }
+        if (viewer.scene.edgeMaterial) {
+          viewer.scene.edgeMaterial.edges = true;
+          viewer.scene.edgeMaterial.edgeAlpha = 1.0;
+        }
+        if (viewer.scene.sao) viewer.scene.sao.enabled = false;
+        viewer.scene.pbrEnabled = false;
+
+      } else if (renderStyle === 'shadowed') {
+        // 3. Shadowed (Scalable Ambient Obscurance & Depth Occlusion)
         viewer.scene.setObjectsXRayed(allIds, false);
-        viewer.scene.edgeMaterial.edges = true;
+        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (viewer.scene.xrayMaterial) {
+          viewer.scene.xrayMaterial.fill = false;
+          viewer.scene.xrayMaterial.edges = false;
+        }
+        if (viewer.scene.sao) {
+          viewer.scene.sao.enabled = true;
+          viewer.scene.sao.intensity = 0.7;
+          viewer.scene.sao.bias = 0.5;
+          viewer.scene.sao.scale = 1.0;
+          viewer.scene.sao.kernelRadius = 70;
+          viewer.scene.sao.blur = true;
+        }
+        if (viewer.scene.edgeMaterial) {
+          viewer.scene.edgeMaterial.edges = true;
+          viewer.scene.edgeMaterial.edgeAlpha = 0.5;
+          viewer.scene.edgeMaterial.edgeColor = [0.1, 0.1, 0.1];
+        }
+        viewer.scene.pbrEnabled = false;
+
+      } else if (renderStyle === 'materials') {
+        // 4. Authentic BIM Materials (PBR pipeline)
+        viewer.scene.setObjectsXRayed(allIds, false);
+        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (viewer.scene.xrayMaterial) {
+          viewer.scene.xrayMaterial.fill = false;
+          viewer.scene.xrayMaterial.edges = false;
+        }
+        viewer.scene.pbrEnabled = true;
+        viewer.scene.colorTextureEnabled = true;
+        if (viewer.scene.sao) {
+          viewer.scene.sao.enabled = true;
+          viewer.scene.sao.intensity = 0.35;
+        }
+        if (viewer.scene.edgeMaterial) {
+          viewer.scene.edgeMaterial.edges = true;
+          viewer.scene.edgeMaterial.edgeAlpha = 0.35;
+          viewer.scene.edgeMaterial.edgeColor = [0.2, 0.2, 0.2];
+        }
+
+      } else {
+        // 5. Solid CAD Mode (Default / Shaded / Discipline / Diff)
+        viewer.scene.setObjectsXRayed(allIds, false);
+        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (viewer.scene.xrayMaterial) {
+          viewer.scene.xrayMaterial.fill = false;
+          viewer.scene.xrayMaterial.edges = false;
+        }
+        if (viewer.scene.edgeMaterial) {
+          viewer.scene.edgeMaterial.edges = true;
+          viewer.scene.edgeMaterial.edgeAlpha = 0.8;
+          viewer.scene.edgeMaterial.edgeColor = [0.15, 0.15, 0.15];
+        }
+        if (viewer.scene.sao) viewer.scene.sao.enabled = false;
+        viewer.scene.pbrEnabled = false;
       }
-    } catch {}
-  }, [renderStyle, geometries]);
+    } catch (err) {
+      console.warn('Failed to apply Xeokit render style:', err);
+    }
+  }, [renderStyle, geometries, theme]);
 
   // Synchronize Camera Presets
   useEffect(() => {
@@ -582,6 +672,13 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
         <span className="font-semibold text-[var(--text-primary)]">Xeokit AEC Engine</span>
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--border-subtle)]">
           {fpsReadout} FPS
+        </span>
+        <span
+          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--border-subtle)] uppercase text-cyan-600 dark:text-cyan-400 font-semibold"
+          data-qa="xeokit-render-style-badge"
+          title={`Active Visual Style: ${renderStyle}`}
+        >
+          {renderStyle}
         </span>
         {fastNavActive && (
           <span className="flex items-center gap-1 text-[10px] font-mono text-cyan-600 dark:text-cyan-400">
