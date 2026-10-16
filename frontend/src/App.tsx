@@ -69,6 +69,30 @@ import {
 import { Lock, X } from 'lucide-react';
 import IfcWorker from './workers/ifcWorker?worker';
 
+// QA and Diagnostics Error Trap Ring Buffer
+const consoleErrorsRing: string[] = [];
+if (typeof window !== 'undefined') {
+  const origConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    try {
+      const msg = args.map((a) => (typeof a === 'object' ? (a?.message || JSON.stringify(a)) : String(a))).join(' ');
+      consoleErrorsRing.push(msg);
+      if (consoleErrorsRing.length > 100) consoleErrorsRing.shift();
+    } catch {
+      // ignore serialization errors
+    }
+    origConsoleError.apply(console, args);
+  };
+  window.addEventListener('error', (event) => {
+    consoleErrorsRing.push(`Unhandled error: ${event.message} at ${event.filename}:${event.lineno}`);
+    if (consoleErrorsRing.length > 100) consoleErrorsRing.shift();
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    consoleErrorsRing.push(`Unhandled promise rejection: ${event.reason}`);
+    if (consoleErrorsRing.length > 100) consoleErrorsRing.shift();
+  });
+}
+
 export const App: React.FC = () => {
   // Application State
   const [currentProject, setCurrentProject] = useState<ProjectMetadata | null>(null);
@@ -1753,7 +1777,92 @@ export const App: React.FC = () => {
         getAnnotations: () => annotations,
         getStoreys: () => xeokitStoreys,
         selectStorey: (storeyId: string) => setActiveStoreyId(storeyId),
-        isolateStorey: (storeyId: string) => setIsolatedStoreyId(storeyId)
+        isolateStorey: (storeyId: string) => setIsolatedStoreyId(storeyId),
+        // Automated QA Diagnostics & Regression Gates
+        getConsoleErrors: () => [...consoleErrorsRing],
+        clearConsoleErrors: () => {
+          consoleErrorsRing.length = 0;
+        },
+        getXeokitSceneStats: () => {
+          const viewer = (window as any).__XEOKIT_VIEWER__;
+          if (!viewer || !viewer.scene) {
+            return { active: false, numEntities: 0, modelsCount: 0, modelIds: [] };
+          }
+          const modelKeys = Object.keys(viewer.scene.models || {});
+          let totalEntities = 0;
+          for (const mId of modelKeys) {
+            const m = viewer.scene.models[mId];
+            if (m && typeof m.numEntities === 'number') {
+              totalEntities += m.numEntities;
+            }
+          }
+          const objectsCount = Object.keys(viewer.scene.objects || {}).length;
+          const entityCount = totalEntities > 0 ? totalEntities : objectsCount;
+          return {
+            active: true,
+            numEntities: entityCount,
+            modelsCount: modelKeys.length,
+            modelIds: modelKeys
+          };
+        },
+        checkSpatialCollisions: () => {
+          const floatingSelectors = [
+            { name: 'NavCube', selector: '[data-qa="xeokit-navcube-card"]' },
+            { name: 'TelemetryHUD', selector: '[data-qa="xeokit-telemetry-hud"]' },
+            { name: 'BottomDock', selector: '[data-qa="spatial-bottom-dock"], [data-qa-dock="glass-bottom-dock"]' },
+            { name: 'CADToolbar', selector: '[data-qa="cad-floating-toolbar"]' }
+          ];
+          const panelSelectors = [
+            { name: 'SpatialTree', selector: '[data-qa="glass-spatial-tree"]' },
+            { name: 'PropertyInspector', selector: '[data-qa="glass-property-inspector"]' },
+            { name: 'CopilotSidebar', selector: '[data-qa="copilot-sidebar"]' },
+            { name: 'StoreyNavigator', selector: '[data-qa="storey-navigator-hud"]' },
+            { name: 'AnnotationsHUD', selector: '[data-qa="annotations-hud"]' }
+          ];
+
+          const overlaps: Array<{ floating: string; panel: string; intersectionArea: number }> = [];
+
+          const floatings = floatingSelectors
+            .map((item) => ({
+              name: item.name,
+              el: document.querySelector(item.selector) as HTMLElement | null
+            }))
+            .filter((item) => item.el && item.el.offsetParent !== null);
+
+          const panels = panelSelectors
+            .map((item) => ({
+              name: item.name,
+              el: document.querySelector(item.selector) as HTMLElement | null
+            }))
+            .filter((item) => item.el && item.el.offsetParent !== null);
+
+          for (const f of floatings) {
+            const fRect = f.el!.getBoundingClientRect();
+            for (const p of panels) {
+              if (f.el === p.el || f.el!.contains(p.el!) || p.el!.contains(f.el!)) continue;
+              const pRect = p.el!.getBoundingClientRect();
+
+              const xOverlap = Math.max(0, Math.min(fRect.right, pRect.right) - Math.max(fRect.left, pRect.left));
+              const yOverlap = Math.max(0, Math.min(fRect.bottom, pRect.bottom) - Math.max(fRect.top, pRect.top));
+              const area = xOverlap * yOverlap;
+
+              // 1.0 px tolerance for sub-pixel anti-aliasing / layout rounding
+              if (area > 1.0) {
+                overlaps.push({
+                  floating: f.name,
+                  panel: p.name,
+                  intersectionArea: Math.round(area)
+                });
+              }
+            }
+          }
+
+          return {
+            hasCollisions: overlaps.length > 0,
+            collisionCount: overlaps.length,
+            collisions: overlaps
+          };
+        }
       };
     }
   }, [

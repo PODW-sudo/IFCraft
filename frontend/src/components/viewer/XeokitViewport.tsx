@@ -89,6 +89,9 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
       });
 
       viewerRef.current = viewer;
+      if (typeof window !== 'undefined') {
+        (window as any).__XEOKIT_VIEWER__ = viewer;
+      }
 
       // 1. Genuine Xeokit 3D NavCube Plugin
       const cubePalette = theme === 'dark' ? XEOKIT_NAVCUBE_COLORS.dark : XEOKIT_NAVCUBE_COLORS.light;
@@ -200,6 +203,9 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
           console.warn('Error destroying Xeokit viewer:', e);
         }
         viewerRef.current = null;
+        if (typeof window !== 'undefined' && (window as any).__XEOKIT_VIEWER__ === viewer) {
+          (window as any).__XEOKIT_VIEWER__ = null;
+        }
         navCubeRef.current = null;
         fastNavRef.current = null;
         storeyViewsRef.current = null;

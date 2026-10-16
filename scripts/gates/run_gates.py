@@ -16,7 +16,8 @@ GATES = [
     ("Zero Emoji Gate", "check_no_emoji.py"),
     ("Hardcode Linter", "lint_hardcodes.py"),
     ("Semantic Intent Linter", "lint_intent.py"),
-    ("Token Contrast Verifier", "verify_contrast.py")
+    ("Token Contrast Verifier", "verify_contrast.py"),
+    ("Spatial Collision & Deduplication", "check_spatial_overlap.py")
 ]
 
 def main():

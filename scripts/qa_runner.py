@@ -115,6 +115,15 @@ class CDPClient:
         self.proc = None
         self.ws = None
         self.msg_id = 0
+        self.console_errors = []
+        self.exceptions = []
+
+    def get_errors(self) -> list:
+        return list(self.console_errors) + list(self.exceptions)
+
+    def clear_errors(self):
+        self.console_errors.clear()
+        self.exceptions.clear()
 
     async def start(self):
         import websockets
@@ -171,6 +180,19 @@ class CDPClient:
         while True:
             resp_raw = await self.ws.recv()
             data = json.loads(resp_raw)
+            method = data.get("method")
+            if method == "Runtime.consoleAPICalled":
+                params_obj = data.get("params", {})
+                if params_obj.get("type") == "error":
+                    args = params_obj.get("args", [])
+                    txt = " ".join([str(a.get("value", a.get("description", ""))) for a in args])
+                    self.console_errors.append(txt)
+            elif method == "Runtime.exceptionThrown":
+                params_obj = data.get("params", {})
+                details = params_obj.get("exceptionDetails", {})
+                txt = details.get("text", "") + " " + str(details.get("exception", {}).get("description", ""))
+                self.exceptions.append(txt)
+
             if data.get("id") == req_id:
                 return data.get("result", {})
 
@@ -2523,6 +2545,106 @@ async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple
         if res and res.get("success"):
             return "pass", "Xeokit Annotation to BCF 2.1 Topic Conversion verified: Automatic viewpoint snapshot and BCF topic synchronization."
         return "fail", f"TC-XKT-06 failed: {res}"
+
+    elif tid == "TC-XKT-07":
+        # Xeokit WebGL Geometry & Entity Render Verification (Prevents blank canvas regression)
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            await new Promise(r => setTimeout(r, 500));
+
+            const stats = bridge && bridge.getXeokitSceneStats ? bridge.getXeokitSceneStats() : null;
+            const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
+            const canvas = container ? container.querySelector('canvas') : null;
+            const canvasOk = canvas && canvas.width > 0 && canvas.height > 0;
+
+            return {
+                stats,
+                canvasOk,
+                success: !!stats && stats.active && stats.numEntities > 0 && stats.modelsCount > 0 && canvasOk
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            stats = res.get("stats", {})
+            return "pass", f"Xeokit WebGL Render verified: Scene active with {stats.get('numEntities')} entities, {stats.get('modelsCount')} model(s) ({', '.join(stats.get('modelIds', []))}), non-empty canvas buffer."
+        return "fail", f"TC-XKT-07 failed (Blank canvas detected or entities not mounted): {res}"
+
+    elif tid == "TC-XKT-08":
+        # Runtime Browser Console Error & Exception Gate (Catches silent exceptions)
+        in_page_errors = await cdp.eval("""
+        (() => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            return bridge && bridge.getConsoleErrors ? bridge.getConsoleErrors() : [];
+        })()
+        """) or []
+        cdp_errors = cdp.get_errors()
+
+        all_errors = list(in_page_errors) + list(cdp_errors)
+        # Filter out harmless network probes or dev server warnings if any
+        critical_errors = [e for e in all_errors if "TypeError" in e or "Uncaught" in e or "Failed to load geometry" in e or "WebGL" in e or "error" in e.lower()]
+
+        if not critical_errors:
+            return "pass", f"Runtime Browser Console verified: Zero uncaught exceptions or WebGL errors detected during execution (0 recorded errors)."
+        return "fail", f"TC-XKT-08 failed with {len(critical_errors)} console error(s): {critical_errors[:3]}"
+
+    elif tid == "TC-XKT-09":
+        # Multi-Panel 2D Spatial Bounding-Box Collision Absence (Dynamic AABB verification)
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (!bridge) return { success: false, reason: 'Bridge unavailable' };
+
+            // Ensure Xeokit is active
+            if (bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            
+            // Open drawers: Tree, Property, Copilot
+            if (bridge.toggleTree) bridge.toggleTree(true);
+            if (bridge.toggleProperty) bridge.toggleProperty(true);
+            await new Promise(r => setTimeout(r, 400));
+
+            const collisionReport = bridge.checkSpatialCollisions ? bridge.checkSpatialCollisions() : { hasCollisions: false, collisions: [] };
+
+            // Restore drawers
+            if (bridge.toggleTree) bridge.toggleTree(false);
+            if (bridge.toggleProperty) bridge.toggleProperty(false);
+            await new Promise(r => setTimeout(r, 300));
+
+            return {
+                success: !collisionReport.hasCollisions,
+                collisions: collisionReport.collisions,
+                count: collisionReport.collisionCount
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", "Multi-Panel 2D Spatial Collision verified: Zero AABB intersections between floating HUDs (NavCube, Telemetry, Dock) and open panels."
+        return "fail", f"TC-XKT-09 failed with spatial collisions: {res}"
+
+    elif tid == "TC-XKT-10":
+        # Control Deduplication Across Navigation & Docking Chromes
+        res = await cdp.eval("""
+        (() => {
+            const header = document.querySelector('[data-qa="glass-header"]');
+            const dock = document.querySelector('[data-qa="spatial-bottom-dock"]') || document.querySelector('[data-qa-dock="glass-bottom-dock"]');
+            if (!header || !dock) return { success: false, reason: 'Header or Dock missing' };
+
+            const headerBtns = Array.from(header.querySelectorAll('button[data-qa]')).map(b => b.getAttribute('data-qa'));
+            const dockBtns = Array.from(dock.querySelectorAll('button[data-qa]')).map(b => b.getAttribute('data-qa'));
+
+            const duplicates = headerBtns.filter(id => dockBtns.includes(id));
+            return {
+                success: duplicates.length === 0,
+                duplicates,
+                headerCount: headerBtns.length,
+                dockCount: dockBtns.length
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Control Deduplication verified: Zero duplicate action triggers between GlassHeader ({res.get('headerCount')} controls) and GlassBottomDock ({res.get('dockCount')} controls)."
+        return "fail", f"TC-XKT-10 failed: Duplicate controls found: {res}"
 
     return "fail", f"Unknown Xeokit test {tid}"
 
