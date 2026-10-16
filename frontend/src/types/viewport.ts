@@ -25,3 +25,24 @@ export interface MeasurementRecord {
   distance: number;
   midpoint: [number, number, number];
 }
+
+export type ViewportEngine = 'three' | 'xeokit';
+
+export interface XeokitAnnotationRecord {
+  id: string;
+  expressId?: number;
+  worldPos: [number, number, number];
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  author: string;
+  createdAt: string;
+  bcfTopicId?: string;
+}
+
+export interface StoreyViewRecord {
+  id: string;
+  name: string;
+  elevation: number;
+  elementCount: number;
+}

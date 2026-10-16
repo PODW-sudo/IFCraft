@@ -19,11 +19,7 @@ import {
   DoorOpen,
   AppWindow,
   Sliders,
-  History,
-  FolderTree,
-  SlidersHorizontal,
-  Sparkles,
-  Crosshair
+  History
 } from 'lucide-react';
 import type { TransformMode } from '../viewer/ThreeViewport';
 import type { SectionPlaneConfig, CameraPreset, RenderStyle } from '../../types/viewport';
@@ -104,14 +100,14 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
   selectedExpressID = null,
   leftDrawerOffset = 0,
   rightDrawerOffset = 0,
-  isTreeOpen = false,
-  onToggleTree,
-  isPropertyOpen = false,
-  onToggleProperty,
-  isCopilotOpen = false,
-  onToggleCopilot,
-  isClashOpen = false,
-  onToggleClash
+  isTreeOpen: _isTreeOpen = false,
+  onToggleTree: _onToggleTree,
+  isPropertyOpen: _isPropertyOpen = false,
+  onToggleProperty: _onToggleProperty,
+  isCopilotOpen: _isCopilotOpen = false,
+  onToggleCopilot: _onToggleCopilot,
+  isClashOpen: _isClashOpen = false,
+  onToggleClash: _onToggleClash
 }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -425,75 +421,6 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
 
-            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
-
-            {/* Model Tree Drawer Toggle */}
-            {onToggleTree && (
-              <button
-                type="button"
-                data-qa="dock-tree-toggle"
-                onClick={onToggleTree}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isTreeOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Model Hierarchy Tree"
-              >
-                <FolderTree className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {/* Property Inspector Drawer Toggle */}
-            {onToggleProperty && (
-              <button
-                type="button"
-                data-qa="dock-property-toggle"
-                onClick={onToggleProperty}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isPropertyOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Property Inspector"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {/* Clash Inspector Toggle */}
-            {onToggleClash && (
-              <button
-                type="button"
-                data-qa="dock-clash-toggle"
-                onClick={onToggleClash}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isClashOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Clash Detection"
-              >
-                <Crosshair className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {/* AI Copilot Toggle */}
-            {onToggleCopilot && (
-              <button
-                type="button"
-                data-qa="dock-copilot-toggle"
-                onClick={onToggleCopilot}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isCopilotOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="AI Copilot"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-              </button>
-            )}
           </>
         )}
 
@@ -666,74 +593,6 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               </button>
             </div>
 
-            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
-
-            {/* Panel & Drawer Fast Access in Modify Profile */}
-            <div className="flex items-center gap-0.5">
-              {onToggleTree && (
-                <button
-                  type="button"
-                  data-qa="dock-tree-toggle"
-                  onClick={onToggleTree}
-                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                    isTreeOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  }`}
-                  title="Model Hierarchy Tree"
-                >
-                  <FolderTree className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {onToggleProperty && (
-                <button
-                  type="button"
-                  data-qa="dock-property-toggle"
-                  onClick={onToggleProperty}
-                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                    isPropertyOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  }`}
-                  title="Property Inspector"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {onToggleClash && (
-                <button
-                  type="button"
-                  data-qa="dock-clash-toggle"
-                  onClick={onToggleClash}
-                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                    isClashOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  }`}
-                  title="Clash Detection"
-                >
-                  <Crosshair className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {onToggleCopilot && (
-                <button
-                  type="button"
-                  data-qa="dock-copilot-toggle"
-                  onClick={onToggleCopilot}
-                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                    isCopilotOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                  }`}
-                  title="AI Copilot"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
-                </button>
-              )}
-            </div>
           </div>
         )}
 
@@ -742,43 +601,6 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         {/* ========================================================================= */}
         {profile === 'query' && (
           <>
-            {/* Model Tree Toggle */}
-            {onToggleTree && (
-              <button
-                type="button"
-                data-qa="dock-tree-toggle"
-                onClick={onToggleTree}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] transition-colors cursor-pointer ${
-                  isTreeOpen
-                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Spatial Hierarchy Tree"
-              >
-                <FolderTree className="w-3.5 h-3.5" />
-                <span>Tree</span>
-              </button>
-            )}
-
-            {/* Property Inspector Toggle */}
-            {onToggleProperty && (
-              <button
-                type="button"
-                data-qa="dock-property-toggle"
-                onClick={onToggleProperty}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] transition-colors cursor-pointer ${
-                  isPropertyOpen
-                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Property Inspector"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>Properties</span>
-              </button>
-            )}
-
-            <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
 
             {/* Render Style */}
             <DropdownMenu.Root>
@@ -1027,39 +849,6 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               </DropdownMenu.Root>
             )}
 
-            {/* Spatial Tree if enabled */}
-            {customSettings?.showTreeDrawer && onToggleTree && (
-              <button
-                type="button"
-                data-qa="dock-tree-toggle"
-                onClick={onToggleTree}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isTreeOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Spatial Hierarchy Tree"
-              >
-                <FolderTree className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {/* Properties Inspector if enabled */}
-            {customSettings?.showPropertyInspector && onToggleProperty && (
-              <button
-                type="button"
-                data-qa="dock-property-toggle"
-                onClick={onToggleProperty}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                  isPropertyOpen
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
-                }`}
-                title="Property Inspector"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         )}
 

@@ -171,3 +171,18 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
     screenSnapRadiusMidpoint: 18
   }
 };
+
+export const XEOKIT_NAVCUBE_COLORS = {
+  dark: {
+    color: '#1e242d',
+    frontColor: '#2b323e',
+    textColor: '#f8fafc',
+    hoverColor: '#22d3ee'
+  },
+  light: {
+    color: '#e2e8f0',
+    frontColor: '#cbd5e1',
+    textColor: '#0f172a',
+    hoverColor: '#2563eb'
+  }
+};

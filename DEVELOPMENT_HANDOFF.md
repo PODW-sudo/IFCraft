@@ -46,6 +46,27 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Resolved Items
 
+### 2026-10-16 - Xeokit AEC Geometry Rendering & Spatial HUD Overlap Elimination
+- **Type:** Bug / UX / Spatial Layout
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-XKT-01, TC-XKT-02, TC-XKT-03, TC-XKT-04, TC-XKT-05, TC-XKT-06
+- **Severity:** P1
+- **Observed:**
+  1. Xeokit viewport mounted with an empty/blank canvas without rendering BIM geometry. `viewer.scene.createModel` was used instead of constructor `new SceneModel(viewer.scene, ...)`, causing a silent runtime failure. Geometries were also not grouped by `expressID` and local transformation matrices (`geom.matrix`) were ignored.
+  2. Severe HUD overlaps occurred:
+     - The Telemetry HUD (`Xeokit AEC Engine ... FastNav 60fps`) was hardcoded at `bottom-4 left-4`, colliding directly with the open `SpatialTree` drawer.
+     - The `NAVCUBE` card was hardcoded at `top-4 right-4`, occluded by the right drawer and collapsed property tab rail.
+     - Redundant drawer toggles (`Tree` and `Properties`) were duplicated in both the top navigation pill and bottom dock.
+- **Expected:**
+  1. Xeokit `SceneModel` should group geometries by `expressID`, instantiate via `new SceneModel(viewer.scene, { edges: true })`, apply local modeling matrices, and fly camera to model extents (`viewer.cameraFlight.jumpTo({ aabb })`).
+  2. Floating HUDs must dynamically respond to left and right drawer widths:
+     - `NAVCUBE` card positioned at `top-20` with `right: rightOffset + 16` (0% occlusion).
+     - Telemetry HUD positioned at `bottom-4` with `left: leftOffset + 16` (clear of tree panel).
+     - Duplicate toggles removed from bottom dock, keeping drawer management unified in the top pill.
+- **Evidence:** User screenshot `uploaded_media_1792142712219.png`; verified screenshot `xeokit_fixed_verification.png`; test run results `TR-013` through `TR-018` (all PASS).
+- **Suggested fix:** Implemented in `XeokitViewport.tsx`, `App.tsx`, and `GlassBottomDock.tsx`.
+- **Status:** Resolved
+
 ### 2026-10-14 - Clash Inspector Frosted Glass Transparency & Global UI Glass Opacity Control
 - **Type:** Bug / UX / Enhancement
 - **Platform:** http://localhost:5173

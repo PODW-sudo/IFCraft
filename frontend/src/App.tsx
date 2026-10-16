@@ -4,6 +4,9 @@ import {
   type TransformMode,
   type MeasurementRecord
 } from './components/viewer/ThreeViewport';
+import { XeokitViewport } from './components/viewer/XeokitViewport';
+import { StoreyNavigatorHud } from './components/hud/StoreyNavigatorHud';
+import { AnnotationsHud } from './components/hud/AnnotationsHud';
 import { GlassSpatialTree } from './components/tree/GlassSpatialTree';
 import { GlassPropertyInspector } from './components/properties/GlassPropertyInspector';
 import { GlassHeader } from './components/nav/GlassHeader';
@@ -14,7 +17,14 @@ import { CoordinateHud } from './components/hud/CoordinateHud';
 import { DimensionInfoHud } from './components/hud/DimensionInfoHud';
 import { HudLayoutProvider } from './components/hud/HudLayoutContext';
 import { SpatialOmnibar } from './components/omnibar/SpatialOmnibar';
-import type { SectionPlaneConfig, CameraPreset, RenderStyle } from './types/viewport';
+import type {
+  SectionPlaneConfig,
+  CameraPreset,
+  RenderStyle,
+  ViewportEngine,
+  XeokitAnnotationRecord,
+  StoreyViewRecord
+} from './types/viewport';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
 import { CopilotSidebar } from './components/copilot/CopilotSidebar';
@@ -142,6 +152,40 @@ export const App: React.FC = () => {
     } catch {}
     return 'light'; // Default Light theme per user instruction
   });
+
+  // Xeokit SDK State & AEC Visualization Toolkit
+  const [viewportEngine, setViewportEngine] = useState<ViewportEngine>(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_viewport_engine');
+      if (saved === 'xeokit' || saved === 'three') return saved;
+    } catch {}
+    return 'three';
+  });
+  const [annotations, setAnnotations] = useState<XeokitAnnotationRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('ifc_editor_annotations');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [isStoreyNavOpen, setIsStoreyNavOpen] = useState(false);
+  const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(false);
+  const [isAnnotateMode, setIsAnnotateMode] = useState(false);
+  const [xeokitStoreys, setXeokitStoreys] = useState<StoreyViewRecord[]>([]);
+  const [activeStoreyId, setActiveStoreyId] = useState<string | null>(null);
+  const [isolatedStoreyId, setIsolatedStoreyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ifc_editor_viewport_engine', viewportEngine);
+    } catch {}
+  }, [viewportEngine]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ifc_editor_annotations', JSON.stringify(annotations));
+    } catch {}
+  }, [annotations]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
@@ -427,6 +471,56 @@ export const App: React.FC = () => {
       return updated;
     });
   }, []);
+
+  // Xeokit Handlers: 3D Annotations & BIM Storeys
+  const handleSelectAnnotation = useCallback((id: string) => {
+    const target = annotations.find((a) => a.id === id);
+    if (target && target.expressId) {
+      setSelectedExpressID(target.expressId);
+    }
+  }, [annotations]);
+
+  const handleAddAnnotationPoint = useCallback((point: [number, number, number], expressId?: number) => {
+    const newRecord: XeokitAnnotationRecord = {
+      id: `pin_${Date.now()}`,
+      expressId,
+      worldPos: point,
+      title: expressId ? `Issue on Element #${expressId}` : `Spatial Pin #${annotations.length + 1}`,
+      description: 'Recorded in Xeokit 3D AEC Viewport',
+      priority: 'medium',
+      author: 'AEC Engineer',
+      createdAt: new Date().toISOString()
+    };
+    setAnnotations((prev) => [...prev, newRecord]);
+    setIsAnnotateMode(false);
+    setIsAnnotationsOpen(true);
+  }, [annotations.length]);
+
+  const handleDeleteAnnotation = useCallback((id: string) => {
+    setAnnotations((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handleConvertAnnotationToBcf = useCallback(async (ann: XeokitAnnotationRecord) => {
+    if (!currentProject) return;
+    try {
+      await api.createBcfTopic(currentProject.id, {
+        title: ann.title,
+        description: ann.description,
+        topic_type: 'Issue',
+        priority: ann.priority === 'critical' ? 'Critical' : ann.priority === 'high' ? 'High' : 'Normal',
+        camera_position: [ann.worldPos[0] + 5, ann.worldPos[1] + 5, ann.worldPos[2] + 5],
+        camera_target: ann.worldPos,
+        selected_elements: ann.expressId ? [ann.expressId] : []
+      });
+      if (currentProject) {
+        const topics = await api.fetchBcfTopics(currentProject.id);
+        setBcfTopics(topics);
+      }
+      setIsBcfOpen(true);
+    } catch (err) {
+      console.warn('Could not convert annotation to BCF:', err);
+    }
+  }, [currentProject]);
 
   // Web Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -1503,7 +1597,13 @@ export const App: React.FC = () => {
     settings,
     isSettingsOpen,
     activeProfile,
-    effectiveProfileSettings
+    effectiveProfileSettings,
+    viewportEngine,
+    annotationsCount: annotations.length,
+    annotations,
+    isStoreyNavOpen,
+    isAnnotationsOpen,
+    xeokitStoreys
   };
 
   useEffect(() => {
@@ -1631,7 +1731,29 @@ export const App: React.FC = () => {
         setCadWallParams: (params: { height?: number; thickness?: number }) => {
           if (params.height !== undefined) setCadWallHeight(params.height);
           if (params.thickness !== undefined) setCadWallThickness(params.thickness);
-        }
+        },
+        getViewportEngine: () => viewportEngine,
+        setViewportEngine: (engine: ViewportEngine) => setViewportEngine(engine),
+        toggleStoreyNavigator: (open?: boolean) => setIsStoreyNavOpen((prev) => (open !== undefined ? open : !prev)),
+        toggleAnnotationsHud: (open?: boolean) => setIsAnnotationsOpen((prev) => (open !== undefined ? open : !prev)),
+        addAnnotation: (title: string, description: string, worldPos: [number, number, number], expressId?: number) => {
+          const newAnn: XeokitAnnotationRecord = {
+            id: `pin_${Date.now()}`,
+            title,
+            description,
+            worldPos,
+            expressId,
+            priority: 'medium',
+            author: 'QA Runner',
+            createdAt: new Date().toISOString()
+          };
+          setAnnotations((prev) => [...prev, newAnn]);
+          return newAnn;
+        },
+        getAnnotations: () => annotations,
+        getStoreys: () => xeokitStoreys,
+        selectStorey: (storeyId: string) => setActiveStoreyId(storeyId),
+        isolateStorey: (storeyId: string) => setIsolatedStoreyId(storeyId)
       };
     }
   }, [
@@ -1692,7 +1814,10 @@ export const App: React.FC = () => {
     refreshBcfTopics,
     refreshAuditData,
     handleCreateBcfTopic,
-    handleImportClashesToBcf
+    handleImportClashesToBcf,
+    annotations,
+    xeokitStoreys,
+    viewportEngine
   ]);
 
   const isRightDrawerOpen = Boolean((isPropertyOpen && selectedExpressID !== null) || isCopilotOpen);
@@ -1736,68 +1861,92 @@ export const App: React.FC = () => {
       <div
         className="absolute inset-0 w-full h-full overflow-hidden z-0"
         data-qa-worker-status={isLoading ? (loadingStage.toLowerCase().includes('generat') ? 'generating' : 'parsing') : 'ready'}
+        data-qa-viewport-engine={viewportEngine}
       >
-        <ThreeViewport
-          theme={currentTheme}
-          settings={settings}
-          geometries={geometries}
-          selectedExpressID={selectedExpressID}
-          onSelectElement={handleSelectElement}
-          hiddenCategories={hiddenCategories}
-          isolatedExpressID={isolatedExpressID}
-          hiddenModelIds={hiddenModelIds}
-          activeClash={activeClash}
-          auditDiff={auditDiff}
-          transformMode={transformMode}
-          onSetTransformMode={setTransformMode}
-          snapEnabled={snapEnabled}
-          onTransformEnd={handleTransformEnd}
-          onTransformChange={handleTransformChange}
-          isMeasureActive={isMeasureActive}
-          measurements={measurements}
-          onAddMeasurement={handleAddMeasurement}
-          onSelectMeasurement={setActiveDimension}
-          onCancelMeasure={() => setIsMeasureActive(false)}
-          sectionConfig={sectionConfig}
-          cameraPresetTrigger={cameraPresetTrigger}
-          onCameraPreset={handleCameraPreset}
-          renderStyle={renderStyle}
-          elementLocks={elementLocks}
-          remoteTransform={remoteTransform}
-          isRightDrawerOpen={isRightDrawerOpen}
-          rightDrawerWidth={activeRightDrawerWidth}
-          cadToolMode={cadToolMode}
-          onCadDrawWall={handleCadDrawWall}
-          onCadDrawSlab={handleCadDrawSlab}
-          onCadDrawColumn={handleCadDrawColumn}
-          onCadDrawOpening={handleCadDrawOpening}
-          onCadCancel={() => setCadToolMode('select')}
-          elementDetails={selectedElementDetails}
-          storeys={storeys}
-          onCloneElement={handleCloneElement}
-          onDeleteElement={handleDeleteElement}
-          onUpdateGeometry={handleUpdateGeometry}
-          onAssignStorey={handleAssignStorey}
-          onAssignMaterial={handleAssignMaterial}
-          onOpenInspector={() => setIsPropertyOpen(true)}
-          onSelectCadTool={(mode) => setCadToolMode(mode)}
-          pinnedExpressIds={pinnedExpressIds}
-          onTogglePin={handleTogglePin}
-          onMoveElement={handleMoveElement}
-          onRotateElement={handleRotateElement}
-          onMirrorElement={handleMirrorElement}
-          onArrayElement={handleArrayElement}
-          onAlignElement={handleAlignElement}
-          focusTrigger={focusTrigger}
-          activeInteractiveMode={activeInteractiveMode}
-          onActiveInteractiveModeChange={setActiveInteractiveMode}
-          onOpenSpecialModal={() => setIsMoveCopySpecialOpen(true)}
-          onSpecialPointsPicked={(p1, p2) => {
-            setSpecialPickedPoints({ p1, p2 });
-            setIsMoveCopySpecialOpen(true);
-          }}
-          projectId={currentProject?.id}
-        />
+        {viewportEngine === 'xeokit' ? (
+          <XeokitViewport
+            geometries={geometries}
+            selectedExpressID={selectedExpressID}
+            onSelectElement={handleSelectElement}
+            isolatedExpressID={isolatedExpressID}
+            hiddenCategories={hiddenCategories}
+            theme={currentTheme}
+            sectionConfig={sectionConfig}
+            cameraPresetTrigger={cameraPresetTrigger}
+            renderStyle={renderStyle}
+            spatialTree={spatialTree}
+            annotations={annotations}
+            onSelectAnnotation={handleSelectAnnotation}
+            onAddAnnotationPoint={handleAddAnnotationPoint}
+            isAnnotateMode={isAnnotateMode}
+            onStoreysLoaded={(st) => setXeokitStoreys(st)}
+            activeStoreyId={activeStoreyId}
+            leftOffset={leftOffset}
+            rightOffset={rightOffset}
+          />
+        ) : (
+          <ThreeViewport
+            theme={currentTheme}
+            settings={settings}
+            geometries={geometries}
+            selectedExpressID={selectedExpressID}
+            onSelectElement={handleSelectElement}
+            hiddenCategories={hiddenCategories}
+            isolatedExpressID={isolatedExpressID}
+            hiddenModelIds={hiddenModelIds}
+            activeClash={activeClash}
+            auditDiff={auditDiff}
+            transformMode={transformMode}
+            onSetTransformMode={setTransformMode}
+            snapEnabled={snapEnabled}
+            onTransformEnd={handleTransformEnd}
+            onTransformChange={handleTransformChange}
+            isMeasureActive={isMeasureActive}
+            measurements={measurements}
+            onAddMeasurement={handleAddMeasurement}
+            onSelectMeasurement={setActiveDimension}
+            onCancelMeasure={() => setIsMeasureActive(false)}
+            sectionConfig={sectionConfig}
+            cameraPresetTrigger={cameraPresetTrigger}
+            onCameraPreset={handleCameraPreset}
+            renderStyle={renderStyle}
+            elementLocks={elementLocks}
+            remoteTransform={remoteTransform}
+            isRightDrawerOpen={isRightDrawerOpen}
+            rightDrawerWidth={activeRightDrawerWidth}
+            cadToolMode={cadToolMode}
+            onCadDrawWall={handleCadDrawWall}
+            onCadDrawSlab={handleCadDrawSlab}
+            onCadDrawColumn={handleCadDrawColumn}
+            onCadDrawOpening={handleCadDrawOpening}
+            onCadCancel={() => setCadToolMode('select')}
+            elementDetails={selectedElementDetails}
+            storeys={storeys}
+            onCloneElement={handleCloneElement}
+            onDeleteElement={handleDeleteElement}
+            onUpdateGeometry={handleUpdateGeometry}
+            onAssignStorey={handleAssignStorey}
+            onAssignMaterial={handleAssignMaterial}
+            onOpenInspector={() => setIsPropertyOpen(true)}
+            onSelectCadTool={(mode) => setCadToolMode(mode)}
+            pinnedExpressIds={pinnedExpressIds}
+            onTogglePin={handleTogglePin}
+            onMoveElement={handleMoveElement}
+            onRotateElement={handleRotateElement}
+            onMirrorElement={handleMirrorElement}
+            onArrayElement={handleArrayElement}
+            onAlignElement={handleAlignElement}
+            focusTrigger={focusTrigger}
+            activeInteractiveMode={activeInteractiveMode}
+            onActiveInteractiveModeChange={setActiveInteractiveMode}
+            onOpenSpecialModal={() => setIsMoveCopySpecialOpen(true)}
+            onSpecialPointsPicked={(p1, p2) => {
+              setSpecialPickedPoints({ p1, p2 });
+              setIsMoveCopySpecialOpen(true);
+            }}
+            projectId={currentProject?.id}
+          />
+        )}
       </div>
 
       <HudLayoutProvider>
@@ -1824,6 +1973,12 @@ export const App: React.FC = () => {
           onToggleCopilot={handleToggleCopilot}
           isClashOpen={isClashInspectorOpen}
           onToggleClash={() => setIsClashInspectorOpen((prev) => !prev)}
+          isStoreyNavOpen={isStoreyNavOpen}
+          onToggleStoreyNav={() => setIsStoreyNavOpen((prev) => !prev)}
+          isAnnotationsOpen={isAnnotationsOpen}
+          onToggleAnnotations={() => setIsAnnotationsOpen((prev) => !prev)}
+          viewportEngine={viewportEngine}
+          onToggleViewportEngine={setViewportEngine}
           currentTheme={currentTheme}
           onToggleTheme={toggleTheme}
           glassOpacity={settings.ui?.glassOpacity ?? 0.55}
@@ -1904,11 +2059,45 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* 4. Top-Right: 3D ViewCube Orientation Overlay */}
-        <GlassViewCube
-          onCameraPreset={handleCameraPreset}
-          activePreset={cameraPresetTrigger?.preset ?? null}
-          rightOffset={rightOffset}
+        {/* 4. Top-Right: 3D ViewCube Orientation Overlay (Three.js mode only; Xeokit has built-in NavCube) */}
+        {viewportEngine !== 'xeokit' && (
+          <GlassViewCube
+            onCameraPreset={handleCameraPreset}
+            activePreset={cameraPresetTrigger?.preset ?? null}
+            rightOffset={rightOffset}
+          />
+        )}
+
+        {/* 4b. Xeokit Storey Views & 2D Floor Plan Navigator */}
+        <StoreyNavigatorHud
+          storeys={xeokitStoreys}
+          activeStoreyId={activeStoreyId}
+          onSelectStorey={(stId) => {
+            setActiveStoreyId(stId);
+          }}
+          isolatedStoreyId={isolatedStoreyId}
+          onToggleIsolateStorey={(stId) => {
+            if (isolatedStoreyId === stId) {
+              setIsolatedStoreyId(null);
+            } else {
+              setIsolatedStoreyId(stId);
+            }
+          }}
+          onClearStoreyIsolation={() => setIsolatedStoreyId(null)}
+          isOpen={isStoreyNavOpen}
+          onClose={() => setIsStoreyNavOpen(false)}
+        />
+
+        {/* 4c. Xeokit 3D Spatial Annotations & Issue Pins */}
+        <AnnotationsHud
+          annotations={annotations}
+          isAnnotateMode={isAnnotateMode}
+          onToggleAnnotateMode={() => setIsAnnotateMode((prev) => !prev)}
+          onSelectAnnotation={handleSelectAnnotation}
+          onDeleteAnnotation={handleDeleteAnnotation}
+          onConvertToBcf={handleConvertAnnotationToBcf}
+          isOpen={isAnnotationsOpen}
+          onClose={() => setIsAnnotationsOpen(false)}
         />
 
         {/* 5. Headless QA Coordinate HUD (visually hidden, preserves automated harness contracts) */}

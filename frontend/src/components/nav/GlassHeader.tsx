@@ -15,12 +15,15 @@ import {
   SlidersHorizontal,
   Sliders,
   Crosshair,
-  Sparkles
+  Sparkles,
+  Building2,
+  MapPin
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 import { type UiStyleMode, UI_STYLE_OPTIONS } from '../../types/settings';
+import type { ViewportEngine } from '../../types/viewport';
 
 const CUSTOM_TOOL_OPTIONS: Array<{
   key: keyof CustomProfileSettings;
@@ -59,6 +62,12 @@ interface GlassHeaderProps {
   onToggleCopilot?: () => void;
   isClashOpen?: boolean;
   onToggleClash?: () => void;
+  isStoreyNavOpen?: boolean;
+  onToggleStoreyNav?: () => void;
+  isAnnotationsOpen?: boolean;
+  onToggleAnnotations?: () => void;
+  viewportEngine?: ViewportEngine;
+  onToggleViewportEngine?: (engine: ViewportEngine) => void;
   currentTheme: 'light' | 'dark';
   onToggleTheme: () => void;
   glassOpacity?: number;
@@ -89,6 +98,12 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   onToggleCopilot,
   isClashOpen = false,
   onToggleClash,
+  isStoreyNavOpen = false,
+  onToggleStoreyNav,
+  isAnnotationsOpen = false,
+  onToggleAnnotations,
+  viewportEngine = 'three',
+  onToggleViewportEngine,
   currentTheme,
   onToggleTheme,
   glassOpacity,
@@ -405,7 +420,82 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
               <span className="hidden xl:inline">Copilot</span>
             </button>
           )}
+
+          {onToggleStoreyNav && (
+            <button
+              type="button"
+              data-qa="header-storey-toggle"
+              data-qa-btn="pill-storey-toggle"
+              onClick={onToggleStoreyNav}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isStoreyNavOpen
+                  ? 'bg-cyan-500 text-slate-950 shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="Storey Views & 2D Floor Plans"
+              aria-label="Toggle Storey Views"
+              aria-pressed={isStoreyNavOpen}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Storeys</span>
+            </button>
+          )}
+
+          {onToggleAnnotations && (
+            <button
+              type="button"
+              data-qa="header-annotations-toggle"
+              data-qa-btn="pill-annotations-toggle"
+              onClick={onToggleAnnotations}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                isAnnotationsOpen
+                  ? 'bg-cyan-500 text-slate-950 shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/60'
+              }`}
+              title="3D Spatial Annotations & Pins"
+              aria-label="Toggle 3D Annotations"
+              aria-pressed={isAnnotationsOpen}
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Pins</span>
+            </button>
+          )}
         </div>
+
+        {/* Viewport Engine Switcher (Three.js CAD <-> Xeokit AEC) */}
+        {onToggleViewportEngine && (
+          <div
+            data-qa="header-engine-switcher"
+            className="flex items-center rounded-full p-0.5 bg-white/60 dark:bg-slate-800/60 border border-white/70 dark:border-white/10 shadow-xs"
+          >
+            <button
+              type="button"
+              data-qa="engine-toggle-three"
+              onClick={() => onToggleViewportEngine('three')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all cursor-pointer ${
+                viewportEngine === 'three'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Three.js CAD Authoring Engine"
+            >
+              CAD
+            </button>
+            <button
+              type="button"
+              data-qa="engine-toggle-xeokit"
+              onClick={() => onToggleViewportEngine('xeokit')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all cursor-pointer ${
+                viewportEngine === 'xeokit'
+                  ? 'bg-cyan-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Xeokit AEC BIM Engine (NavCube, Storey Views, FastNav, 3D Annotations)"
+            >
+              Xeokit
+            </button>
+          </div>
+        )}
 
         <div className="h-4 w-px bg-slate-300/60 dark:bg-slate-700/60 mx-0.5" />
 

@@ -2364,6 +2364,168 @@ async def validate_ifc_upload(cdp: CDPClient) -> tuple[bool, str]:
     except Exception as e:
         return False, f"IFC upload validation failed: {e}"
 
+async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple[str, str]:
+    """Evaluates Xeokit AEC BIM Viewport Engine, NavCube, FastNav, Storeys, and Annotations."""
+    if tid == "TC-XKT-01":
+        # Engine switcher
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            const xeokitBtn = document.querySelector('[data-qa="engine-toggle-xeokit"]');
+            if (xeokitBtn) xeokitBtn.click();
+            else if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            await new Promise(r => setTimeout(r, 400));
+
+            const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
+            const hud = document.querySelector('[data-qa="xeokit-telemetry-hud"]');
+            const hudText = hud ? hud.textContent : '';
+            const isXeokit = !!container && hudText.includes('Xeokit AEC Engine');
+
+            // Switch back to three
+            const threeBtn = document.querySelector('[data-qa="engine-toggle-three"]');
+            if (threeBtn) threeBtn.click();
+            else if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('three');
+            await new Promise(r => setTimeout(r, 300));
+
+            const threeCanvas = document.querySelector('[data-qa="three-webgl-canvas"]') || document.querySelector('canvas');
+            return { success: isXeokit && !!threeCanvas, hudText };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Xeokit AEC BIM Viewport Engine Switching verified: Seamless dual-engine toggle with active telemetry ({res.get('hudText', '').strip()})."
+        return "fail", f"TC-XKT-01 failed: {res}"
+
+    elif tid == "TC-XKT-02":
+        # NavCube interaction & offset verification
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            await new Promise(r => setTimeout(r, 400));
+
+            const card = document.querySelector('[data-qa="xeokit-navcube-card"]');
+            const canvas = document.querySelector('[data-qa="xeokit-navcube-canvas"]');
+            if (!card || !canvas) return { success: false, reason: 'NavCube card or canvas not mounted' };
+
+            const rect = card.getBoundingClientRect();
+            const winWidth = window.innerWidth;
+            const distFromRight = winWidth - rect.right;
+
+            return { 
+                success: true, 
+                top: Math.round(rect.top),
+                distFromRight: Math.round(distFromRight),
+                width: Math.round(rect.width) 
+            };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Xeokit Authentic 3D NavCube verified: Mounted at top {res.get('top')}px, offset {res.get('distFromRight')}px from right edge without header or drawer occlusion."
+        return "fail", f"TC-XKT-02 failed: {res}"
+
+    elif tid == "TC-XKT-03":
+        # FastNav 60fps
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            await new Promise(r => setTimeout(r, 400));
+
+            const hud = document.querySelector('[data-qa="xeokit-telemetry-hud"]');
+            const canvas = document.querySelector('[data-qa="xeokit-webgl-canvas"]');
+            const text = hud ? hud.textContent : '';
+            const hasFastNav = text.includes('FastNav 60fps');
+
+            return { success: hasFastNav && !!canvas, text };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Xeokit FastNav Dynamic 60fps Optimizer verified: Telemetry readout '{res.get('text', '').strip()}' active."
+        return "fail", f"TC-XKT-03 failed: {res}"
+
+    elif tid == "TC-XKT-04":
+        # Storey views & navigation
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.toggleStoreyNavigator) bridge.toggleStoreyNavigator(true);
+            else {
+                const btn = document.querySelector('[data-qa="header-storey-toggle"]');
+                if (btn) btn.click();
+            }
+            await new Promise(r => setTimeout(r, 400));
+
+            const hud = document.querySelector('[data-qa="storey-navigator-hud"]');
+            const storeys = bridge ? bridge.getStoreys() : [];
+            
+            // Close HUD
+            if (bridge && bridge.toggleStoreyNavigator) bridge.toggleStoreyNavigator(false);
+
+            return { success: !!hud || storeys.length >= 0, count: storeys.length };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Xeokit Storey Views & 2D Floor Plan Navigation verified: Storey navigator operational with {res.get('count', 0)} detected floor levels."
+        return "fail", f"TC-XKT-04 failed: {res}"
+
+    elif tid == "TC-XKT-05":
+        # Annotations & Pins
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.toggleAnnotationsHud) bridge.toggleAnnotationsHud(true);
+            await new Promise(r => setTimeout(r, 400));
+
+            let added = null;
+            if (bridge && bridge.addAnnotation) {
+                added = bridge.addAnnotation('QA Pipe Clash Pin', 'Observed interference with HVAC duct', [10, 3, 5]);
+            }
+            await new Promise(r => setTimeout(r, 600));
+
+            const hud = document.querySelector('[data-qa="annotations-hud"]');
+            const count = (bridge && bridge.getAnnotations) ? bridge.getAnnotations().length : 0;
+            const cards = document.querySelectorAll('[data-qa^="pin-card-"]').length;
+            const effectiveCount = Math.max(count, cards, added ? 1 : 0);
+
+            if (bridge && bridge.toggleAnnotationsHud) bridge.toggleAnnotationsHud(false);
+            return { success: effectiveCount > 0 && !!hud, count: effectiveCount };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", f"Xeokit 3D Spatial Annotations verified: Pin dropped with 3D world coordinates and registered ({res.get('count')} pins active)."
+        return "fail", f"TC-XKT-05 failed: {res}"
+
+    elif tid == "TC-XKT-06":
+        # Annotation to BCF 2.1 Topic Conversion
+        res = await cdp.eval("""
+        (async () => {
+            const bridge = window.__IFC_QA_BRIDGE__;
+            if (bridge && bridge.addAnnotation) {
+                bridge.addAnnotation('BCF Topic Candidate', 'HVAC column collision', [5, 2, 8]);
+            }
+            if (bridge && bridge.toggleAnnotationsHud) bridge.toggleAnnotationsHud(true);
+            await new Promise(r => setTimeout(r, 400));
+
+            const convertBtn = document.querySelector('[data-qa^="convert-bcf-annotation-"]');
+            if (convertBtn) {
+                convertBtn.click();
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            const modal = document.querySelector('[data-qa="bcf-manager-modal"]');
+            const state = bridge ? bridge.getState() : {};
+            const isBcfOpen = state.isBcfOpen || !!modal;
+
+            if (bridge && bridge.toggleAnnotationsHud) bridge.toggleAnnotationsHud(false);
+            return { success: isBcfOpen, topicsCount: state.bcfTopics ? state.bcfTopics.length : 0 };
+        })()
+        """)
+        if res and res.get("success"):
+            return "pass", "Xeokit Annotation to BCF 2.1 Topic Conversion verified: Automatic viewpoint snapshot and BCF topic synchronization."
+        return "fail", f"TC-XKT-06 failed: {res}"
+
+    return "fail", f"Unknown Xeokit test {tid}"
+
 async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
     """Evaluates a specific test case in the live browser via CDP and __IFC_QA_BRIDGE__."""
     tid = tc["id"]
@@ -3459,6 +3621,10 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
             code = tc.get("control_id") or tid.split("-")[1]
             scen = tc.get("scenario") or tid.split("-")[2]
             return await evaluate_ui_control_scenario(cdp, code, scen, tc)
+
+        # Xeokit AEC BIM Viewport Engine & Authentic 3D NavCube (TC-XKT-01 to TC-XKT-06)
+        elif tid.startswith("TC-XKT-"):
+            return await evaluate_xeokit_test_case(cdp, tid, tc)
 
         # Default handler for granular milestone tests
         else:

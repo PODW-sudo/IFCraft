@@ -103,3 +103,14 @@
   - Full major milestone audit running all 96 tests across all categories in Google Chrome (55/55 milestone tests PASS, 41/41 key tests PASS, 100% pass rate).
   - Comprehensive final release walkthrough artifact and documentation.
   - **Quality Gate:** Complete test suite passes with 100% pass rate in live Google Chrome via CDP (TR-542 to TR-596 and TR-597 to TR-637); 0 lint, type, or token contrast errors across entire codebase; `ci_verify.ps1` returns exit code 0.
+
+- [x] **Phase 14: Xeokit SDK v2 Dual-Engine Integration & AEC BIM Toolkit**
+  - Integrated `@xeokit/xeokit-sdk` (v2.6.114) into frontend architecture.
+  - Built high-performance `XeokitViewport.tsx` WebGL BIM engine with double-precision coordinates, category filtering, isolation, sectioning, and edge emphasis.
+  - Integrated authentic 3D WebGL `NavCubePlugin` with smooth camera flights to 26 orientations and projection synchronization.
+  - Integrated `FastNavPlugin` dynamic performance optimizer ensuring butter-smooth 60fps on integrated graphics and complex models.
+  - Implemented `StoreyViewsPlugin` and floating `StoreyNavigatorHud.tsx` for discovering `IfcBuildingStorey` levels, top-down orthographic plan views, and storey isolation.
+  - Implemented `AnnotationsPlugin` and floating `AnnotationsHud.tsx` for 3D spatial pins with priority tags, camera fly-to, and one-click conversion to BCF 2.1 topics.
+  - Integrated `BCFViewpointsPlugin` for standard buildingSMART BCF viewpoint serialization.
+  - Added Dual-Engine toggle in header (`CAD` vs `Xeokit`) and expanded QA bridge.
+  - **Quality Gate:** `pnpm exec tsc -b` passes with 0 errors; `pnpm run build` bundles clean production dist; all 4 objective UX/UI gates pass (Zero Emoji, Hardcodes, Intent, Contrast); QA Harness passes validation with 366 test cases.

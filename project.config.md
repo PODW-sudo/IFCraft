@@ -33,6 +33,7 @@ This configuration file defines the product, test environments, entry points, an
 - **3D Transform Gizmo & Placement Sync:** Interactive Three.js `TransformControls` (Translate, Rotate) with grid snapping, syncing spatial matrices to backend `IfcLocalPlacement`.
 - **Property Inspector:** Inspect element attributes, Property Sets (`IfcPropertySet`), and Quantities (`IfcElementQuantity`) with inline editing and persistence.
 - **Advanced BIM Suite:** Orthogonal section clipping planes (X, Y, Z axes with position slider and inversion), 3D point-to-point measurement ruler with vertex snapping and screen-space distance tags.
+- **Xeokit AEC BIM Engine:** High-performance double-precision 64-bit WebGL engine featuring authentic 3D NavCube (`NavCubePlugin`), FastNav 60fps dynamic performance optimizer (`FastNavPlugin`), Storey Navigator with 2D plan views and isolation (`StoreyViewsPlugin`), and 3D spatial annotations with BCF 2.1 topic export (`AnnotationsPlugin`).
 - **Real-Time Collaboration:** FastAPI WebSocket rooms (`/ws/rooms/{project_id}`), live presence indicator badges, expressID soft-locking on selection, transform broadcasting.
 - **Multi-Provider AI Copilot:** Floating HUD / sidebar with provider selection (OpenAI, Anthropic, Google Gemini, Ollama), API key configuration, tool execution (`generate_building`, `transform_element`, `update_property`, `query_model`).
 - **Spatial UI & DTCG Tokens:** Design Tokens Community Group compliance (`tokens.json`, `tokens.css`), dark/light theme contrast, collision avoidance for overlapping panels, quick search omnibar (Ctrl+K).
@@ -52,6 +53,11 @@ Key elements the QA agent should look for by selector, title, label, or accessib
 | Property Inspector Toggle | "Properties" / sliders icon | `button[title*='Properties']` |
 | AI Copilot Toggle | "AI Copilot" / sparkles icon | `button[title*='Copilot']` |
 | Omnibar Trigger | "Search model... (Ctrl+K)" | `button:has-text('Search model')` |
+| Storey Views Toggle | "Storeys" / building icon | `button[data-qa='header-storey-toggle']` |
+| 3D Annotations Toggle | "Pins" / map pin icon | `button[data-qa='header-annotations-toggle']` |
+| Engine Switcher | "CAD" / "Xeokit" toggle | `div[data-qa='header-engine-switcher']` |
+| Xeokit Viewport Canvas | Xeokit WebGL canvas | `canvas[data-qa='xeokit-webgl-canvas']` |
+| Xeokit NavCube Canvas | Xeokit 3D NavCube canvas | `canvas[data-qa='xeokit-navcube-canvas']` |
 | Bottom Dock | Center bottom floating bar | `div.fixed.bottom-6` |
 | Pointer / Select Mode | Pointer icon button | `button[title='Select / Pointer']` |
 | Translate Gizmo Mode | Move icon button | `button[title='Translate (G)']` |
@@ -75,10 +81,10 @@ Key elements the QA agent should look for by selector, title, label, or accessib
 
 ## Testing Strategy & Tiers
 
-The test suite consists of **359 comprehensive test specifications** categorized into two execution tiers across 22 feature categories:
+The test suite consists of **366 comprehensive test specifications** categorized into two execution tiers across 22 feature categories:
 
 1. **Key Functionalities Tier (`--tier key`):**
-   - 113 critical end-to-end paths executed on **every test suite run**.
+   - 118 critical end-to-end paths executed on **every test suite run**.
    - Covers canvas mount, sample model parsing, camera orbit/pan/zoom, spatial tree selection, transform gizmo, property editing, sectioning, point-to-point measurement, Omnibar, AI Copilot, CAD drafting tools (walls, slabs, columns, openings), in-situ context overlays, and IFC export.
    - Command: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser`
 
