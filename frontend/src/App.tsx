@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useGizmoTransform } from './hooks/useGizmoTransform';
 import { useSpatialSelection } from './hooks/useSpatialSelection';
 import { useCadDraftingMachine } from './hooks/useCadDraftingMachine';
+import { useModalManager } from './hooks/useModalManager';
+import { useModelLifecycle } from './hooks/useModelLifecycle';
 import {
   ThreeViewport,
   type TransformMode,
@@ -48,21 +50,12 @@ import {
   getEffectiveProfileSettings
 } from './types/profiles';
 import type { 
-  GeometryData, 
-  SpatialNode, 
-  ProjectMetadata, 
-  WorkerResponse, 
-  SubModel, 
   ClashRecord, 
-  ClashCheckResponse, 
-  DisciplineType,
   CadToolMode,
-
   BcfTopic,
   BcfTopicCreateRequest,
   AuditTimelineItem,
   AuditDiffResponse,
-
 } from './types/ifc';
 import * as api from './services/api';
 import {
@@ -71,7 +64,6 @@ import {
   type ElementLock
 } from './services/collaboration';
 import { Lock, X } from 'lucide-react';
-import IfcWorker from './workers/ifcWorker?worker';
 
 // QA and Diagnostics Error Trap Ring Buffer
 const consoleErrorsRing: string[] = [];
@@ -99,13 +91,71 @@ if (typeof window !== 'undefined' && !(window as any).__IFC_ERROR_TRAP_INSTALLED
 }
 
 export const App: React.FC = () => {
-  // Application State
-  const [currentProject, setCurrentProject] = useState<ProjectMetadata | null>(null);
-  const [projects, setProjects] = useState<ProjectMetadata[]>([]);
-  const [geometries, setGeometries] = useState<GeometryData[]>([]);
-  const [spatialTree, setSpatialTree] = useState<SpatialNode | null>(null);
+  // Modal Manager: Centralized visibility and focus state
+  const {
+    isUploadModalOpen,
+    setIsUploadModalOpen,
+    isNewProjectModalOpen,
+    setIsNewProjectModalOpen,
+    isOmnibarOpen,
+    setIsOmnibarOpen,
+    isFederationOpen,
+    setIsFederationOpen,
+    isClashInspectorOpen,
+    setIsClashInspectorOpen,
+    isBcfOpen,
+    setIsBcfOpen,
+    isTimelineOpen,
+    setIsTimelineOpen,
+    isSettingsOpen,
+    setIsSettingsOpen,
+    isStoreyNavOpen,
+    setIsStoreyNavOpen,
+    isAnnotationsOpen,
+    setIsAnnotationsOpen
+  } = useModalManager();
 
-  // Phase 5 State: Real-time Collaboration & Concurrency (Lifted for Hook integration)
+  // Forward ref callbacks for lifecycle decoupling
+  const resetSelectionRef = useRef<((preserveId?: number | null) => void) | null>(null);
+  const pinnedIdsLoaderRef = useRef<((pinned: Set<number>) => void) | null>(null);
+
+  // Hook 1: Model Lifecycle & WebAssembly Worker
+  const {
+    currentProject,
+    currentProjectRef,
+    projects,
+    projectsRef,
+    geometries,
+    spatialTree,
+    setSpatialTree,
+    isLoading,
+    loadingStage,
+    loadingPercent,
+    subModels,
+    hiddenModelIds,
+    clashResult,
+    activeClash,
+    setActiveClash,
+    isClashLoading,
+    loadProject,
+    loadProjectById,
+    handleToggleModelVisibility,
+    handleUploadSubModel,
+    handleDeleteSubModel,
+    handleRunClashCheck,
+    handleLoadSampleDiscipline,
+    handleFileSelected,
+    handleCreateProject,
+    handleDownloadProject,
+    handleLoadSample
+  } = useModelLifecycle({
+    onResetSelection: (preserveId) => resetSelectionRef.current?.(preserveId),
+    onCloseUploadModal: () => setIsUploadModalOpen(false),
+    onCloseNewProjectModal: () => setIsNewProjectModalOpen(false),
+    onPinnedIdsLoaded: (pinned) => pinnedIdsLoaderRef.current?.(pinned)
+  });
+
+  // Phase 5 State: Real-time Collaboration & Concurrency
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [elementLocks, setElementLocks] = useState<Record<number, ElementLock>>({});
   const [remoteTransform, setRemoteTransform] = useState<{
@@ -127,7 +177,7 @@ export const App: React.FC = () => {
     }
   }, [lockNotification]);
 
-  // Hook 1: 3D Gizmo & Transform State Machine
+  // Hook 2: 3D Gizmo & Transform State Machine
   const {
     transformMode,
     setTransformMode,
@@ -135,7 +185,6 @@ export const App: React.FC = () => {
     setSnapEnabled,
 
     transformInfo,
-    setTransformInfo,
     handleTransformChange,
     handleTransformEnd,
     resetTransform
@@ -184,6 +233,20 @@ export const App: React.FC = () => {
       }
     }
   });
+
+  resetSelectionRef.current = (preserveId) => {
+    if (preserveId !== undefined) {
+      setSelectedExpressID(preserveId);
+    } else {
+      setSelectedExpressID(null);
+    }
+    setIsolatedExpressID(null);
+    resetTransform();
+    if (preserveId === undefined) {
+      setMeasurements([]);
+    }
+  };
+  pinnedIdsLoaderRef.current = (pinned) => setPinnedExpressIds(pinned);
 
   // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
   const [isMeasureActive, setIsMeasureActive] = useState(false);
@@ -238,8 +301,7 @@ export const App: React.FC = () => {
     } catch {}
     return [];
   });
-  const [isStoreyNavOpen, setIsStoreyNavOpen] = useState(false);
-  const [isAnnotationsOpen, setIsAnnotationsOpen] = useState(false);
+// StoreyNav & Annotations modals managed by useModalManager
   const [isAnnotateMode, setIsAnnotateMode] = useState(false);
   const [xeokitStoreys, setXeokitStoreys] = useState<StoreyViewRecord[]>([]);
   const [activeStoreyId, setActiveStoreyId] = useState<string | null>(null);
@@ -292,34 +354,17 @@ export const App: React.FC = () => {
     setIsPropertyCollapsed(collapsed);
   }, []);
 
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isOmnibarOpen, setIsOmnibarOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState('');
-  const [loadingPercent, setLoadingPercent] = useState(0);
-
-  // Phase 10 State: Multi-Model Federation & Clash Detection
-  const [subModels, setSubModels] = useState<SubModel[]>([]);
-  const [hiddenModelIds, setHiddenModelIds] = useState<Set<string>>(new Set());
-  const [isFederationOpen, setIsFederationOpen] = useState(false);
-  const [isClashInspectorOpen, setIsClashInspectorOpen] = useState(false);
-  const [clashResult, setClashResult] = useState<ClashCheckResponse | null>(null);
-  const [activeClash, setActiveClash] = useState<ClashRecord | null>(null);
-  const [isClashLoading, setIsClashLoading] = useState(false);
+// Modals, submodels, and clash state managed by useModalManager & useModelLifecycle
 
 
 
   // Phase 12 State: BCF 2.1 Issues & Collaborative Change Playback Scrubber
-  const [isBcfOpen, setIsBcfOpen] = useState(false);
   const [bcfTopics, setBcfTopics] = useState<BcfTopic[]>([]);
-  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [auditTimeline, setAuditTimeline] = useState<AuditTimelineItem[]>([]);
   const [auditDiff, setAuditDiff] = useState<AuditDiffResponse | null>(null);
 
   // Settings State & Persistence
   const [settings, setSettings] = useState<EditorSettings>(() => loadEditorSettings());
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // UI Profile State: Review | Modify | Query | Custom
   const [activeProfile, setActiveProfile] = useState<UiProfile>(() => {
@@ -574,35 +619,7 @@ export const App: React.FC = () => {
     }
   }, [currentProject]);
 
-  // Web Worker Ref
-  const workerRef = useRef<Worker | null>(null);
-
-  // Initialize Web Worker
-  useEffect(() => {
-    const worker = new IfcWorker();
-    workerRef.current = worker;
-
-    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-      const data = event.data;
-      if (data.type === 'PROGRESS') {
-        setLoadingStage(data.stage);
-        setLoadingPercent(data.percent);
-      } else if (data.type === 'COMPLETE') {
-        setGeometries(data.geometries);
-        setSpatialTree(data.spatialTree);
-        setIsLoading(false);
-        setIsUploadModalOpen(false);
-      } else if (data.type === 'ERROR') {
-        console.error('Web-IFC Worker Error:', data.message);
-        alert(`Failed to parse IFC file: ${data.message}`);
-        setIsLoading(false);
-      }
-    };
-
-    return () => {
-      worker.terminate();
-    };
-  }, []);
+// Web Worker managed by useModelLifecycle
 
   // Initialize WebSocket Collaboration on Project Change
   useEffect(() => {
@@ -660,198 +677,7 @@ export const App: React.FC = () => {
     };
   }, [currentProject]);
 
-  // Fetch sub-models when currentProject changes
-  useEffect(() => {
-    if (!currentProject) {
-      setSubModels([]);
-      setClashResult(null);
-      setActiveClash(null);
-      return;
-    }
-    api.fetchSubModels(currentProject.id)
-      .then((models) => {
-        setSubModels(models);
-      })
-      .catch((err) => console.warn('Could not fetch sub-models:', err));
-  }, [currentProject]);
-
-  const handleToggleModelVisibility = useCallback((modelId: string) => {
-    setHiddenModelIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(modelId)) next.delete(modelId);
-      else next.add(modelId);
-      return next;
-    });
-  }, []);
-
-  const handleUploadSubModel = useCallback(async (file: File, discipline: DisciplineType, name?: string) => {
-    if (!currentProject) return;
-    const subModel = await api.uploadSubModel(currentProject.id, file, discipline, name);
-    setSubModels((prev) => [...prev, subModel]);
-
-    const buffer = await file.arrayBuffer();
-    const worker = new IfcWorker();
-    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-      const data = event.data;
-      if (data.type === 'COMPLETE') {
-        const taggedGeoms = data.geometries.map((g) => ({
-          ...g,
-          modelId: subModel.id,
-          discipline
-        }));
-        setGeometries((prev) => [...prev, ...taggedGeoms]);
-        worker.terminate();
-      } else if (data.type === 'ERROR') {
-        console.error('Sub-model geometry parse failed:', data.message);
-        worker.terminate();
-      }
-    };
-    worker.postMessage({ action: 'PARSE_IFC', buffer, fileName: file.name }, [buffer]);
-  }, [currentProject]);
-
-  const handleDeleteSubModel = useCallback(async (modelId: string) => {
-    if (!currentProject) return;
-    await api.deleteSubModel(currentProject.id, modelId);
-    setSubModels((prev) => prev.filter((m) => m.id !== modelId));
-    setGeometries((prev) => prev.filter((g) => g.modelId !== modelId));
-  }, [currentProject]);
-
-  const handleRunClashCheck = useCallback(async (tolerance: number = 0.01) => {
-    if (!currentProject) {
-      setClashResult({
-        total_clashes: 0,
-        hard_clashes: 0,
-        clearance_clashes: 0,
-        tolerance,
-        clashes: [],
-        duration_ms: 1.0
-      });
-      return;
-    }
-    setIsClashLoading(true);
-    try {
-      const res = await api.runClashCheck(currentProject.id, tolerance);
-      setClashResult(res);
-      if (res.clashes.length > 0) {
-        setActiveClash(res.clashes[0]);
-      }
-    } catch (e) {
-      console.error('Clash detection failed:', e);
-    } finally {
-      setIsClashLoading(false);
-    }
-  }, [currentProject]);
-
-  const handleLoadSampleDiscipline = useCallback(async (discipline: 'STRUCT' | 'MEP') => {
-    if (!currentProject) return;
-    const sampleFileName = discipline === 'STRUCT' ? 'Ifc4_Revit_STR.ifc' : 'Ifc4_Revit_MEP.ifc';
-    try {
-      const resp = await fetch(`/modelsfortests/${sampleFileName}`);
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const file = new File([blob], sampleFileName, { type: 'application/octet-stream' });
-        await handleUploadSubModel(file, discipline, `${discipline} Model`);
-      }
-    } catch (e) {
-      console.warn('Could not load sample model:', e);
-    }
-  }, [currentProject, handleUploadSubModel]);
-
-
-
-  // Parse ArrayBuffer with dedicated Web Worker
-  const parseBufferInWorker = useCallback((buffer: ArrayBuffer, fileName: string) => {
-    if (!workerRef.current) return;
-    setIsLoading(true);
-    setLoadingStage('Starting WebAssembly worker...');
-    setLoadingPercent(5);
-
-    workerRef.current.postMessage(
-      {
-        action: 'PARSE_IFC',
-        buffer,
-        fileName
-      },
-      [buffer]
-    );
-  }, []);
-
-  // Load project by ID: fetches metadata and downloads IFC buffer to parse
-  const loadProject = useCallback(async (project: ProjectMetadata, preserveSelectionId?: number | null) => {
-    setCurrentProject(project);
-    if (preserveSelectionId !== undefined) {
-      setSelectedExpressID(preserveSelectionId);
-    } else {
-      setSelectedExpressID(null);
-    }
-    setIsolatedExpressID(null);
-    setTransformInfo(null);
-    if (preserveSelectionId === undefined) {
-      setMeasurements([]);
-    }
-
-    try {
-      setIsLoading(true);
-      setLoadingStage('Downloading IFC model from server storage...');
-      setLoadingPercent(10);
-
-      const downloadUrl = `${api.getDownloadUrl(project.id)}?t=${Date.now()}`;
-      const res = await fetch(downloadUrl, { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to download project model');
-      const arrayBuffer = await res.arrayBuffer();
-
-      parseBufferInWorker(arrayBuffer, project.file_name);
-
-      // Fetch pinned element constraints
-      api.fetchPinnedElements(project.id).then((r) => {
-        setPinnedExpressIds(new Set(r.pinned_ids || []));
-      }).catch((e) => {
-        console.warn('Could not fetch pinned elements:', e);
-      });
-    } catch (err: unknown) {
-      console.error('Failed to load project:', err);
-      setIsLoading(false);
-    }
-  }, [parseBufferInWorker]);
-
-  const refreshProjects = useCallback(async () => {
-    try {
-      const list = await api.fetchProjects();
-      setProjects(list);
-      return list;
-    } catch (err) {
-      console.error('Failed to fetch projects:', err);
-      return [];
-    }
-  }, []);
-
-  // Initial load: check existing projects or create a default project
-  useEffect(() => {
-    async function initApp() {
-      try {
-        const list = await refreshProjects();
-        if (list.length > 0) {
-          // Prefer a responsive starter project (Duplex/Villa) over a 47MB performance benchmark on initial mount
-          const starter = list.find((p) => {
-            const n = p.name.toLowerCase();
-            return !n.includes('castle') && !n.includes('benchmark') && (p.element_count || 0) > 0;
-          }) || list[0];
-          await loadProject(starter);
-        } else {
-          const newProj = await api.createProject(
-            'Starter Architectural Villa',
-            'Sample building structure generated with IFC Editor',
-            'IFC4'
-          );
-          await refreshProjects();
-          await loadProject(newProj);
-        }
-      } catch (err) {
-        console.error('Failed to initialize projects:', err);
-      }
-    }
-    initApp();
-  }, [loadProject, refreshProjects]);
+// Sub-models, worker parsing & project initialization managed by useModelLifecycle
 
 
   const handleToggleCopilot = useCallback(() => {
@@ -893,71 +719,7 @@ export const App: React.FC = () => {
     setCameraPresetTrigger({ preset, timestamp: Date.now() });
   }, []);
 
-  // Handle User File Upload
-  const handleFileSelected = async (file: File) => {
-    try {
-      setIsLoading(true);
-      setLoadingStage('Uploading file to backend...');
-      setLoadingPercent(10);
-
-      const project = await api.uploadIFCFile(file);
-      await refreshProjects();
-      setCurrentProject(project);
-      setSelectedExpressID(null);
-      setIsolatedExpressID(null);
-
-      const arrayBuffer = await file.arrayBuffer();
-      parseBufferInWorker(arrayBuffer, file.name);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Upload error: ${msg}`);
-      setIsLoading(false);
-    }
-  };
-
-  // Handle New Project Creation
-  const handleCreateProject = async (name: string, description: string, schema: string) => {
-    try {
-      setIsLoading(true);
-      const project = await api.createProject(name, description, schema);
-      await refreshProjects();
-      setIsNewProjectModalOpen(false);
-      await loadProject(project);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Creation error: ${msg}`);
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Download/Export
-  const handleDownloadProject = () => {
-    if (!currentProject) return;
-    const downloadUrl = api.getDownloadUrl(currentProject.id);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `${currentProject.name.replace(/\s+/g, '_')}.ifc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Handle Load Sample Project
-  const handleLoadSample = async (sampleId: string) => {
-    try {
-      setIsLoading(true);
-      setLoadingStage('Instantiating architectural sample model...');
-      setLoadingPercent(20);
-      const project = await api.loadSampleProject(sampleId);
-      await refreshProjects();
-      setIsNewProjectModalOpen(false);
-      await loadProject(project);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Failed to load sample: ${msg}`);
-      setIsLoading(false);
-    }
-  };
+// Project upload, creation, export and sample loading managed by useModelLifecycle
 
   // Hook 3: Parametric CAD & Drafting State Machine
   const {
@@ -1269,7 +1031,7 @@ export const App: React.FC = () => {
   // Dev-only QA Bridge for Live Agent Browser Automation
   const latestStateRef = useRef<Record<string, unknown>>({});
   latestStateRef.current = {
-    currentProject,
+    currentProject: currentProjectRef.current || currentProject,
     selectedExpressID,
     isTreeOpen,
     isPropertyOpen,
@@ -1297,8 +1059,8 @@ export const App: React.FC = () => {
     isOmnibarOpen,
     isUploadModalOpen,
     isNewProjectModalOpen,
-    projectsCount: projects.length,
-    projects,
+    projectsCount: (projectsRef.current && projectsRef.current.length > 0 ? projectsRef.current : projects).length,
+    projects: (projectsRef.current && projectsRef.current.length > 0 ? projectsRef.current : projects),
     collaborators,
     geometriesCount: geometries.length,
     subModelsCount: subModels.length,
@@ -1337,7 +1099,11 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (import.meta.env.DEV) {
       (window as any).__IFC_QA_BRIDGE__ = {
-        getState: () => latestStateRef.current,
+        getState: () => ({
+          ...latestStateRef.current,
+          currentProject: currentProjectRef.current || currentProject,
+          projects: projectsRef.current && projectsRef.current.length > 0 ? projectsRef.current : projects
+        }),
         getFirstExpressId: () => (geometries.length > 0 ? geometries[0].expressID : 128),
         getProfile: () => activeProfile,
         setProfile: (p: UiProfile) => handleSelectProfile(p),
@@ -1446,10 +1212,7 @@ export const App: React.FC = () => {
           };
           handleAddMeasurement(record);
         },
-        loadProjectById: (projectId: string) => {
-          const p = projects.find((item) => item.id === projectId);
-          if (p) loadProject(p);
-        },
+        loadProjectById: (projectId: string) => loadProjectById(projectId),
         openUploadModal: () => setIsUploadModalOpen(true),
         closeUploadModal: () => setIsUploadModalOpen(false),
         openNewProjectModal: () => setIsNewProjectModalOpen(true),

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import json
 import math
@@ -864,7 +865,7 @@ class AIService:
         M_new = T @ R @ M
         new_matrix_16 = M_new.flatten(order="F").tolist()
 
-        IFCService.update_element_placement(file_path, element_id, new_matrix_16)
+        await asyncio.to_thread(IFCService.update_element_placement, file_path, element_id, new_matrix_16)
 
         await ProjectService.record_edit(
             project_id=project_id,

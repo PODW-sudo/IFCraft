@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
@@ -101,6 +102,8 @@ async def create_project(data: ProjectCreate) -> ProjectResponse:
     """Create a new blank IFC project with Site, Building, and Storey hierarchy."""
     return await ProjectService.create_project(data)
 
+MAX_UPLOAD_SIZE = 250 * 1024 * 1024  # 250 MB
+
 @router.post("/upload", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def upload_project(
     file: UploadFile = File(...),
@@ -108,20 +111,48 @@ async def upload_project(
     description: Optional[str] = Form(None)
 ) -> ProjectResponse:
     """Upload an existing IFC file and import into the project database."""
-    if not file.filename.lower().endswith((".ifc", ".ifczip")):
+    safe_filename = Path(file.filename or "upload.ifc").name
+    if not safe_filename.lower().endswith((".ifc", ".ifczip")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file must have .ifc or .ifczip extension."
         )
     
-    project_name = name or Path(file.filename).stem
-    content = await file.read()
+    # Chunked read to prevent unbounded memory allocation
+    chunk_size = 1024 * 1024  # 1MB
+    bytes_read = 0
+    chunks = []
+    
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        bytes_read += len(chunk)
+        if bytes_read > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Uploaded file exceeds maximum allowed size of {MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
+            )
+        chunks.append(chunk)
+        
+    content = b"".join(chunks)
+
+    # Magic header check for .ifc files (STEP format: ISO-10303-21)
+    if safe_filename.lower().endswith(".ifc"):
+        prefix = content[:512].decode("utf-8", errors="ignore").strip()
+        if "ISO-10303-21" not in prefix:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid IFC file: Missing ISO-10303-21 STEP header."
+            )
+    
+    project_name = name or Path(safe_filename).stem
     
     try:
         project = await ProjectService.import_project_from_bytes(
             name=project_name,
             description=description,
-            original_filename=file.filename,
+            original_filename=safe_filename,
             content=content
         )
         return project
@@ -242,7 +273,7 @@ async def update_element_placement(
         
     file_path = ProjectService.get_project_file_path(project_id)
     try:
-        IFCService.update_element_placement(file_path, express_id, payload.matrix)
+        await asyncio.to_thread(IFCService.update_element_placement, file_path, express_id, payload.matrix)
         await ProjectService.record_edit(
             project_id=project_id,
             user_id="api-user",

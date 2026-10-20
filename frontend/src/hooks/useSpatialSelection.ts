@@ -45,7 +45,13 @@ export function useSpatialSelection({
 
   // Sync Element Details on Project or Selected ID change
   useEffect(() => {
-    if (!currentProject || selectedExpressID === null) {
+    if (
+      !currentProject ||
+      selectedExpressID === null ||
+      typeof selectedExpressID !== 'number' ||
+      !Number.isInteger(selectedExpressID) ||
+      selectedExpressID <= 0
+    ) {
       setSelectedElementDetails(null);
       return;
     }
@@ -55,7 +61,7 @@ export function useSpatialSelection({
         if (isMounted) setSelectedElementDetails(data);
       })
       .catch((err) => {
-        console.error('Failed to load element details for capsule:', err);
+        console.warn('Could not load element details for capsule:', err);
       });
     return () => { isMounted = false; };
   }, [currentProject, selectedExpressID]);

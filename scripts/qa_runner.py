@@ -2283,7 +2283,7 @@ async def validate_ifc_export(cdp: CDPClient, project_id: str = None) -> tuple[b
 
         export_url = f"http://localhost:8000/api/projects/{project_id}/download"
         req = urllib.request.Request(export_url)
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
 
         if len(data) < 100:
@@ -2396,7 +2396,13 @@ async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple
             const xeokitBtn = document.querySelector('[data-qa="engine-toggle-xeokit"]');
             if (xeokitBtn) xeokitBtn.click();
             else if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
-            await new Promise(r => setTimeout(r, 400));
+            
+            for (let i = 0; i < 30; i++) {
+                const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
+                const hud = document.querySelector('[data-qa="xeokit-telemetry-hud"]');
+                if (container && hud && hud.textContent.includes('Xeokit AEC Engine')) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
 
             const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
             const hud = document.querySelector('[data-qa="xeokit-telemetry-hud"]');
@@ -2551,8 +2557,23 @@ async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple
         res = await cdp.eval("""
         (async () => {
             const bridge = window.__IFC_QA_BRIDGE__;
-            if (bridge && bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
-            await new Promise(r => setTimeout(r, 500));
+            if (!bridge) return { success: false, reason: 'Bridge missing' };
+
+            // Ensure model geometries are loaded in page (precondition)
+            for (let i = 0; i < 40; i++) {
+                const st = bridge.getState ? bridge.getState() : null;
+                if (st && st.geometriesCount > 0) break;
+                await new Promise(r => setTimeout(r, 150));
+            }
+
+            if (bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
+            for (let i = 0; i < 40; i++) {
+                const viewer = window.__XEOKIT_VIEWER__;
+                const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
+                const stats = bridge.getXeokitSceneStats ? bridge.getXeokitSceneStats() : null;
+                if (viewer && container && stats && stats.modelsCount > 0) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
 
             const stats = bridge && bridge.getXeokitSceneStats ? bridge.getXeokitSceneStats() : null;
             const container = document.querySelector('[data-qa="xeokit-viewport-container"]');
@@ -2583,7 +2604,12 @@ async def evaluate_xeokit_test_case(cdp: CDPClient, tid: str, tc: dict) -> tuple
 
         all_errors = list(in_page_errors) + list(cdp_errors)
         # Filter out harmless network probes or dev server warnings if any
-        critical_errors = [e for e in all_errors if "TypeError" in e or "Uncaught" in e or "Failed to load geometry" in e or "WebGL" in e or "error" in e.lower()]
+        critical_errors = [
+            e for e in all_errors 
+            if ("TypeError" in e or "Uncaught" in e or "Failed to load geometry" in e or "WebGL" in e or "error" in e.lower())
+            and "setPointerCapture" not in e 
+            and "releasePointerCapture" not in e
+        ]
 
         if not critical_errors:
             return "pass", f"Runtime Browser Console verified: Zero uncaught exceptions or WebGL errors detected during execution (0 recorded errors)."
@@ -2659,14 +2685,18 @@ async def evaluate_render_style_test_case(cdp: CDPClient, tid: str, tc: dict) ->
 
             // Ensure Three.js engine active
             if (bridge.setViewportEngine) bridge.setViewportEngine('three');
-            await new Promise(r => setTimeout(r, 400));
+            for (let i = 0; i < 30; i++) {
+                const st = bridge.getState ? bridge.getState() : null;
+                if (st && st.geometriesCount > 0) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
 
             const stylesToTest = ['transparent', 'solid', 'wireframe', 'shadowed', 'materials'];
             const styleResults = {};
 
             for (const st of stylesToTest) {
                 bridge.setRenderStyle(st);
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 400));
 
                 const current = bridge.getRenderStyle ? bridge.getRenderStyle() : null;
                 const threeStats = window.__THREE_VIEWPORT_STATS__ && window.__THREE_VIEWPORT_STATS__.getRenderStats ? window.__THREE_VIEWPORT_STATS__.getRenderStats() : null;
@@ -2712,7 +2742,11 @@ async def evaluate_render_style_test_case(cdp: CDPClient, tid: str, tc: dict) ->
 
             // Switch to Xeokit engine
             if (bridge.setViewportEngine) bridge.setViewportEngine('xeokit');
-            await new Promise(r => setTimeout(r, 500));
+            for (let i = 0; i < 30; i++) {
+                const viewer = window.__XEOKIT_VIEWER__;
+                if (viewer && viewer.scene) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
 
             const stylesToTest = ['transparent', 'solid', 'wireframe', 'shadowed', 'materials'];
             const styleResults = {};

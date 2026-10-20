@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -105,9 +106,20 @@ async def project_collaboration_ws(websocket: WebSocket, project_id: str):
                 matrix = data.get("matrix")
 
                 if express_id is not None and matrix:
+                    current_lock = room.locks.get(express_id)
+                    # Enforce soft-lock validation on commit: reject if locked by another user
+                    if current_lock and current_lock.get("user_id") != user_id:
+                        await websocket.send_text(json.dumps({
+                            "type": "COMMIT_REJECTED",
+                            "express_id": express_id,
+                            "reason": f"Element locked by user {current_lock.get('user_id')}"
+                        }))
+                        continue
+
                     file_path = ProjectService.get_project_file_path(project_id)
                     try:
-                        IFCService.update_element_placement(file_path, express_id, matrix)
+                        # Offload synchronous disk I/O to background thread
+                        await asyncio.to_thread(IFCService.update_element_placement, file_path, express_id, matrix)
                         await ProjectService.record_edit(
                             project_id=project_id,
                             user_id=user_id or "anonymous",

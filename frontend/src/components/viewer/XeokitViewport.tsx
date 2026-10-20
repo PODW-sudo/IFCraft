@@ -74,6 +74,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
   const modelLoadedRef = useRef<boolean>(false);
   const [fastNavActive] = useState(true);
   const [fpsReadout, setFpsReadout] = useState<number>(60);
+  const [viewerInstance, setViewerInstance] = useState<any>(null);
 
   // Initialize Xeokit Viewer and Core Plugins
   useEffect(() => {
@@ -89,6 +90,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
       });
 
       viewerRef.current = viewer;
+      setViewerInstance(viewer);
       if (typeof window !== 'undefined') {
         (window as any).__XEOKIT_VIEWER__ = viewer;
       }
@@ -203,6 +205,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
           console.warn('Error destroying Xeokit viewer:', e);
         }
         viewerRef.current = null;
+        setViewerInstance(null);
         if (typeof window !== 'undefined' && (window as any).__XEOKIT_VIEWER__ === viewer) {
           (window as any).__XEOKIT_VIEWER__ = null;
         }
@@ -230,7 +233,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
 
   // Load Geometries into Xeokit SceneModel
   useEffect(() => {
-    const viewer = viewerRef.current;
+    const viewer = viewerRef.current || viewerInstance;
     if (!viewer) return;
 
     if (geometries.length === 0) {
@@ -350,7 +353,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
     } catch (err) {
       console.error('Error populating Xeokit SceneModel:', err);
     }
-  }, [geometries, spatialTree]);
+  }, [viewerInstance, geometries, spatialTree]);
 
   // Synchronize Element Selection & Highlighting
   useEffect(() => {
@@ -389,15 +392,15 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
   // Synchronize Render Styles (shaded, wireframe, ghost)
   // Synchronize Render Styles (transparent, solid, wireframe, shadowed, materials)
   useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer || !modelLoadedRef.current) return;
+    const viewer = viewerRef.current || viewerInstance;
+    if (!viewer) return;
 
     try {
       const allIds = geometries.map((g) => String(g.expressID));
 
       if (renderStyle === 'transparent' || renderStyle === 'ghost') {
         // 1. Transparent with Solid Edges (Architectural Ghost Contours)
-        viewer.scene.setObjectsXRayed(allIds, true);
+        if (allIds.length > 0) viewer.scene.setObjectsXRayed(allIds, true);
         if (viewer.scene.xrayMaterial) {
           viewer.scene.xrayMaterial.fill = true;
           viewer.scene.xrayMaterial.fillAlpha = 0.25;
@@ -416,7 +419,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
 
       } else if (renderStyle === 'wireframe') {
         // 2. Wireframe CAD
-        viewer.scene.setObjectsXRayed(allIds, true);
+        if (allIds.length > 0) viewer.scene.setObjectsXRayed(allIds, true);
         if (viewer.scene.xrayMaterial) {
           viewer.scene.xrayMaterial.fill = false;
           viewer.scene.xrayMaterial.fillAlpha = 0.0;
@@ -434,8 +437,10 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
 
       } else if (renderStyle === 'shadowed') {
         // 3. Shadowed (Scalable Ambient Obscurance & Depth Occlusion)
-        viewer.scene.setObjectsXRayed(allIds, false);
-        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (allIds.length > 0) {
+          viewer.scene.setObjectsXRayed(allIds, false);
+          viewer.scene.setObjectsOpacity(allIds, 1.0);
+        }
         if (viewer.scene.xrayMaterial) {
           viewer.scene.xrayMaterial.fill = false;
           viewer.scene.xrayMaterial.edges = false;
@@ -457,8 +462,10 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
 
       } else if (renderStyle === 'materials') {
         // 4. Authentic BIM Materials (PBR pipeline)
-        viewer.scene.setObjectsXRayed(allIds, false);
-        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (allIds.length > 0) {
+          viewer.scene.setObjectsXRayed(allIds, false);
+          viewer.scene.setObjectsOpacity(allIds, 1.0);
+        }
         if (viewer.scene.xrayMaterial) {
           viewer.scene.xrayMaterial.fill = false;
           viewer.scene.xrayMaterial.edges = false;
@@ -477,8 +484,10 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
 
       } else {
         // 5. Solid CAD Mode (Default / Shaded / Discipline / Diff)
-        viewer.scene.setObjectsXRayed(allIds, false);
-        viewer.scene.setObjectsOpacity(allIds, 1.0);
+        if (allIds.length > 0) {
+          viewer.scene.setObjectsXRayed(allIds, false);
+          viewer.scene.setObjectsOpacity(allIds, 1.0);
+        }
         if (viewer.scene.xrayMaterial) {
           viewer.scene.xrayMaterial.fill = false;
           viewer.scene.xrayMaterial.edges = false;
@@ -494,7 +503,7 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
     } catch (err) {
       console.warn('Failed to apply Xeokit render style:', err);
     }
-  }, [renderStyle, geometries, theme]);
+  }, [viewerInstance, renderStyle, geometries, theme]);
 
   // Synchronize Camera Presets
   useEffect(() => {

@@ -237,7 +237,8 @@ class IFCService:
     def update_element_placement(file_path: Path, express_id: int, matrix_16: list[float]) -> bool:
         """
         Update the 3D placement of an IFC entity from a column-major 4x4 Three.js matrix.
-        Extracts translation and orientation vectors and assigns to IfcAxis2Placement3D.
+        Uses ifcopenshell.api.run("geometry.edit_object_placement", ...) to resolve parent
+        PlacementRelTo coordinate frames and SI units with fallback to direct placement.
         """
         if not file_path.exists():
             raise FileNotFoundError(f"IFC file not found: {file_path}")
@@ -247,34 +248,36 @@ class IFCService:
         if not entity:
             raise ValueError(f"Entity #{express_id} not found.")
         
-        # Matrix is column-major:
-        # [0, 4,  8, 12]  (Column 0: X vector, Tx)
-        # [1, 5,  9, 13]  (Column 1: Y vector, Ty)
-        # [2, 6, 10, 14]  (Column 2: Z vector, Tz)
-        # [3, 7, 11, 15]
-        tx, ty, tz = matrix_16[12], matrix_16[13], matrix_16[14]
+        import numpy as np
+        # Convert column-major 16-element Three.js matrix to 4x4 row-major transform
+        mat4 = np.array(matrix_16, dtype=float).reshape((4, 4), order='F')
         
-        # Local X direction (normalized)
-        x_dir = (matrix_16[0], matrix_16[1], matrix_16[2])
-        x_len = math.sqrt(x_dir[0]**2 + x_dir[1]**2 + x_dir[2]**2) or 1.0
-        norm_x = (x_dir[0]/x_len, x_dir[1]/x_len, x_dir[2]/x_len)
-        
-        # Local Z direction (normalized)
-        z_dir = (matrix_16[8], matrix_16[9], matrix_16[10])
-        z_len = math.sqrt(z_dir[0]**2 + z_dir[1]**2 + z_dir[2]**2) or 1.0
-        norm_z = (z_dir[0]/z_len, z_dir[1]/z_len, z_dir[2]/z_len)
-        
-        # Create or update placement
-        origin = model.create_entity("IfcCartesianPoint", Coordinates=(float(tx), float(ty), float(tz)))
-        axis_dir = model.create_entity("IfcDirection", DirectionRatios=(float(norm_z[0]), float(norm_z[1]), float(norm_z[2])))
-        ref_dir = model.create_entity("IfcDirection", DirectionRatios=(float(norm_x[0]), float(norm_x[1]), float(norm_x[2])))
-        new_axis2 = model.create_entity("IfcAxis2Placement3D", Location=origin, Axis=axis_dir, RefDirection=ref_dir)
-        
-        if hasattr(entity, "ObjectPlacement") and entity.ObjectPlacement:
-            entity.ObjectPlacement.RelativePlacement = new_axis2
-        else:
-            placement = model.create_entity("IfcLocalPlacement", RelativePlacement=new_axis2)
-            entity.ObjectPlacement = placement
+        try:
+            # Preferred: buildingSMART / ifcopenshell API preserving parent PlacementRelTo chains
+            ifcopenshell.api.run("geometry.edit_object_placement", model, product=entity, matrix=mat4, is_si=True)
+        except Exception as api_err:
+            logger.warning("geometry.edit_object_placement fallback for entity #%d: %s", express_id, api_err)
+            # Fallback manual placement creation
+            tx, ty, tz = matrix_16[12], matrix_16[13], matrix_16[14]
+            
+            x_dir = (matrix_16[0], matrix_16[1], matrix_16[2])
+            x_len = math.sqrt(x_dir[0]**2 + x_dir[1]**2 + x_dir[2]**2) or 1.0
+            norm_x = (x_dir[0]/x_len, x_dir[1]/x_len, x_dir[2]/x_len)
+            
+            z_dir = (matrix_16[8], matrix_16[9], matrix_16[10])
+            z_len = math.sqrt(z_dir[0]**2 + z_dir[1]**2 + z_dir[2]**2) or 1.0
+            norm_z = (z_dir[0]/z_len, z_dir[1]/z_len, z_dir[2]/z_len)
+            
+            origin = model.create_entity("IfcCartesianPoint", Coordinates=(float(tx), float(ty), float(tz)))
+            axis_dir = model.create_entity("IfcDirection", DirectionRatios=(float(norm_z[0]), float(norm_z[1]), float(norm_z[2])))
+            ref_dir = model.create_entity("IfcDirection", DirectionRatios=(float(norm_x[0]), float(norm_x[1]), float(norm_x[2])))
+            new_axis2 = model.create_entity("IfcAxis2Placement3D", Location=origin, Axis=axis_dir, RefDirection=ref_dir)
+            
+            if hasattr(entity, "ObjectPlacement") and entity.ObjectPlacement:
+                entity.ObjectPlacement.RelativePlacement = new_axis2
+            else:
+                placement = model.create_entity("IfcLocalPlacement", RelativePlacement=new_axis2)
+                entity.ObjectPlacement = placement
             
         model.write(str(file_path))
         logger.info("Updated placement for element #%d in %s", express_id, file_path)

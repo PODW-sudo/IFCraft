@@ -8,6 +8,7 @@ from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+import ifcopenshell
 
 from ..core.database import get_db_connection
 from ..models.schemas import (
@@ -155,6 +156,25 @@ class BCFService:
         topics = await cls.list_topics(project_id)
         buf = io.BytesIO()
 
+        # Map integer express IDs to authentic 22-char IFC Base64 GlobalIds
+        guid_map: dict[str, str] = {}
+        try:
+            file_path = ProjectService.get_project_file_path(project_id)
+            if file_path.exists():
+                model = ifcopenshell.open(str(file_path))
+                for topic in topics:
+                    for elem in (topic.selected_elements or []):
+                        str_elem = str(elem)
+                        if str_elem.isdigit() or isinstance(elem, int):
+                            try:
+                                ent = model.by_id(int(elem))
+                                if ent and hasattr(ent, "GlobalId"):
+                                    guid_map[str_elem] = ent.GlobalId
+                            except Exception:
+                                pass
+        except Exception as e:
+            logger.warning("Could not map express IDs to GlobalIds for BCF: %s", e)
+
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             # 1. bcf.version specification file
             ver_content = '<?xml version="1.0" encoding="UTF-8"?>\n<Version VersionId="2.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" />'
@@ -199,10 +219,10 @@ class BCFService:
                 length = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
                 dir_x, dir_y, dir_z = dx / length, dy / length, dz / length
 
-                # Selected components XML
+                # Selected components XML (resolving 22-char Base64 IfcGuid strings)
                 comp_xml = "".join(
-                    f'<Component IfcGuid="{xml_escape(str(elem_id))}" />'
-                    for elem_id in topic.selected_elements
+                    f'<Component IfcGuid="{xml_escape(guid_map.get(str(elem_id), str(elem_id)))}" />'
+                    for elem_id in (topic.selected_elements or [])
                 )
 
                 viewpoint_xml = f"""<?xml version="1.0" encoding="UTF-8"?>

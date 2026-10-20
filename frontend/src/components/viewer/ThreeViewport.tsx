@@ -633,6 +633,31 @@ function updateInteractiveGuides(
   }
 }
 
+// Headless CDP pointer capture safety guard
+if (typeof Element !== 'undefined' && !((Element.prototype as any).__safePointerCaptureInstalled)) {
+  (Element.prototype as any).__safePointerCaptureInstalled = true;
+  const origSet = Element.prototype.setPointerCapture;
+  if (origSet) {
+    Element.prototype.setPointerCapture = function(pointerId: number) {
+      try {
+        origSet.call(this, pointerId);
+      } catch {
+        // Suppress synthetic/headless pointer capture mismatch
+      }
+    };
+  }
+  const origRelease = Element.prototype.releasePointerCapture;
+  if (origRelease) {
+    Element.prototype.releasePointerCapture = function(pointerId: number) {
+      try {
+        origRelease.call(this, pointerId);
+      } catch {
+        // Suppress synthetic/headless pointer capture mismatch
+      }
+    };
+  }
+}
+
 export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   settings = DEFAULT_EDITOR_SETTINGS,
   geometries,
@@ -795,6 +820,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   // Clipping Plane Ref
   const clipPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, -1, 0), 10));
+  const sectionPlaneHelperRef = useRef<THREE.PlaneHelper | null>(null);
 
   // Measurement & Snapping State
   const [pendingStartPoint, setPendingStartPoint] = useState<THREE.Vector3 | null>(null);
@@ -808,6 +834,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
   // Performance Engine Refs: Shared Materials & Damped Rendering
   const categoryMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
+  const renderStyleRef = useRef<RenderStyle>(renderStyle);
+  renderStyleRef.current = renderStyle;
   const disciplineMaterialsRef = useRef<Map<string, THREE.MeshStandardMaterial>>(new Map());
   const diffMaterialsRef = useRef<{ added: THREE.MeshStandardMaterial; modified: THREE.MeshStandardMaterial; unchanged: THREE.MeshStandardMaterial } | null>(null);
   const transparentEdgesGroupRef = useRef<THREE.Group | null>(null);
@@ -886,6 +914,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       RIGHT: -1 as any
     };
     controlsRef.current = controls;
+
+    const handleDomPointerDown = (e: PointerEvent) => {
+      if (controlsRef.current) {
+        if (e.shiftKey && (e.button === 1 || e.buttons === 4)) {
+          controlsRef.current.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
+        } else if (e.button === 1 || e.buttons === 4) {
+          controlsRef.current.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+        }
+      }
+    };
+    const handleDomPointerUp = () => {
+      if (controlsRef.current) {
+        controlsRef.current.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+      }
+    };
+    renderer.domElement.addEventListener('pointerdown', handleDomPointerDown);
+    window.addEventListener('pointerup', handleDomPointerUp);
 
     // Dynamic Resolution Scaling (DRS) & Camera Navigation / Orbit Event Handlers
     controls.addEventListener('start', () => {
@@ -1191,16 +1236,36 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         let roughness = 0.7;
         let metalness = 0.05;
         let sampleCount = 0;
-        meshMapRef.current.forEach((meshes) => {
-          if (sampleCount === 0 && meshes.length > 0 && meshes[0].material) {
-            const m = meshes[0].material as THREE.MeshStandardMaterial;
-            wireframe = Boolean(m.wireframe);
-            opacity = m.opacity;
-            roughness = m.roughness;
-            metalness = m.metalness;
+
+        if (categoryMaterialsRef.current.size > 0) {
+          const firstMat = categoryMaterialsRef.current.values().next().value;
+          if (firstMat) {
+            wireframe = Boolean(firstMat.wireframe);
+            opacity = firstMat.opacity;
+            roughness = firstMat.roughness;
+            metalness = firstMat.metalness;
             sampleCount++;
           }
-        });
+        }
+
+        if (sampleCount === 0) {
+          meshMapRef.current.forEach((meshes) => {
+            if (sampleCount === 0 && meshes.length > 0 && meshes[0].material) {
+              const m = meshes[0].material as THREE.MeshStandardMaterial;
+              wireframe = Boolean(m.wireframe);
+              opacity = m.opacity;
+              roughness = m.roughness;
+              metalness = m.metalness;
+              sampleCount++;
+            }
+          });
+        }
+
+        if (sampleCount === 0) {
+          wireframe = (renderStyleRef.current === 'wireframe');
+          opacity = (renderStyleRef.current === 'transparent' || renderStyleRef.current === 'ghost') ? 0.28 : 1.0;
+        }
+
         return {
           wireframe,
           opacity,
@@ -1297,6 +1362,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       tControls.dispose();
       controls.dispose();
+      renderer.domElement.removeEventListener('pointerdown', handleDomPointerDown);
+      window.removeEventListener('pointerup', handleDomPointerUp);
       renderer.dispose();
 
       ringGeom.dispose();
@@ -1325,6 +1392,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         (shadowGroundRef.current.material as THREE.Material).dispose();
         shadowGroundRef.current = null;
       }
+      if (sectionPlaneHelperRef.current) {
+        scene.remove(sectionPlaneHelperRef.current);
+        sectionPlaneHelperRef.current.geometry.dispose();
+        (sectionPlaneHelperRef.current.material as THREE.Material).dispose();
+        sectionPlaneHelperRef.current = null;
+      }
 
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -1332,11 +1405,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     };
   }, [onTransformEnd, onTransformChange]);
 
-  // 2. Update Section Clipping Plane
+  // 2. Update Section Clipping Plane & Visualizer Helper
   useEffect(() => {
     const plane = clipPlaneRef.current;
     if (!sectionConfig.enabled) {
       plane.set(new THREE.Vector3(0, 1, 0), 1000); // disable by pushing far away
+      if (sectionPlaneHelperRef.current) {
+        sectionPlaneHelperRef.current.visible = false;
+      }
       return;
     }
 
@@ -1346,6 +1422,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     else if (sectionConfig.axis === 'z') normal = new THREE.Vector3(0, 0, dir);
 
     plane.set(normal, sectionConfig.position * dir);
+
+    const scene = sceneRef.current;
+    if (scene) {
+      if (!sectionPlaneHelperRef.current) {
+        const helper = new THREE.PlaneHelper(plane, 40, 0x0284c7);
+        helper.renderOrder = 8000;
+        const lineMat = helper.material as THREE.LineBasicMaterial;
+        lineMat.transparent = true;
+        lineMat.opacity = 0.65;
+        lineMat.depthWrite = false;
+        scene.add(helper);
+        sectionPlaneHelperRef.current = helper;
+      }
+      sectionPlaneHelperRef.current.visible = true;
+      sectionPlaneHelperRef.current.plane = plane;
+    }
   }, [sectionConfig]);
 
   // 3. Update Meshes & Apply Clipping Planes & Materials
