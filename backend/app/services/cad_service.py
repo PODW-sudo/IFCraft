@@ -653,7 +653,7 @@ class CADService:
                 if opening:
                     if hasattr(opening, "HasFillings") and opening.HasFillings:
                         for rel_fill in list(opening.HasFillings):
-                            fill = rel_fill.RelatedOpeningElement
+                            fill = getattr(rel_fill, "RelatedBuildingElement", None)
                             if fill:
                                 try:
                                     ifcopenshell.api.run("root.remove_product", model, product=fill)
@@ -1102,27 +1102,30 @@ class CADService:
         mat = old_mat.copy()
         axis = req.axis.lower()
         if axis == "x":
+            # Reflection across YZ plane (invert X)
             R = np.array([
                 [-1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
+                [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0]
             ])
             mat[:3, :3] = R @ mat[:3, :3]
             if req.is_copy:
                 mat[0, 3] += 1.0
         elif axis == "y":
+            # Reflection across XZ plane (invert Y)
             R = np.array([
-                [-1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [-0.0, -1.0, 0.0],
                 [0.0, 0.0, 1.0]
             ])
             mat[:3, :3] = R @ mat[:3, :3]
             if req.is_copy:
                 mat[1, 3] += 1.0
         elif axis == "z":
+            # Reflection across XY plane (invert Z)
             R = np.array([
                 [1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
+                [0.0, 1.0, 0.0],
                 [0.0, 0.0, -1.0]
             ])
             mat[:3, :3] = R @ mat[:3, :3]

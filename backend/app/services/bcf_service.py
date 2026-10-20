@@ -4,6 +4,7 @@ import math
 import uuid
 import zipfile
 import logging
+from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -163,18 +164,25 @@ class BCFService:
             for topic in topics:
                 folder = topic.id
 
-                # Generate markup.bcf
+                # Generate markup.bcf with XML-escaped user content
+                title_esc = xml_escape(str(topic.title or ""))
+                desc_esc = xml_escape(str(topic.description or ""))
+                type_esc = xml_escape(str(topic.topic_type or ""))
+                status_esc = xml_escape(str(topic.topic_status or ""))
+                author_esc = xml_escape(str(topic.creation_author or ""))
+                priority_esc = xml_escape(str(topic.priority or ""))
+
                 markup_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Markup xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <Header>
-        <File IfcProject="{project_id}" Date="{topic.created_at}" />
+        <File IfcProject="{xml_escape(str(project_id))}" Date="{topic.created_at}" />
     </Header>
-    <Topic Guid="{topic.id}" TopicType="{topic.topic_type}" TopicStatus="{topic.topic_status}">
-        <Title>{topic.title}</Title>
-        <Priority>{topic.priority}</Priority>
+    <Topic Guid="{topic.id}" TopicType="{type_esc}" TopicStatus="{status_esc}">
+        <Title>{title_esc}</Title>
+        <Priority>{priority_esc}</Priority>
         <CreationDate>{topic.created_at}</CreationDate>
-        <CreationAuthor>{topic.creation_author}</CreationAuthor>
-        <Description>{topic.description}</Description>
+        <CreationAuthor>{author_esc}</CreationAuthor>
+        <Description>{desc_esc}</Description>
     </Topic>
     <Viewpoints Guid="{uuid.uuid4()}">
         <Viewpoint>viewpoint.bcfv</Viewpoint>
@@ -193,7 +201,7 @@ class BCFService:
 
                 # Selected components XML
                 comp_xml = "".join(
-                    f'<Component IfcGuid="{elem_id}" />'
+                    f'<Component IfcGuid="{xml_escape(str(elem_id))}" />'
                     for elem_id in topic.selected_elements
                 )
 

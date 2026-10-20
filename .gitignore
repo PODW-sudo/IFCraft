@@ -32,3 +32,13 @@ Thumbs.db
 # Scratch
 scratch/
 
+# Review & Export Bundles
+*_bundle.*
+core_codebase.*
+codebase_bundle.*
+frontend_core.*
+review_bundle*
+test_report_*.md
+test_results_*.jsonl
+
+

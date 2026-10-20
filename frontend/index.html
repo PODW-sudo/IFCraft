@@ -4,10 +4,106 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>IFC Editor — Spatial BIM Studio</title>
+    <style>
+      /* Zero-CLS Pre-render Shell for Sub-100ms LCP */
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #030712;
+        overflow: hidden;
+      }
+      #initial-lcp-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 50%, #0f172a 0%, #030712 100%);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #f8fafc;
+        z-index: 0;
+        user-select: none;
+      }
+      .lcp-card {
+        padding: 24px 32px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(16px);
+        text-align: center;
+        max-width: 380px;
+        box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+      }
+      .lcp-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .lcp-brand-text {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .lcp-desc {
+        font-size: 13px;
+        line-height: 1.5;
+        color: #94a3b8;
+        margin: 0 0 16px 0;
+      }
+      .lcp-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        font-size: 11px;
+        font-weight: 500;
+        color: #38bdf8;
+      }
+      .lcp-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: #38bdf8;
+        animation: lcp-pulse 1.8s infinite ease-in-out;
+      }
+      @keyframes lcp-pulse {
+        0%, 100% { opacity: 0.3; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1.15); }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="initial-lcp-shell">
+        <div class="lcp-card">
+          <div class="lcp-brand">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            <span class="lcp-brand-text">IFC Editor</span>
+          </div>
+          <p class="lcp-desc">Spatial BIM Canvas & High-Performance 3D CAD Studio</p>
+          <div class="lcp-status-pill">
+            <span class="lcp-dot"></span>
+            <span>Initializing 3D Spatial Engine...</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

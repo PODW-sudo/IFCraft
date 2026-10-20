@@ -30,5 +30,26 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['web-ifc']
+  },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('@xeokit')) {
+            return 'xeokit-engine';
+          }
+          if (id.includes('three') || id.includes('three-mesh-bvh')) {
+            return 'three-core';
+          }
+          if (id.includes('lucide-react')) {
+            return 'ui-icons';
+          }
+          if (id.includes('@radix-ui')) {
+            return 'ui-radix';
+          }
+        }
+      }
+    }
   }
 })

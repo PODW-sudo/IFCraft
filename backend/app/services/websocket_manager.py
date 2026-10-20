@@ -59,8 +59,8 @@ class Room:
         if user_id in self.sessions:
             del self.sessions[user_id]
 
-        # If only 0 or 1 user left in the room, clear all locks so remaining user is never blocked
-        if len(self.sessions) <= 1:
+        # If room is now completely empty, clear any remaining locks
+        if len(self.sessions) == 0:
             for express_id in list(self.locks.keys()):
                 released_locks.append(express_id)
             self.locks.clear()

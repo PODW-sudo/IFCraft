@@ -54,7 +54,8 @@ async def upload_sub_model(
     models_dir.mkdir(parents=True, exist_ok=True)
 
     submodel_id = str(uuid.uuid4())
-    stored_filename = f"{submodel_id}_{file.filename}"
+    safe_filename = Path(file.filename or "submodel.ifc").name
+    stored_filename = f"{submodel_id}_{safe_filename}"
     file_path = models_dir / stored_filename
 
     content = await file.read()

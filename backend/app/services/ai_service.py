@@ -634,10 +634,11 @@ class AIService:
 
     @classmethod
     async def _exec_generate_building(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
-        length = float(args.get("length", 10.0))
-        width = float(args.get("width", 8.0))
-        num_storeys = int(args.get("num_storeys", 1))
-        storey_height = float(args.get("storey_height", 3.0))
+        # Sanitize & clamp parameters to prevent denial-of-service / memory exhaustion
+        length = max(1.0, min(float(args.get("length", 10.0)), 500.0))
+        width = max(1.0, min(float(args.get("width", 8.0)), 500.0))
+        num_storeys = max(1, min(int(args.get("num_storeys", 1)), 50))
+        storey_height = max(1.5, min(float(args.get("storey_height", 3.0)), 20.0))
         building_name = args.get("building_name", "Parametric Building")
 
         model = ifcopenshell.open(str(file_path))

@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useGizmoTransform } from './hooks/useGizmoTransform';
+import { useSpatialSelection } from './hooks/useSpatialSelection';
+import { useCadDraftingMachine } from './hooks/useCadDraftingMachine';
 import {
   ThreeViewport,
   type TransformMode,
   type MeasurementRecord
 } from './components/viewer/ThreeViewport';
-import { XeokitViewport } from './components/viewer/XeokitViewport';
+// Code-split heavy modals and engines to optimize initial bundle size & LCP
+const XeokitViewport = React.lazy(() => import('./components/viewer/XeokitViewport'));
 import { StoreyNavigatorHud } from './components/hud/StoreyNavigatorHud';
 import { AnnotationsHud } from './components/hud/AnnotationsHud';
 import { GlassSpatialTree } from './components/tree/GlassSpatialTree';
@@ -27,14 +31,14 @@ import type {
 } from './types/viewport';
 import { UploadModal } from './components/modals/UploadModal';
 import { NewProjectModal } from './components/modals/NewProjectModal';
-import { CopilotSidebar } from './components/copilot/CopilotSidebar';
-import { FederatedModelManager } from './components/federation/FederatedModelManager';
-import { ClashInspector } from './components/federation/ClashInspector';
-import { BcfManagerModal } from './components/collaboration/BcfManagerModal';
-import { TimelineScrubber } from './components/collaboration/TimelineScrubber';
-import { SettingsModal } from './components/modals/SettingsModal';
-import { MoveCopySpecialModal } from './components/cad/MoveCopySpecialModal';
-import type { InteractiveEditMode } from './types/cadEditing';
+const CopilotSidebar = React.lazy(() => import('./components/copilot/CopilotSidebar').then(m => ({ default: m.CopilotSidebar })));
+const FederatedModelManager = React.lazy(() => import('./components/federation/FederatedModelManager').then(m => ({ default: m.FederatedModelManager })));
+const ClashInspector = React.lazy(() => import('./components/federation/ClashInspector').then(m => ({ default: m.ClashInspector })));
+const BcfManagerModal = React.lazy(() => import('./components/collaboration/BcfManagerModal').then(m => ({ default: m.BcfManagerModal })));
+const TimelineScrubber = React.lazy(() => import('./components/collaboration/TimelineScrubber').then(m => ({ default: m.TimelineScrubber })));
+const SettingsModal = React.lazy(() => import('./components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })));
+const MoveCopySpecialModal = React.lazy(() => import('./components/cad/MoveCopySpecialModal').then(m => ({ default: m.MoveCopySpecialModal })));
+
 import { loadEditorSettings, saveEditorSettings } from './services/settings';
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings, type UiStyleMode } from './types/settings';
 import {
@@ -53,12 +57,12 @@ import type {
   ClashCheckResponse, 
   DisciplineType,
   CadToolMode,
-  CadHistoryItem,
+
   BcfTopic,
   BcfTopicCreateRequest,
   AuditTimelineItem,
   AuditDiffResponse,
-  ElementDetails
+
 } from './types/ifc';
 import * as api from './services/api';
 import {
@@ -71,7 +75,8 @@ import IfcWorker from './workers/ifcWorker?worker';
 
 // QA and Diagnostics Error Trap Ring Buffer
 const consoleErrorsRing: string[] = [];
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !(window as any).__IFC_ERROR_TRAP_INSTALLED__) {
+  (window as any).__IFC_ERROR_TRAP_INSTALLED__ = true;
   const origConsoleError = console.error;
   console.error = (...args: any[]) => {
     try {
@@ -99,44 +104,8 @@ export const App: React.FC = () => {
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [geometries, setGeometries] = useState<GeometryData[]>([]);
   const [spatialTree, setSpatialTree] = useState<SpatialNode | null>(null);
-  const [selectedExpressID, setSelectedExpressID] = useState<number | null>(null);
-  const [isolatedExpressID, setIsolatedExpressID] = useState<number | null>(null);
-  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
 
-  // 3D Transform & Property State
-  const [transformMode, setTransformMode] = useState<TransformMode>('select');
-  const [snapEnabled, setSnapEnabled] = useState(true);
-  const [transformInfo, setTransformInfo] = useState<{
-    position: [number, number, number];
-    rotation: [number, number, number];
-  } | null>(null);
-
-  // Industry-Standard CAD Interactive Editing (Archicad 29 & Tekla 2025)
-  const [activeInteractiveMode, setActiveInteractiveMode] = useState<InteractiveEditMode>('none');
-  const [isMoveCopySpecialOpen, setIsMoveCopySpecialOpen] = useState(false);
-  const [specialPickedPoints, setSpecialPickedPoints] = useState<{ p1: [number, number, number]; p2: [number, number, number] } | null>(null);
-
-  // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
-  const [isMeasureActive, setIsMeasureActive] = useState(false);
-  const [measurements, setMeasurements] = useState<MeasurementRecord[]>([]);
-  const [activeDimension, setActiveDimension] = useState<MeasurementRecord | null>(null);
-  const [sectionConfig, setSectionConfig] = useState<SectionPlaneConfig>({
-    enabled: false,
-    axis: 'y',
-    position: 4.0,
-    inverted: false
-  });
-  const [cameraPresetTrigger, setCameraPresetTrigger] = useState<{
-    preset: CameraPreset;
-    timestamp: number;
-  } | null>(null);
-  const [focusTrigger, setFocusTrigger] = useState<{
-    expressId: number;
-    timestamp: number;
-  } | null>(null);
-  const [renderStyle, setRenderStyle] = useState<RenderStyle>('shaded');
-
-  // Phase 5 State: Real-time Collaboration & Concurrency
+  // Phase 5 State: Real-time Collaboration & Concurrency (Lifted for Hook integration)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [elementLocks, setElementLocks] = useState<Record<number, ElementLock>>({});
   const [remoteTransform, setRemoteTransform] = useState<{
@@ -157,6 +126,83 @@ export const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [lockNotification]);
+
+  // Hook 1: 3D Gizmo & Transform State Machine
+  const {
+    transformMode,
+    setTransformMode,
+    snapEnabled,
+    setSnapEnabled,
+
+    transformInfo,
+    setTransformInfo,
+    handleTransformChange,
+    handleTransformEnd,
+    resetTransform
+  } = useGizmoTransform({
+    currentProject,
+    collabClientRef
+  });
+
+  // UI Panels forward declaration
+  const [isPropertyOpen, setIsPropertyOpen] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+
+  // Hook 2: Spatial Selection & Soft-Locking Controller
+  const {
+    selectedExpressID,
+    setSelectedExpressID,
+    isolatedExpressID,
+    setIsolatedExpressID,
+    hiddenCategories,
+
+    toggleCategoryVisibility,
+    pinnedExpressIds,
+    setPinnedExpressIds,
+    pinnedExpressIdsRef,
+    selectedElementDetails,
+    setSelectedElementDetails,
+    storeys,
+    focusTrigger,
+    setFocusTrigger,
+
+    handleSelectElement,
+    handleTogglePin
+  } = useSpatialSelection({
+    currentProject,
+    spatialTree,
+    collaborators,
+    elementLocks,
+    collabClientRef,
+    onLockNotification: setLockNotification,
+    onElementSelected: (expressId) => {
+      if (expressId !== null) {
+        setIsPropertyOpen(true);
+        setIsCopilotOpen(false);
+      } else {
+        resetTransform();
+      }
+    }
+  });
+
+  // Phase 4 State: Measurement, Sectioning, Camera Presets, Render Style
+  const [isMeasureActive, setIsMeasureActive] = useState(false);
+  const [measurements, setMeasurements] = useState<MeasurementRecord[]>([]);
+  const [activeDimension, setActiveDimension] = useState<MeasurementRecord | null>(null);
+  const [sectionConfig, setSectionConfig] = useState<SectionPlaneConfig>({
+    enabled: false,
+    axis: 'y',
+    position: 4.0,
+    inverted: false
+  });
+  const [cameraPresetTrigger, setCameraPresetTrigger] = useState<{
+    preset: CameraPreset;
+    timestamp: number;
+  } | null>(null);
+
+  const [renderStyle, setRenderStyle] = useState<RenderStyle>('shaded');
+
+
 
   // UI State
   const [isTreeOpen, setIsTreeOpen] = useState(() => {
@@ -229,8 +275,7 @@ export const App: React.FC = () => {
     setCurrentTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   }, []);
 
-  const [isPropertyOpen, setIsPropertyOpen] = useState(true);
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+
   const [treeWidth, setTreeWidth] = useState(288);
   const [propertyWidth, setPropertyWidth] = useState(320);
   const [copilotWidth, setCopilotWidth] = useState(384);
@@ -263,24 +308,7 @@ export const App: React.FC = () => {
   const [activeClash, setActiveClash] = useState<ClashRecord | null>(null);
   const [isClashLoading, setIsClashLoading] = useState(false);
 
-  // Phase 11 State: Advanced Spatial Modeling (CAD) & Undo/Redo
-  const [isCadOpen, setIsCadOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ifc_editor_ui_profile');
-      return saved === 'modify' || !saved;
-    } catch {
-      return true;
-    }
-  });
-  const [cadToolMode, setCadToolMode] = useState<CadToolMode>('select');
-  const [cadWallHeight, setCadWallHeight] = useState(3.0);
-  const [cadWallThickness, setCadWallThickness] = useState(0.2);
-  const [cadCanUndo, setCadCanUndo] = useState(false);
-  const [cadCanRedo, setCadCanRedo] = useState(false);
-  const [cadHistory, setCadHistory] = useState<CadHistoryItem[]>([]);
-  const [pinnedExpressIds, setPinnedExpressIds] = useState<Set<number>>(new Set());
-  const pinnedExpressIdsRef = useRef<Set<number>>(pinnedExpressIds);
-  pinnedExpressIdsRef.current = pinnedExpressIds;
+
 
   // Phase 12 State: BCF 2.1 Issues & Collaborative Change Playback Scrubber
   const [isBcfOpen, setIsBcfOpen] = useState(false);
@@ -729,14 +757,7 @@ export const App: React.FC = () => {
     }
   }, [currentProject, handleUploadSubModel]);
 
-  const toggleCategoryVisibility = useCallback((category: string) => {
-    setHiddenCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
-    });
-  }, []);
+
 
   // Parse ArrayBuffer with dedicated Web Worker
   const parseBufferInWorker = useCallback((buffer: ArrayBuffer, fileName: string) => {
@@ -832,46 +853,6 @@ export const App: React.FC = () => {
     initApp();
   }, [loadProject, refreshProjects]);
 
-  // Handle Element Selection with Soft Locking
-  const handleSelectElement = useCallback(
-    (expressID: number | null) => {
-      // Release previous selection lock if held
-      if (selectedExpressID !== null && collabClientRef.current) {
-        collabClientRef.current.deselectElement(selectedExpressID);
-      }
-
-      if (expressID !== null) {
-        // Check if locked by another user (NOT ourselves, and only if other user is actively connected)
-        const existingLock = elementLocks[expressID];
-        const myUserId = collabClientRef.current?.profile.userId || localStorage.getItem('ifc_editor_user_id');
-
-        if (existingLock && existingLock.user_id !== myUserId) {
-          const isHolderConnected = collaborators.some((u) => u.user_id === existingLock.user_id);
-          if (isHolderConnected) {
-            setLockNotification({
-              expressID,
-              userName: existingLock.user_name || 'another user',
-              userColor: existingLock.user_color
-            });
-            return;
-          }
-        }
-
-        setSelectedExpressID(expressID);
-        setIsPropertyOpen(true);
-        setIsCopilotOpen(false);
-        // Retain select mode so inactive element displays a subtle pivot dot instead of large axes
-        // Acquire lock via WebSocket
-        collabClientRef.current?.selectElement(expressID);
-      } else {
-        setSelectedExpressID(null);
-        setTransformInfo(null);
-        setTransformMode('select');
-        setActiveInteractiveMode('none');
-      }
-    },
-    [selectedExpressID, elementLocks, transformMode, collaborators]
-  );
 
   const handleToggleCopilot = useCallback(() => {
     setIsCopilotOpen((prev) => {
@@ -889,41 +870,7 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // Handle Transform End: Commit via WebSocket and REST persistence
-  const handleTransformEnd = useCallback(
-    async (expressID: number, matrix: number[]) => {
-      if (!currentProject) return;
 
-      // Broadcast commit over WebSocket for multi-user sync
-      collabClientRef.current?.commitTransform(expressID, matrix);
-
-      try {
-        const res = await fetch(
-          `/api/projects/${currentProject.id}/elements/${expressID}/placement`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ matrix })
-          }
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: res.statusText }));
-          console.error('Failed to persist transform to backend:', err.detail);
-        }
-      } catch (err) {
-        console.error('Network error persisting transform:', err);
-      }
-    },
-    [currentProject]
-  );
-
-  // Handle Live Transform Coordinate Updates & WebSocket Streaming
-  const handleTransformChange = useCallback(
-    (_expressID: number, pos: [number, number, number], rot: [number, number, number]) => {
-      setTransformInfo({ position: pos, rotation: rot });
-    },
-    []
-  );
 
   // Measurement Handlers
   const handleAddMeasurement = useCallback((record: MeasurementRecord) => {
@@ -1012,6 +959,59 @@ export const App: React.FC = () => {
     }
   };
 
+  // Hook 3: Parametric CAD & Drafting State Machine
+  const {
+    cadToolMode,
+    setCadToolMode,
+    activeInteractiveMode,
+    setActiveInteractiveMode,
+    isMoveCopySpecialOpen,
+    setIsMoveCopySpecialOpen,
+    specialPickedPoints,
+    setSpecialPickedPoints,
+    cadWallHeight,
+    setCadWallHeight,
+    cadWallThickness,
+    setCadWallThickness,
+    cadCanUndo,
+    cadCanRedo,
+    cadHistory,
+    isCadOpen,
+    setIsCadOpen,
+    refreshCadHistory,
+    handleCadDrawWall,
+    handleCadDrawSlab,
+    handleCadDrawColumn,
+    handleCadDrawOpening,
+    handleCadUndo,
+    handleCadRedo,
+    handleDeleteElement,
+    handleMoveElement,
+    handleRotateElement,
+    handleMirrorElement,
+    handleArrayElement,
+    handleAlignElement,
+    handleCloneElement,
+    handleUpdateGeometry,
+    handleAssignStorey,
+    handleAssignMaterial
+  } = useCadDraftingMachine({
+    currentProject,
+    selectedExpressID,
+    pinnedExpressIdsRef,
+    loadProject,
+    onSelectElement: setSelectedExpressID,
+    onSpatialTreeUpdated: setSpatialTree,
+    onElementDetailsUpdated: setSelectedElementDetails
+  });
+
+  // Reset interactive CAD mode when selection is cleared
+  useEffect(() => {
+    if (selectedExpressID === null) {
+      setActiveInteractiveMode('none');
+    }
+  }, [selectedExpressID, setActiveInteractiveMode]);
+
   // Handle AI Copilot Model Modification Refresh
   const handleModelModifiedByCopilot = useCallback(() => {
     if (currentProject) {
@@ -1040,302 +1040,6 @@ export const App: React.FC = () => {
     },
     [handleDownloadProject]
   );
-
-  // CAD Modeling Handlers (Phase 11)
-  const refreshCadHistory = useCallback(async () => {
-    if (!currentProject) return;
-    try {
-      const res = await api.fetchCadHistory(currentProject.id);
-      setCadHistory(res.history);
-      setCadCanUndo(res.can_undo);
-      setCadCanRedo(res.can_redo);
-    } catch (err) {
-      console.error('Failed to fetch CAD history:', err);
-    }
-  }, [currentProject]);
-
-  const handleCadDrawWall = useCallback(async (start: [number, number], end: [number, number]) => {
-    if (!currentProject) return;
-    try {
-      await api.createCadWall(currentProject.id, {
-        start,
-        end,
-        height: cadWallHeight,
-        thickness: cadWallThickness,
-        name: 'Parametric Wall'
-      });
-      await refreshCadHistory();
-      await loadProject(currentProject);
-    } catch (err) {
-      console.error('Failed to create CAD wall:', err);
-    }
-  }, [currentProject, cadWallHeight, cadWallThickness, refreshCadHistory, loadProject]);
-
-  const handleCadDrawSlab = useCallback(async (c1: [number, number], c2: [number, number]) => {
-    if (!currentProject) return;
-    try {
-      await api.createCadSlab(currentProject.id, {
-        boundary: [c1, c2],
-        thickness: 0.3,
-        name: 'Parametric Slab'
-      });
-      await refreshCadHistory();
-      await loadProject(currentProject);
-    } catch (err) {
-      console.error('Failed to create CAD slab:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleCadDrawColumn = useCallback(async (pos: [number, number]) => {
-    if (!currentProject) return;
-    try {
-      await api.createCadColumn(currentProject.id, {
-        position: pos,
-        height: cadWallHeight,
-        width: 0.35,
-        depth: 0.35,
-        name: 'Parametric Column'
-      });
-      await refreshCadHistory();
-      await loadProject(currentProject);
-    } catch (err) {
-      console.error('Failed to create CAD column:', err);
-    }
-  }, [currentProject, cadWallHeight, refreshCadHistory, loadProject]);
-
-  const handleCadDrawOpening = useCallback(async (wallId: number, offset: number, explicitType?: 'door' | 'window') => {
-    if (!currentProject) return;
-    const isDoor = explicitType ? (explicitType === 'door') : (cadToolMode === 'door');
-    try {
-      await api.createCadOpening(currentProject.id, {
-        host_wall_id: wallId,
-        opening_type: isDoor ? 'door' : 'window',
-        offset_along_wall: offset,
-        width: isDoor ? 0.9 : 1.2,
-        height: isDoor ? 2.1 : 1.4,
-        sill_height: isDoor ? 0.0 : 0.9,
-        name: isDoor ? 'Parametric Door' : 'Parametric Window'
-      });
-      await refreshCadHistory();
-      await loadProject(currentProject);
-    } catch (err) {
-      console.error('Failed to create CAD opening:', err);
-    }
-  }, [currentProject, cadToolMode, refreshCadHistory, loadProject]);
-
-  const handleCadUndo = useCallback(async () => {
-    if (!currentProject) return;
-    try {
-      const res = await api.undoCad(currentProject.id);
-      await refreshCadHistory();
-      await loadProject(currentProject, res.affected_express_id || selectedExpressID);
-    } catch (err) {
-      console.error('Failed to undo CAD action:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
-
-  const handleCadRedo = useCallback(async () => {
-    if (!currentProject) return;
-    try {
-      const res = await api.redoCad(currentProject.id);
-      await refreshCadHistory();
-      await loadProject(currentProject, res.affected_express_id || selectedExpressID);
-    } catch (err) {
-      console.error('Failed to redo CAD action:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
-
-  // Selected Element Details for In-Viewport Context Capsule
-  const [selectedElementDetails, setSelectedElementDetails] = useState<ElementDetails | null>(null);
-
-  useEffect(() => {
-    if (!currentProject || selectedExpressID === null) {
-      setSelectedElementDetails(null);
-      return;
-    }
-    let isMounted = true;
-    api.getElementDetails(currentProject.id, selectedExpressID)
-      .then((data) => {
-        if (isMounted) setSelectedElementDetails(data);
-      })
-      .catch((err) => {
-        console.error('Failed to load element details for capsule:', err);
-      });
-    return () => { isMounted = false; };
-  }, [currentProject, selectedExpressID]);
-
-  // Extract Storeys from Spatial Tree
-  const storeys = useMemo(() => {
-    if (!spatialTree) return [];
-    const list: { id: number; name: string; elevation: number }[] = [];
-    const traverse = (node: SpatialNode) => {
-      if (node.type === 'IfcBuildingStorey') {
-        list.push({ id: node.express_id, name: node.name, elevation: 0.0 });
-      }
-      node.children?.forEach(traverse);
-    };
-    traverse(spatialTree);
-    return list;
-  }, [spatialTree]);
-
-  // Modern BIM Element Handlers
-  // Modern BIM Element Handlers
-  const handleDeleteElement = useCallback(async (expressId: number) => {
-    if (!currentProject) return;
-    if (pinnedExpressIdsRef.current.has(expressId)) {
-      console.warn(`Element #${expressId} is pinned. Unpin (UP) to delete.`);
-      return;
-    }
-    try {
-      await api.deleteElement(currentProject.id, expressId);
-      setSelectedExpressID(null);
-      setSelectedElementDetails(null);
-      await refreshCadHistory();
-      await loadProject(currentProject);
-    } catch (err) {
-      console.error('Failed to delete element:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleTogglePin = useCallback(async (expressId: number) => {
-    if (!currentProject) return;
-    const isCurrentlyPinned = pinnedExpressIdsRef.current.has(expressId);
-    try {
-      await api.pinElement(currentProject.id, expressId, { is_pinned: !isCurrentlyPinned });
-      const next = new Set(pinnedExpressIdsRef.current);
-      if (isCurrentlyPinned) {
-        next.delete(expressId);
-      } else {
-        next.add(expressId);
-      }
-      pinnedExpressIdsRef.current = next;
-      setPinnedExpressIds(next);
-      if (selectedExpressID === expressId) {
-        const details = await api.getElementDetails(currentProject.id, expressId);
-        setSelectedElementDetails(details);
-      }
-    } catch (err) {
-      console.error('Failed to toggle pin status:', err);
-    }
-  }, [currentProject, selectedExpressID]);
-
-  const handleMoveElement = useCallback(async (expressId: number, delta: [number, number, number]) => {
-    if (!currentProject) return;
-    if (pinnedExpressIdsRef.current.has(expressId)) {
-      console.warn(`Element #${expressId} is pinned. Unpin (UP) to move.`);
-      return;
-    }
-    try {
-      await api.moveElement(currentProject.id, expressId, { delta });
-      await refreshCadHistory();
-    } catch (err) {
-      console.error('Failed to move element:', err);
-    }
-  }, [currentProject, refreshCadHistory]);
-
-  const handleRotateElement = useCallback(async (expressId: number, angleDegrees: number = 90, axis: 'x' | 'y' | 'z' = 'z') => {
-    if (!currentProject) return;
-    if (pinnedExpressIdsRef.current.has(expressId)) {
-      console.warn(`Element #${expressId} is pinned. Unpin (UP) to rotate.`);
-      return;
-    }
-    try {
-      await api.rotateElement(currentProject.id, expressId, { angle_degrees: angleDegrees, axis });
-      await refreshCadHistory();
-    } catch (err) {
-      console.error('Failed to rotate element:', err);
-    }
-  }, [currentProject, refreshCadHistory]);
-
-  const handleMirrorElement = useCallback(async (expressId: number, axis: 'x' | 'y' | 'z' = 'x', isCopy: boolean = false) => {
-    if (!currentProject) return;
-    if (!isCopy && pinnedExpressIdsRef.current.has(expressId)) {
-      console.warn(`Element #${expressId} is pinned. Unpin (UP) to mirror.`);
-      return;
-    }
-    try {
-      const res = await api.mirrorElement(currentProject.id, expressId, { axis, is_copy: isCopy });
-      await refreshCadHistory();
-      if (isCopy) {
-        const newId = res.express_id || expressId;
-        await loadProject(currentProject, newId);
-      }
-    } catch (err) {
-      console.error('Failed to mirror element:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleArrayElement = useCallback(async (expressId: number, count: number = 3, delta: [number, number, number] = [2.0, 0, 0]) => {
-    if (!currentProject) return;
-    try {
-      const res = await api.arrayElement(currentProject.id, expressId, { count, delta });
-      await refreshCadHistory();
-      const firstId = res.length > 0 && res[0].express_id ? res[0].express_id : expressId;
-      await loadProject(currentProject, firstId);
-    } catch (err) {
-      console.error('Failed to array element:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleAlignElement = useCallback(async (expressId: number, axis: 'x' | 'y' | 'z' = 'z', targetValue: number = 0.0) => {
-    if (!currentProject) return;
-    if (pinnedExpressIdsRef.current.has(expressId)) {
-      console.warn(`Element #${expressId} is pinned. Unpin (UP) to align.`);
-      return;
-    }
-    try {
-      await api.alignElement(currentProject.id, expressId, { align_type: 'origin', axis, target_value: targetValue });
-      await refreshCadHistory();
-      await loadProject(currentProject, expressId);
-    } catch (err) {
-      console.error('Failed to align element:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleCloneElement = useCallback(async (expressId: number) => {
-    if (!currentProject) return;
-    try {
-      const res = await api.cloneElement(currentProject.id, expressId, { delta: [1.5, 0.0, 0.0] });
-      await refreshCadHistory();
-      const newId = res.express_id || expressId;
-      await loadProject(currentProject, newId);
-    } catch (err) {
-      console.error('Failed to clone element:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleUpdateGeometry = useCallback(async (expressId: number, params: { height?: number; thickness?: number; elevation?: number }) => {
-    if (!currentProject) return;
-    try {
-      await api.updateElementGeometry(currentProject.id, expressId, params);
-      await refreshCadHistory();
-      await loadProject(currentProject, expressId);
-    } catch (err) {
-      console.error('Failed to update geometry:', err);
-    }
-  }, [currentProject, refreshCadHistory, loadProject]);
-
-  const handleAssignStorey = useCallback(async (expressId: number, storeyId: number) => {
-    if (!currentProject) return;
-    try {
-      await api.assignElementStorey(currentProject.id, expressId, { storey_id: storeyId });
-      const tree = await api.fetchSpatialTree(currentProject.id);
-      setSpatialTree(tree);
-    } catch (err) {
-      console.error('Failed to assign storey:', err);
-    }
-  }, [currentProject]);
-
-  const handleAssignMaterial = useCallback(async (expressId: number, materialName: string, colorHex?: string) => {
-    if (!currentProject) return;
-    try {
-      await api.assignElementMaterial(currentProject.id, expressId, { material_name: materialName, color_hex: colorHex });
-      const updated = await api.getElementDetails(currentProject.id, expressId);
-      setSelectedElementDetails(updated);
-    } catch (err) {
-      console.error('Failed to assign material:', err);
-    }
-  }, [currentProject]);
 
   // Two-key sequence buffer for Revit standard shortcuts (RO, MM, DM, AR, AL, PN, UP, MV, CO)
   const revitKeyBufferRef = useRef<string>('');
@@ -1974,7 +1678,8 @@ export const App: React.FC = () => {
         data-qa-viewport-engine={viewportEngine}
       >
         {viewportEngine === 'xeokit' ? (
-          <XeokitViewport
+          <React.Suspense fallback={<div className="w-full h-full flex items-center justify-center text-xs text-slate-400">Loading Xeokit Engine...</div>}>
+            <XeokitViewport
             geometries={geometries}
             selectedExpressID={selectedExpressID}
             onSelectElement={handleSelectElement}
@@ -1994,6 +1699,7 @@ export const App: React.FC = () => {
             leftOffset={leftOffset}
             rightOffset={rightOffset}
           />
+          </React.Suspense>
         ) : (
           <ThreeViewport
             theme={currentTheme}
@@ -2158,14 +1864,16 @@ export const App: React.FC = () => {
               />
             )}
 
-            <CopilotSidebar
-              isOpen={isCopilotOpen}
-              onClose={() => setIsCopilotOpen(false)}
-              projectId={currentProject?.id || ''}
-              selectedExpressId={selectedExpressID}
-              onModelModified={handleModelModifiedByCopilot}
-              onWidthChange={setCopilotWidth}
-            />
+            <React.Suspense fallback={null}>
+              <CopilotSidebar
+                isOpen={isCopilotOpen}
+                onClose={() => setIsCopilotOpen(false)}
+                projectId={currentProject?.id || ''}
+                selectedExpressId={selectedExpressID}
+                onModelModified={handleModelModifiedByCopilot}
+                onWidthChange={setCopilotWidth}
+              />
+            </React.Suspense>
           </div>
         </div>
 
@@ -2332,6 +2040,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Modals */}
+      <React.Suspense fallback={null}>
       <UploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
@@ -2444,6 +2153,7 @@ export const App: React.FC = () => {
           }}
         />
       )}
+      </React.Suspense>
       </HudLayoutProvider>
     </div>
   );

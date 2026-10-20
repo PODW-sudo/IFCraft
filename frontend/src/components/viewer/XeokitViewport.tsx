@@ -701,3 +701,5 @@ export const XeokitViewport: React.FC<XeokitViewportProps> = ({
     </div>
   );
 };
+
+export default XeokitViewport;
