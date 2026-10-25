@@ -64,9 +64,9 @@ export const OnboardingCard: React.FC<OnboardingCardProps> = ({ onUpload, onOpen
       </div>
 
       <p className="text-xs text-[var(--text-secondary)] text-left mb-4">
-        Open an IFC model to inspect its spatial hierarchy, properties and coordinates. You land in
-        <span className="text-[var(--text-primary)] font-medium"> Query</span> mode - CAD authoring tools are one
-        profile switch away in the header.
+        Open an IFC model to inspect its spatial hierarchy, properties and coordinates. CAD authoring
+        tools are one <span className="text-[var(--text-primary)] font-medium">profile switch</span> away in
+        the header.
       </p>
 
       <div className="flex items-center justify-center gap-2 mb-3">

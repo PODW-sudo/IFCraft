@@ -100,6 +100,7 @@ export const App: React.FC = () => {
   // Modal Manager: Centralized visibility and focus state
   const [isDrawingSheetsOpen, setIsDrawingSheetsOpen] = useState(false);
   const [isShortcutLegendOpen, setIsShortcutLegendOpen] = useState(false);
+  const [isOnboardingDismissed, setIsOnboardingDismissed] = useState(false);
 
   // Two-key sequence buffer for Revit standard shortcuts (RO, MM, DM, AR, AL, PN, UP, MV, CO).
   // Declared before the shortcut effect so the listener can refuse to fire mid-sequence.
@@ -1864,34 +1865,38 @@ export const App: React.FC = () => {
       {/* Empty State Overlay */}
       {geometries.length === 0 && !isLoading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none z-10">
-          {/* STEP-28 F-051: first-run card (once, dismissible). The panel below is the
-              "no geometry in this project" state and stays. */}
-          {!hasCompletedOnboarding() && (
+          {/* STEP-28 F-051: one welcome surface at a time. The first-run card owns the
+              empty state until it is dismissed; afterwards the project-specific
+              "Spatial Canvas Ready" panel takes over. Showing both duplicated the same
+              two actions. */}
+          {!hasCompletedOnboarding() && !isOnboardingDismissed ? (
             <OnboardingCard
               onUpload={() => setIsUploadModalOpen(true)}
               onOpenSample={() => setIsNewProjectModalOpen(true)}
+              onDismiss={() => setIsOnboardingDismissed(true)}
             />
-          )}
-          <div className="p-6 rounded-2xl bg-[var(--dock-translucent)] border border-[var(--border-subtle)] text-center max-w-sm pointer-events-auto backdrop-blur-2xl shadow-[var(--shadow-hud)]">
-            <p className="text-sm font-semibold text-slate-200 mb-1">Spatial Canvas Ready</p>
-            <p className="text-xs text-slate-400 mb-4">
-              This IFC model currently contains spatial containers. Upload an IFC file or open sample models to explore 3D elements.
-            </p>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-cyan-400 hover:bg-cyan-300 text-slate-950 transition-colors shadow-sm"
-              >
-                Upload IFC
-              </button>
-              <button
-                onClick={() => setIsNewProjectModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-white transition-colors border border-[var(--border-subtle)]"
-              >
-                Sample Models
-              </button>
+          ) : (
+            <div className="p-6 rounded-2xl bg-[var(--dock-translucent)] border border-[var(--border-subtle)] text-center max-w-sm pointer-events-auto backdrop-blur-2xl shadow-[var(--shadow-hud)]">
+              <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Spatial Canvas Ready</p>
+              <p className="text-xs text-[var(--text-secondary)] mb-4">
+                This IFC model currently contains spatial containers. Upload an IFC file or open sample models to explore 3D elements.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-cyan-400 hover:bg-cyan-300 text-slate-950 transition-colors shadow-sm"
+                >
+                  Upload IFC
+                </button>
+                <button
+                  onClick={() => setIsNewProjectModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--control-bg)] hover:bg-[var(--control-hover)] text-[var(--text-primary)] transition-colors border border-[var(--border-subtle)]"
+                >
+                  Sample Models
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
