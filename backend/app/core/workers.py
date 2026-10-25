@@ -51,3 +51,32 @@ async def run_ifc(
     return await loop.run_in_executor(
         ifc_executor, functools.partial(fn, *args, **kwargs)
     )
+
+
+def executor_stats() -> dict[str, int]:
+    """Snapshot of the IFC pool's capacity and backlog (STEP-04 observability, item 2.5).
+
+    `queued` is the number of submitted callables that no worker has picked up yet, i.e.
+    the depth of the executor's work queue. With `max_workers=2`, a value above zero while
+    the API feels slow means a clash check and a spatial-tree read are contending for the
+    same two slots — the throughput ceiling recorded in the audit (open issue 2.5).
+
+    The queue is private API (`ThreadPoolExecutor._work_queue` is a `queue.SimpleQueue`),
+    so every access is guarded and a future rename degrades to `queued: 0` rather than
+    breaking `/health`. Cheap and non-blocking: `SimpleQueue.qsize()` is an approximation
+    by design and never waits on the queue's internal lock for long.
+    """
+    max_workers = int(getattr(ifc_executor, "_max_workers", IFC_EXECUTOR_MAX_WORKERS) or 0)
+
+    queued = 0
+    work_queue = getattr(ifc_executor, "_work_queue", None)
+    qsize = getattr(work_queue, "qsize", None)
+    if callable(qsize):
+        try:
+            queued = max(0, int(qsize()))
+        except (AttributeError, NotImplementedError, OSError, ValueError):
+            # CPython raises NotImplementedError on some platforms for SimpleQueue.qsize;
+            # monitoring must never take the health endpoint down.
+            queued = 0
+
+    return {"max_workers": max_workers, "queued": queued}

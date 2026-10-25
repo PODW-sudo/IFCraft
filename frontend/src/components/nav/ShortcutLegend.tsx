@@ -60,9 +60,9 @@ export const ShortcutLegend: React.FC<ShortcutLegendProps> = ({ isOpen, onClose 
         data-qa="shortcut-legend"
         onKeyDown={onKeyDown}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl"
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-[var(--dock-translucent)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl"
       >
-        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200/80 dark:border-white/10">
+        <div className="flex items-start justify-between px-5 py-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-500 dark:text-sky-400">
               <Keyboard className="w-4 h-4" aria-hidden="true" />
@@ -70,11 +70,11 @@ export const ShortcutLegend: React.FC<ShortcutLegendProps> = ({ isOpen, onClose 
             <div>
               <h2
                 id="shortcut-legend-title"
-                className="text-sm font-semibold text-slate-900 dark:text-slate-100 tracking-tight"
+                className="text-sm font-semibold text-[var(--text-primary)] tracking-tight"
               >
                 Keyboard shortcuts
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-[var(--text-secondary)]">
                 Press ? anywhere to reopen this list
               </p>
             </div>
@@ -84,7 +84,7 @@ export const ShortcutLegend: React.FC<ShortcutLegendProps> = ({ isOpen, onClose 
             onClick={onClose}
             aria-label="Close keyboard shortcuts"
             data-qa="close-shortcut-legend-btn"
-            className="p-1.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+            className="p-1.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--control-hover)] dark:hover:text-[var(--text-primary)] dark:hover:bg-[var(--control-hover)] transition-colors"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -93,7 +93,7 @@ export const ShortcutLegend: React.FC<ShortcutLegendProps> = ({ isOpen, onClose 
         <div className="px-5 py-4 space-y-5">
           {grouped.map(({ group, entries }) => (
             <section key={group}>
-              <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
                 {group}
               </h3>
               <dl className="space-y-1.5">
@@ -112,14 +112,14 @@ export const ShortcutLegend: React.FC<ShortcutLegendProps> = ({ isOpen, onClose 
 function ShortcutRow({ shortcut }: { shortcut: ShortcutDef }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <dt className="text-xs text-slate-700 dark:text-slate-300">
+      <dt className="text-xs text-[var(--text-secondary)]">
         {shortcut.label}
         {shortcut.requiresSelection && (
-          <span className="ml-1.5 text-[10px] text-slate-400 dark:text-slate-500">(with a selection)</span>
+          <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">(with a selection)</span>
         )}
       </dt>
       <dd className="shrink-0">
-        <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-200">
+        <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--border-subtle)] text-[var(--text-secondary)] dark:text-[var(--text-primary)]">
           {formatShortcut(shortcut)}
         </kbd>
       </dd>

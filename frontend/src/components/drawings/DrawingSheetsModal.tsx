@@ -44,6 +44,7 @@ import {
 } from '../../services/drawingSheets';
 import { createWheelZoom } from '../../services/wheelZoom';
 import { useModalFocusTrap } from '../../hooks/modalFocus';
+import { loadPersistedSheets, savePersistedSheets } from '../../services/drawingSheetStore';
 
 interface DrawingSheetsModalProps {
   isOpen: boolean;
@@ -56,6 +57,8 @@ interface DrawingSheetsModalProps {
    * Comes from the spatial tree's root node; defaults to `1` so metre-unit callers are unchanged.
    */
   unitScale?: number;
+  /** Active project id; keys the local sheet/view persistence. Omit for an ephemeral composer. */
+  projectId?: string | null;
   activeSectionCut?: { axis: 'x' | 'y' | 'z'; position: number };
 }
 
@@ -168,6 +171,7 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
   storeys = [],
   projectName = 'BIM Project',
   unitScale = 1,
+  projectId = null,
   activeSectionCut
 }) => {
   // 1. Views are DERIVED from the loaded model, never frozen at mount (F-028).
@@ -298,11 +302,36 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
     };
   }, [isOpen, views, geometries]);
 
+  // F-050: load a project's saved sheets once per project id. A different project resets the
+  // composer first, so sheets can never leak between projects.
+  const persistedProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    if (persistedProjectRef.current === projectId) return;
+    persistedProjectRef.current = projectId ?? null;
+    hasUserSheetEditsRef.current = false;
+    setSheets([]);
+    setActiveSheetId('');
+    setSelectedViewportId(null);
+    setCustomViews([]);
+  }, [isOpen, projectId]);
+
   // Seed the sheet on open, from the props that are current *now* rather than at mount (F-028).
   // Once the user has touched a sheet its state is left alone, so a late model load or a project
   // rename can never overwrite an in-flight edit.
   useEffect(() => {
     if (!isOpen || hasUserSheetEditsRef.current) return;
+
+    const saved = loadPersistedSheets(projectId);
+    if (saved) {
+      persistedProjectRef.current = projectId ?? null;
+      hasUserSheetEditsRef.current = true;
+      setSheets(saved.sheets);
+      setActiveSheetId(saved.activeSheetId);
+      setCustomViews(saved.customViews);
+      setSelectedViewportId(null);
+      return;
+    }
 
     const planView = pickLowestPlanView(planViews);
     const cached = vectorCacheRef.current.get(planView.id);
@@ -314,7 +343,17 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
     setSheets([seeded]);
     setActiveSheetId(seeded.id);
     setSelectedViewportId(null);
-  }, [isOpen, projectName, planViews, unitScale]);
+  }, [isOpen, projectId, projectName, planViews, unitScale]);
+
+  // Persist only after the user has actually edited a sheet/view, so the seeded default keeps
+  // tracking the project's storeys until they take ownership of it.
+  useEffect(() => {
+    if (!isOpen || !projectId || !hasUserSheetEditsRef.current || sheets.length === 0) return;
+    const handle = setTimeout(() => {
+      savePersistedSheets(projectId, sheets, activeSheetId, customViews);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [isOpen, projectId, sheets, activeSheetId, customViews]);
 
   // Physical sheet size in millimeters
   const sheetDimensions = useMemo(() => {
@@ -557,11 +596,11 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
       aria-label="Drawing Sheets and Views"
       data-qa="drawing-sheets-modal"
       data-testid="drawing-sheets-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-md animate-in fade-in select-none text-slate-800 dark:text-slate-100"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-md animate-in fade-in select-none text-[var(--text-primary)]"
     >
       <div className="relative w-full h-full max-w-[96vw] max-h-[94vh] rounded-3xl glass-card bg-[var(--glass-surface-panel)] backdrop-blur-2xl border border-[var(--glass-border)] shadow-2xl flex flex-col overflow-hidden">
         {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border-subtle)] bg-white/20 dark:bg-slate-900/40">
+        <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border-subtle)] bg-[var(--dock-translucent)]">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <LayoutGrid className="w-5 h-5" />
@@ -595,11 +634,11 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
               title="Print Sheet / Save as PDF"
               data-qa="btn-print-sheet"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
+              <Printer className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
               <span>Print / PDF</span>
             </button>
 
-            <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+            <div className="h-4 w-px bg-[var(--border-subtle)] mx-1" />
 
             <button
               type="button"
@@ -616,7 +655,7 @@ export const DrawingSheetsModal: React.FC<DrawingSheetsModalProps> = ({
         {/* Main Content: Left Inspector & Right Canvas */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Controls & Library Sidebar */}
-          <div className="w-84 border-r border-[var(--border-subtle)] bg-white/40 dark:bg-slate-900/60 p-4 flex flex-col gap-4 overflow-y-auto">
+          <div className="w-84 border-r border-[var(--border-subtle)] bg-[var(--glass-surface-card)] p-4 flex flex-col gap-4 overflow-y-auto">
             {/* 1. Active Sheet Selector */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">

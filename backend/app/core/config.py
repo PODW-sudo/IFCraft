@@ -45,7 +45,43 @@ class Settings(BaseModel):
     # STEP-05 / F-003: process-lifetime bearer token. Filled in below from
     # `storage/.api_token` (or the API_TOKEN environment variable when one is supplied).
     API_TOKEN: str = os.getenv("API_TOKEN", "")
+
+    # Signed session identity (open issue 3.5).
+    #
+    # The WS `user_id` used to be whatever the client sent, so presence and soft locks were
+    # advisory: any local page that got past the Origin check could claim another architect's
+    # id. A browser now has to present an HMAC-signed session token bound to that id, issued by
+    # `POST /api/bootstrap/session`. 12 h outlives a working day and a reconnect.
+    SESSION_TOKEN_TTL_SECONDS: int = 12 * 3600
+    MAX_SESSION_USER_ID_LENGTH: int = 128
+
+    # WebSocket heartbeat (open issue 3.3). The server pings every 25 s and closes a socket
+    # that has sent nothing at all for 60 s (two missed pings), so a half-open connection
+    # (laptop lid closed, VPN drop) releases its session and soft locks instead of waiting for
+    # TCP to notice — which can take minutes.
+    WS_PING_INTERVAL_SECONDS: float = 25.0
+    WS_IDLE_TIMEOUT_SECONDS: float = 60.0
     
+    # AI rate limit (open issue 3.1 / F-019 quota half)
+    #
+    # STEP-05 gives the installation one shared token, so there is no per-user identity to
+    # meter. What we can bound is spend: the provider-calling copilot routes admit 30
+    # requests per caller per minute, in memory (see core/rate_limit.py). 30/min is far above
+    # a person typing in the copilot (a chat turn is one request) and far below a script
+    # draining a paid key. Set AI_RATE_LIMIT_ENABLED=false for a benchmark or a load test.
+    AI_RATE_LIMIT_REQUESTS: int = 30
+    AI_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
+    AI_RATE_LIMIT_ENABLED: bool = True
+
+    # Single-writer guard (open issue 3.4 / STEP-03 follow-up)
+    #
+    # The per-project write lock in services/atomic_store.py is an asyncio lock: it serialises
+    # writers inside one process and does nothing between two uvicorn processes. Two backends
+    # (a stray `uvicorn --reload` parent/child pair, or a second worker) would interleave model
+    # writes. The lifespan now takes an exclusive OS lock on `storage/.server.lock` and refuses
+    # to start when another live process holds it (see core/server_lock.py).
+    ENFORCE_SINGLE_WRITER: bool = True
+
     # Server host & port
     HOST: str = "127.0.0.1"
     PORT: int = 8000

@@ -212,6 +212,48 @@ export interface ClashCheckResponse {
   tolerance: number;
   clashes: ClashRecord[];
   duration_ms: number;
+  /**
+   * Completeness signal (STEP-06 / audit 2.7). Optional because a payload from an older
+   * server may omit them; the inspector must never claim "0 checked" when they are absent.
+   *
+   * Unique target elements considered by the check (deduplicated by express id), including
+   * those counted in `geometry_failures`.
+   */
+  elements_checked?: number;
+  /** Target elements whose geometry could not be built and were therefore never checked. */
+  geometry_failures?: number;
+  /** True when only a subset of the model was examined (a cap was applied). */
+  sampled?: boolean;
+}
+
+// --- Background clash jobs (audit issue 2.1) -------------------------------
+// The synchronous `POST /clashes/check` contract is unchanged; this is the additive job API
+// used by the inspector so a long scan never blocks the request.
+
+export type ClashJobStatusValue = 'queued' | 'running' | 'succeeded' | 'failed';
+
+/** `queued` until work starts, then the dominant phase, then a terminal label. */
+export type ClashJobPhase = 'queued' | 'extracting' | 'comparing' | 'done' | 'failed';
+
+export interface ClashJobProgress {
+  phase?: ClashJobPhase;
+  /** Cumulative work units completed (elements boxed, then element pairs compared). */
+  checked: number;
+  /** Cumulative work units for the job; grows when another model is opened. */
+  total: number;
+}
+
+export interface ClashJobStartResponse {
+  job_id: string;
+  status: ClashJobStatusValue;
+}
+
+export interface ClashJobStatus {
+  job_id: string;
+  status: ClashJobStatusValue;
+  progress?: ClashJobProgress;
+  result: ClashCheckResponse | null;
+  error: string | null;
 }
 
 export type CadToolMode = 'select' | 'wall' | 'slab' | 'column' | 'door' | 'window';

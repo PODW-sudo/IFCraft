@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  image-size: 2.0.3
+
 importers:
 
   .:
@@ -1164,9 +1167,9 @@ packages:
     resolution: {integrity: sha512-fPU6BHNpsyIhr8yyMpTLLxAbkaK8ArIBcmZIRiBLiDhjeqvXolaEmDGmELFuX9I4xDcaKKcJl+TKZLqruBbmWA==}
     engines: {node: '>=8.0.0'}
 
-  image-size@0.7.5:
-    resolution: {integrity: sha512-Hiyv+mXHfFEP7LzUL/llg9RwFxxY+o9N3JVLIeG5E7iFIFAalxvRU9UZthBdYDEVnzHMgjnKJPPpay5BWf1g9g==}
-    engines: {node: '>=6.9.0'}
+  image-size@2.0.3:
+    resolution: {integrity: sha512-9BJAtVCBth+76NwqnEfWr3PiRnYhbquk6K/USuQ1GQajz5NgLzO7tNsnoNjHfO7LuftgkBf+CCH6j28hjMbIYQ==}
+    engines: {node: '>=18'}
     hasBin: true
 
   indent-string@4.0.0:
@@ -2594,7 +2597,7 @@ snapshots:
       css-line-break: 2.1.0
       text-segmentation: 1.0.3
 
-  image-size@0.7.5: {}
+  image-size@2.0.3: {}
 
   indent-string@4.0.0: {}
 
@@ -2896,7 +2899,7 @@ snapshots:
   texture-compressor@1.0.2:
     dependencies:
       argparse: 1.0.10
-      image-size: 0.7.5
+      image-size: 2.0.3
 
   three-mesh-bvh@0.9.15(three@0.186.1):
     dependencies:

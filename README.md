@@ -136,6 +136,17 @@ pnpm run dev
 
 Open `http://localhost:5173` in your browser.
 
+> **One backend per storage directory.** Startup takes an exclusive OS lock on
+> `storage/.server.lock` (open issue 3.4) and fails with a critical log - `Another IFC Editor
+> backend is already running` - when a second process tries to serve the same `storage/`. Use
+> `--workers 1` (the default) and stop the previous backend before starting a new one. The
+> guard is disabled only by `ENFORCE_SINGLE_WRITER = False` in `backend/app/core/config.py`.
+
+> **AI quota guard.** `POST /api/copilot/chat` and both `/api/copilot/models` routes admit 30
+> requests per caller per minute in memory (`AI_RATE_LIMIT_*` in `backend/app/core/config.py`);
+> beyond that they answer `429` with `Retry-After`. `/health`, project routes and the WebSocket
+> are not metered.
+
 ---
 
 ## 🧪 Deterministic Quality Gates & Automated Tests
@@ -151,6 +162,89 @@ cd frontend
 pnpm exec tsc --noEmit
 pnpm run build
 ```
+
+### Performance budget (open issue 2.4)
+
+The ROADMAP performance budget is asserted by `backend/tests/perf/` against two datasets — the
+tracked 47 MB `backend/app/samples/Ifc2x3_SampleCastle.ifc` (3,822 products) and a
+50,000-product model generated once per session. Both go through the real API (`POST
+/api/projects/upload` → `GET /api/projects/{id}/spatial-tree`), with `/health` polled
+concurrently; nothing is mocked and no browser is needed.
+
+```bash
+# The budget itself (1-2 minutes). The `perf` marker is excluded from the default run.
+.\backend\venv\Scripts\python.exe -m pytest backend/tests/perf -q -m perf -s
+
+# The same measurements as a one-command local report (no pytest, exit code 1 on a miss)
+.\backend\venv\Scripts\python.exe scripts/perf_budget.py
+
+# Skip the generated 50k model on a small/loaded machine
+.\backend\venv\Scripts\python.exe scripts/perf_budget.py --skip-synthetic
+```
+
+| Measurement | Budget | Where |
+|---|---|---|
+| Cold `GET /spatial-tree`, castle 47 MB | < 15 s | `test_castle_cold_spatial_tree_within_budget` |
+| Warm `GET /spatial-tree` (model-cache hit) | < 300 ms (best of 3, all samples printed) | `test_castle_warm_spatial_tree_within_budget` |
+| `/health` p95 while the cold tree runs | < 200 ms | `test_castle_health_p95_within_budget_during_cold_tree` |
+| Model-cache hits increase on the warm read | miss +1, hit +1 | `test_castle_warm_read_increases_model_cache_hits` |
+| Cold `GET /spatial-tree`, synthetic 50k | < 15 s | `test_synthetic_spatial_tree_within_budget` |
+| `/health` p95 during the 50k tree | < 1,500 ms envelope (target 200 ms) | `test_synthetic_health_p95_within_budget` |
+
+The 50k `/health` envelope is wider than the ROADMAP target on purpose: at 50k the request is
+Python-bound (50,000 pydantic nodes) and `/health` waits on GIL handoff. The reasoning and the
+measured values are in `backend/tests/perf/perf_support.py::SYNTHETIC_HEALTH_BUDGET_P95_MS` and
+in `DEVELOPMENT_HANDOFF.md`.
+
+The budget is wall-clock, so run it on an idle machine. CI runs it in its own `perf-budget` job
+(`.github/workflows/qa-harness.yml`), separate from the fast unit job. First pixels, orbit fps
+and hover-raycast latency are **not** asserted here — they need a real WebGL context and live in
+the CDP browser tier (`python scripts/qa_runner.py run --tier key --browser`).
+
+`GET /health` is public and now reports the STEP-04 pool/cache telemetry (open issue 2.5). Example
+payload (the counters move with traffic; `entries` is a backwards-compatible alias of `models`):
+
+```json
+{
+  "status": "ok", "version": "1.0.0", "ifcopenshell_version": "0.9.0",
+  "database_ok": true, "project_count": 34, "timestamp": "2026-10-25T15:31:02+00:00",
+  "ifc": {"max_workers": 2, "queued": 0},
+  "model_cache": {"models": 2, "entries": 2, "max_models": 4, "bytes": 51808201,
+                  "max_bytes": 805306368, "hits": 14, "misses": 3, "evictions": 0},
+  "locks": {"registry_size": 2}
+}
+```
+
+### Dependency CVE gate (open issue 3.7)
+
+CI runs the two dependency audits in the `security-audit` job of
+`.github/workflows/qa-harness.yml`: `pip-audit -r backend/requirements.txt` (fails on any known
+vulnerable PyPI requirement) and `pnpm audit --prod --audit-level high` in `frontend/` (fails on
+high/critical production dependencies). The same two commands are available locally as one
+report:
+
+```bash
+# Run both audits and print a summary (exit 1 on findings, 0 when clean)
+.\backend\venv\Scripts\python.exe scripts/security_audit.py
+
+# The individual commands, if you prefer
+.\backend\venv\Scripts\python.exe -m pip_audit -r backend/requirements.txt   # pip install pip-audit
+cd frontend; pnpm audit --prod --audit-level high
+```
+
+A tool that is not installed is reported as `SKIPPED` with its install command rather than
+passing silently. Neither command edits `requirements.txt` or `pnpm-lock.yaml`; a dependency bump
+is a reviewed change.
+
+### Test fixtures are local-only
+
+The large IFC fixtures in `modelsfortests/` are intentionally **not tracked in git** (STEP-26 / F-057).
+They stay on disk for this checkout, and any fixture-dependent test skips with a clear message when a
+file is absent. To use a different directory, set `IFC_FIXTURES_DIR` before running pytest. The Vite dev
+server serves `modelsfortests/*` at `/modelsfortests/*` for the federation sample loader; a production
+build does not include them, and the UI now says so instead of failing silently.
+
+No Git LFS or paid storage is used.
 
 ---
 

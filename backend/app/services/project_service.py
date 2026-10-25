@@ -326,37 +326,57 @@ class ProjectService:
         return True
 
     @classmethod
-    async def refresh_project_metrics(cls, project_id: str) -> None:
-        """Recompute file_size, element_count and updated_at from the model on disk.
+    async def refresh_project_metrics(
+        cls,
+        project_id: str,
+        *,
+        element_count: Optional[int] = None,
+        count_unchanged: bool = False,
+    ) -> None:
+        """Refresh ``file_size`` / ``element_count`` / ``updated_at`` for a project row.
 
         STEP-19 / F-023: the project row never moved after a CAD edit, so a 12-element
         model still reported 12 after the user added forty walls. This is the single
         place that writes those three columns - do not add a second
         `UPDATE projects SET element_count` anywhere else.
 
-        The parse runs off the event loop on the bounded IFC pool (`run_ifc`), under the
-        per-project lock: a concurrent writer must not replace `model.ifc` while the
-        metrics parse holds it open (Windows refuses the replace). A corrupt or
-        unreadable model still updates `file_size`/`updated_at` so the user sees that
-        something changed; the parse failure is logged rather than raised.
+        Cost (audit 2.2): a full ``IFCService.validate_ifc`` parse per write cost 73 ms on
+        a 12-element model and seconds on a 49 MB one, which every gizmo commit paid.
+        Callers that already have the model open pass the count instead:
+
+        * ``element_count=N``  - the caller read ``IfcProduct`` from the model it just
+          wrote; no parse at all.
+        * ``count_unchanged=True`` - the write cannot have added or removed a product
+          (a transform, a resize, a storey/material change); the column is left as-is.
+        * neither - a real parse. Reserved for import, undo/redo restores and any caller
+          that genuinely does not know the count (e.g. ``record_edit`` from an HTTP route).
+
+        The column write still happens under the per-project lock (file_size is read
+        there), so a concurrent writer cannot replace `model.ifc` between the stat and
+        the UPDATE. A corrupt or unreadable model still updates `file_size`/`updated_at`
+        so the user sees that something changed; the parse failure is logged, not raised.
         """
         ifc_path = cls.get_project_file_path(project_id)
         if not ifc_path.exists():
             return
 
-        element_count: Optional[int]
+        resolved_count: Optional[int] = None
+        if element_count is not None:
+            resolved_count = int(element_count)
+
         async with project_write_lock(project_id):
-            try:
-                metrics = await run_ifc(IFCService.validate_ifc, ifc_path)
-                element_count = metrics["element_count"]
-            except Exception as exc:
-                logger.warning("Could not recompute metrics for project %s: %s", project_id, exc)
-                element_count = None
+            if resolved_count is None and not count_unchanged:
+                try:
+                    metrics = await run_ifc(IFCService.validate_ifc, ifc_path)
+                    resolved_count = int(metrics["element_count"])
+                except Exception as exc:
+                    logger.warning("Could not recompute metrics for project %s: %s", project_id, exc)
+                    resolved_count = None
 
             now = cls._now_iso()
             file_size = ifc_path.stat().st_size
             async with get_db_connection() as db:
-                if element_count is None:
+                if resolved_count is None:
                     await db.execute(
                         "UPDATE projects SET file_size = ?, updated_at = ? WHERE id = ?",
                         (file_size, now, project_id),
@@ -364,7 +384,7 @@ class ProjectService:
                 else:
                     await db.execute(
                         "UPDATE projects SET file_size = ?, element_count = ?, updated_at = ? WHERE id = ?",
-                        (file_size, element_count, now, project_id),
+                        (file_size, resolved_count, now, project_id),
                     )
                 await db.commit()
 
@@ -377,7 +397,10 @@ class ProjectService:
         action_type: str,
         express_id: Optional[int],
         entity_type: Optional[str],
-        payload: dict
+        payload: dict,
+        *,
+        element_count: Optional[int] = None,
+        count_unchanged: bool = False,
     ) -> None:
         """Record an edit action in audit log and touch project updated_at."""
         now = cls._now_iso()
@@ -395,4 +418,9 @@ class ProjectService:
         # STEP-19: one writer for the derived project metrics (file_size, element_count,
         # updated_at). Recomputing here keeps the row truthful after a property or
         # placement edit, and means CADService has exactly one function to call too.
-        await cls.refresh_project_metrics(project_id)
+        # audit 2.2: an edit that cannot change the product count passes
+        # `count_unchanged=True` (or the count it already knows) so the refresh does not
+        # re-parse the whole model.
+        await cls.refresh_project_metrics(
+            project_id, element_count=element_count, count_unchanged=count_unchanged
+        )

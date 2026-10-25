@@ -11,9 +11,16 @@ from ..core.workers import run_ifc
 from ..models.schemas import (
     SubModelResponse,
     ClashCheckRequest,
-    ClashCheckResponse
+    ClashCheckResponse,
+    ClashJobStartResponse,
+    ClashJobStatusResponse,
 )
 from ..services.atomic_store import atomic_write_bytes
+from ..services.clash_jobs import (
+    ClashJobBusy,
+    ClashJobCapacity,
+    registry as clash_jobs,
+)
 from ..services.ifc_service import IFCService
 from ..services.clash_service import ClashService
 from ..services.project_service import (
@@ -218,3 +225,51 @@ async def check_clashes(project_id: str, req: ClashCheckRequest) -> ClashCheckRe
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Clash check failed. See the server log for details.",
         )
+
+
+@router.post(
+    "/clashes/jobs",
+    response_model=ClashJobStartResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_clash_job(project_id: str, req: ClashCheckRequest) -> ClashJobStartResponse:
+    """Start a background clash check and return its id immediately (audit issue 2.1).
+
+    The synchronous `POST /clashes/check` above is unchanged and remains the contract the QA
+    harness and existing tests use; this route exists so the UI never waits 47 s on one request.
+    """
+    _require_uuid(project_id)
+    project = await ProjectService.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found.")
+
+    try:
+        job = clash_jobs.start(
+            project_id=project_id,
+            tolerance=req.tolerance,
+            model_ids=req.model_ids,
+        )
+    except ClashJobBusy as e:
+        logger.info("Refused duplicate clash job for %s: %s", project_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A clash check is already running for this project.",
+        )
+    except ClashJobCapacity:
+        logger.warning("Clash job registry is full; refusing start for %s", project_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many clash checks are running. Retry shortly.",
+        )
+
+    return ClashJobStartResponse(job_id=job.job_id, status=job.status)
+
+
+@router.get("/clashes/jobs/{job_id}", response_model=ClashJobStatusResponse)
+async def get_clash_job(project_id: str, job_id: str) -> ClashJobStatusResponse:
+    """Poll a background clash check. Unknown ids and ids from another project are both 404."""
+    _require_uuid(project_id)
+    job = clash_jobs.get(project_id, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clash job not found.")
+    return job.snapshot()

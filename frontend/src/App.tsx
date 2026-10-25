@@ -2014,6 +2014,7 @@ export const App: React.FC = () => {
         geometries={geometries}
         storeys={storeys}
         projectName={currentProject?.name}
+        projectId={currentProject?.id ?? null}
         unitScale={spatialTree?.unit_scale ?? 1}
         activeSectionCut={sectionConfig.enabled ? { axis: sectionConfig.axis, position: sectionConfig.position } : undefined}
       />

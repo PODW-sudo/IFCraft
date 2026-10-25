@@ -82,9 +82,20 @@ def test_geometry_extraction_covers_more_than_25_elements_per_type(duplex_model)
     """The 25-elements-per-type cap silently ignores most of the model.
 
     Today `for prod in elements[:25]` means a 57-wall model has 32 walls never checked.
+
+    NOTE (STEP-06 implementation, 2026-10-25): this test used to sum
+    `by_type("IfcWall")` + `by_type("IfcWallStandardCase")`, which double-counts — in IFC2x3
+    `IfcWallStandardCase` *is* a subtype of `IfcWall`, so `by_type("IfcWall")` already returns
+    all 56 of them. The fixture has 57 unique walls, not 113 (measured: 57 + 56 = 113 naive,
+    57 unique express ids). Counting unique express ids and requiring every wall id to be
+    boxed is strictly stronger than the original cap check. (Issue 4.4: this shipped copy
+    now matches `backend/tests/test_step06_clash_correctness.py`.)
     """
     model = ifcopenshell.open(str(duplex_model))
-    wall_count = len(model.by_type("IfcWall")) + len(model.by_type("IfcWallStandardCase"))
+    wall_ids = {w.id() for w in model.by_type("IfcWall")} | {
+        w.id() for w in model.by_type("IfcWallStandardCase")
+    }
+    wall_count = len(wall_ids)
     assert wall_count > 25, "fixture needs more than 25 walls to prove the cap is gone"
 
     boxes = ClashService._extract_element_boxes(
@@ -96,6 +107,8 @@ def test_geometry_extraction_covers_more_than_25_elements_per_type(duplex_model)
         f"Only {len(wall_boxes)} of {wall_count} walls were extracted — the per-type sample cap "
         "is still in effect."
     )
+    missing = wall_ids - {b.express_id for b in wall_boxes}
+    assert not missing, f"{len(missing)} walls were never boxed: {sorted(missing)[:10]}"
 
 
 def test_geometry_failures_are_reported_not_swallowed(duplex_model):

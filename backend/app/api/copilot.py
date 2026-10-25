@@ -1,28 +1,34 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from ..models.schemas import (
     CopilotChatRequest,
     CopilotChatResponse,
     CopilotModelsRequest,
     CopilotModelsResponse
 )
+from ..core.rate_limit import enforce_ai_rate_limit
 from ..services.ai_service import AIService
 
 logger = logging.getLogger("ifc_editor.copilot_api")
 router = APIRouter(prefix="/copilot", tags=["AI Copilot"])
+
+#: Open issue 3.1: these three routes call a provider (and therefore spend the server's
+#: quota), so they - and only they - carry the sliding-window limiter. `/providers` is a
+#: static in-process list and stays unmetered.
+PROVIDER_SPEND_LIMIT = [Depends(enforce_ai_rate_limit)]
 
 @router.get("/providers", response_model=list[dict])
 async def get_providers():
     """List supported AI Copilot providers and their models."""
     return AIService.get_supported_providers()
 
-@router.post("/models", response_model=CopilotModelsResponse)
+@router.post("/models", response_model=CopilotModelsResponse, dependencies=PROVIDER_SPEND_LIMIT)
 async def get_models_post(request: CopilotModelsRequest):
     """Dynamically discover available models for a provider and API key."""
     return await _discover_models(request.provider, request.api_key, request.base_url)
 
-@router.get("/models", response_model=CopilotModelsResponse)
+@router.get("/models", response_model=CopilotModelsResponse, dependencies=PROVIDER_SPEND_LIMIT)
 async def get_models_get(
     provider: str = "gemini",
     api_key: Optional[str] = None,
@@ -51,7 +57,7 @@ async def _discover_models(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/chat", response_model=CopilotChatResponse)
+@router.post("/chat", response_model=CopilotChatResponse, dependencies=PROVIDER_SPEND_LIMIT)
 async def copilot_chat(request: CopilotChatRequest):
     """Process a chat interaction with the AI Copilot, executing tools as needed."""
     try:

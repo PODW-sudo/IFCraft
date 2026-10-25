@@ -220,5 +220,53 @@ def test_clash_detection_and_bcf_workflow():
             assert "modified" in diff_data
             assert "deleted" in diff_data
 
+            # 7b. Audit diff must classify real edits, not just expose bucket names. A deleted
+            # element shipped in `added` before STEP-19 (F-022/F-023); a shape-only assertion
+            # cannot catch that regression.
+            wall_res = client.post(
+                f"/api/projects/{project_id}/cad/wall",
+                json={
+                    "start": [0.0, 0.0],
+                    "end": [4.0, 0.0],
+                    "elevation": 0.0,
+                    "height": 3.0,
+                    "thickness": 0.2,
+                    "name": "AutoTest-audit-diff-wall"
+                }
+            )
+            assert wall_res.status_code == 200, f"Wall creation failed: {wall_res.text}"
+            audit_wall_id = wall_res.json()["express_id"]
+
+            after_create = client.get(f"/api/projects/{project_id}/audit/diff").json()
+            assert audit_wall_id in after_create["added"], after_create
+            assert audit_wall_id not in after_create["deleted"], after_create
+
+            delete_res = client.delete(
+                f"/api/projects/{project_id}/cad/elements/{audit_wall_id}"
+            )
+            assert delete_res.status_code == 200, f"Delete failed: {delete_res.text}"
+
+            after_delete = client.get(f"/api/projects/{project_id}/audit/diff").json()
+            assert audit_wall_id in after_delete["deleted"], (
+                f"deleted element #{audit_wall_id} was not bucketed as deleted: {after_delete}"
+            )
+            assert audit_wall_id not in after_delete["added"], (
+                f"deleted element #{audit_wall_id} still reported as added: {after_delete}"
+            )
+            assert audit_wall_id not in after_delete["modified"], after_delete
+
+            # Undo re-applies the model state: the delete becomes UNDONE and leaves the diff
+            # (product decision — UNDONE rows are excluded), so the create is the newest ACTIVE
+            # verdict again and the element reads as added.
+            undo_res = client.post(f"/api/projects/{project_id}/cad/undo")
+            assert undo_res.status_code == 200, f"Undo failed: {undo_res.text}"
+            assert undo_res.json()["success"] is True, undo_res.text
+
+            after_undo = client.get(f"/api/projects/{project_id}/audit/diff").json()
+            assert audit_wall_id in after_undo["added"], (
+                f"element #{audit_wall_id} was not restored by undo: {after_undo}"
+            )
+            assert audit_wall_id not in after_undo["deleted"], after_undo
+
         finally:
             client.delete(f"/api/projects/{project_id}")

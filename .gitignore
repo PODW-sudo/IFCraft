@@ -8,9 +8,12 @@ __pycache__/
 storage/projects/*
 !storage/projects/.gitkeep
 storage/projects.db
+storage/projects_archive/
 storage/projects.db-journal
 # STEP-05 / F-003: per-install API token - never commit it
 storage/.api_token
+# Open issue 3.4: single-writer OS lock marker (empty file, per machine)
+storage/.server.lock
 
 # Node / Frontend
 node_modules/

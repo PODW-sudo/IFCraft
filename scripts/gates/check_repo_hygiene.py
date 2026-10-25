@@ -72,6 +72,21 @@ def check_large_files(tracked: list[str]) -> list[str]:
     return problems
 
 
+def _is_canonical_mirror(paths: list[str]) -> bool:
+    """A docs test and its executed copy are an intentional mirror, not dead weight.
+
+    docs/audit-2026-10/tests/ is the audit package's ready-to-run test set; the same file under
+    backend/tests/ is what CI executes. They are expected to be byte-identical until one is edited.
+    """
+    if len(paths) != 2:
+        return False
+    backend = [p for p in paths if p.startswith("backend/tests/")]
+    docs = [p for p in paths if p.startswith("docs/audit-2026-10/tests/")]
+    if len(backend) != 1 or len(docs) != 1:
+        return False
+    return Path(backend[0]).name == Path(docs[0]).name
+
+
 def check_duplicate_content(tracked: list[str]) -> list[str]:
     by_digest: dict[str, list[str]] = {}
     for relative_path in tracked:
@@ -83,7 +98,7 @@ def check_duplicate_content(tracked: list[str]) -> list[str]:
 
     problems: list[str] = []
     for digest, paths in sorted(by_digest.items()):
-        if len(paths) > 1:
+        if len(paths) > 1 and not _is_canonical_mirror(paths):
             problems.append(f"{digest[:8]}  " + "  ==  ".join(sorted(paths)))
     return problems
 

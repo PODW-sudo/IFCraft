@@ -129,9 +129,17 @@ class ModelCache:
             return len(self._entries)
 
     def stats(self) -> dict[str, int]:
+        """Bounded, O(entries) snapshot for `/health` and the perf budget (item 2.5).
+
+        Keys: `models` (live entries), `max_models`, `bytes` (sum of the cached files),
+        `max_bytes`, `hits`, `misses`, `evictions`. `entries` is kept as an alias of
+        `models` because STEP-04's tests and the handoff notes refer to it.
+        """
         with self._lock:
+            models = len(self._entries)
             return {
-                "entries": len(self._entries),
+                "models": models,
+                "entries": models,
                 "max_models": self._max_models,
                 "bytes": sum(e.file_bytes for e in self._entries.values()),
                 "max_bytes": self._max_bytes,

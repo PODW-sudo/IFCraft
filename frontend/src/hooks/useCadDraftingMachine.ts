@@ -410,10 +410,20 @@ export function useCadDraftingMachine({
         await refreshCadHistory();
         await loadProject(currentProject, expressId);
       } catch (err) {
+        // STEP-21 / issue 1.3 — a refused resize used to be console-only. The 409 carries
+        // `code` + `message`; both are needed to say *why* nothing changed.
+        // Keep the console line for diagnostics, but never let the user see a silent no-op.
+        const detail = err instanceof Error && err.message ? err.message : 'the request failed';
+        const refused = err instanceof api.ApiError && err.code === 'unsupported_geometry';
         console.error('Failed to update geometry:', err);
+        pushUserMessage(
+          refused
+            ? `Geometry edit refused for element #${expressId}: ${detail}`
+            : `Could not update geometry for element #${expressId}: ${detail}`
+        );
       }
     },
-    [currentProject, refreshCadHistory, loadProject]
+    [currentProject, refreshCadHistory, loadProject, pushUserMessage]
   );
 
   const handleAssignStorey = useCallback(

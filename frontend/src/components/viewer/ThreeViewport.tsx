@@ -3077,6 +3077,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     []
   );
   hoverSchedulerRef.current = hoverScheduler;
+  // STEP-23 / issue 4.8: the three readers below (camera-settle re-evaluation, the non-left
+  // `pointerup`, the measure/CAD `pointerup`) expect this ref to exist but nothing ever
+  // assigned it, so hovering did not come back after an MMB orbit until the next real move.
+  // Direct, not scheduled: those paths want the result now, and dedupe still applies because
+  // `applyHoverNotification` is the scheduler's single sink.
+  updateHoverAtScreenCoordsRef.current = (clientX, clientY) => {
+    applyHoverNotification(updateHoverAtScreenCoords(clientX, clientY));
+  };
   // Cancel and cleanup interactive CAD editing
   const handleCancelInteractiveEdit = useCallback(() => {
     setInteractiveEditState({

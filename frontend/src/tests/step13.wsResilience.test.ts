@@ -20,6 +20,10 @@ describe('STEP-13 reconnect policy', () => {
     expect(shouldReconnect(1006)).toBe(true);
     expect(shouldReconnect(1011)).toBe(true);
   });
+
+  it('does not reconnect after a policy refusal (issue 3.5, 1008)', () => {
+    expect(shouldReconnect(1008)).toBe(false);
+  });
 });
 
 describe('STEP-13 outbox', () => {
@@ -79,5 +83,39 @@ describe('STEP-13 server message dispatch', () => {
     expect(dispatchServerMessage({ type: 'SOMETHING_NEW' }, {})).toBe('UNKNOWN');
     expect(dispatchServerMessage(null, {})).toBe('UNKNOWN');
     expect(dispatchServerMessage({}, {})).toBe('UNKNOWN');
+  });
+});
+
+describe('STEP-13 heartbeat dispatch (issue 3.3)', () => {
+  it('answers a server PING with a PONG through the transport', () => {
+    const transport = { send: vi.fn() };
+
+    const handled = dispatchServerMessage({ type: 'PING', ts: 1_700_000_000_000 }, {}, transport);
+
+    expect(handled).toBe('PING');
+    expect(transport.send).toHaveBeenCalledTimes(1);
+    const frame = transport.send.mock.calls[0][0] as { type: string; ts: number };
+    expect(frame.type).toBe('PONG');
+    expect(typeof frame.ts).toBe('number');
+  });
+
+  it('handles a PING with no transport (and no callbacks) without throwing', () => {
+    expect(() => dispatchServerMessage({ type: 'PING' }, {})).not.toThrow();
+    expect(dispatchServerMessage({ type: 'PING' }, {})).toBe('PING');
+  });
+
+  it('ignores a PONG: liveness only, no callback fires', () => {
+    const callbacks = {
+      onServerError: vi.fn(),
+      onCommitRejected: vi.fn(),
+      onSessionReplaced: vi.fn()
+    };
+    const transport = { send: vi.fn() };
+
+    expect(dispatchServerMessage({ type: 'PONG', ts: 1 }, callbacks, transport)).toBe('PONG');
+    expect(transport.send).not.toHaveBeenCalled();
+    expect(callbacks.onServerError).not.toHaveBeenCalled();
+    expect(callbacks.onCommitRejected).not.toHaveBeenCalled();
+    expect(callbacks.onSessionReplaced).not.toHaveBeenCalled();
   });
 });

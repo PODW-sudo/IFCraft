@@ -5,7 +5,8 @@
 
 ## Problem
 
-Clash detection never examines a single wall. On a model with 113 walls it returns
+Clash detection never examines a single wall. On a 57-wall model (the audit's headline "113"
+double-counted `IfcWallStandardCase`, which is an `IfcWall` subtype in IFC2x3) it returns
 "110 clashes" containing **zero `IfcWall` entries**, and the response carries no signal that the
 scan was partial.
 
@@ -30,7 +31,8 @@ for t in target_types:                              # 14 types, several overlapp
 **Measured (`VERIFICATION.md` §3.3, 25 walls attempted):**
 
 ```
-total walls in model: 113 (57 IfcWall + 56 IfcWallStandardCase)
+total walls in model: 57 unique (IfcWall 57, of which 56 are IfcWallStandardCase;
+                         a naive 57 + 56 = 113 double-counts the subtype)
 first 25 walls: geometry_ok=0  geometry_failed=25
    25 x "Failed to process shape. Product: #...=IfcWallStandardCase(...)"
 IfcSlab:   ok=21 failed=0
@@ -128,6 +130,9 @@ AssertionError: ClashCheckResponse is missing 'elements_checked'.
 Present fields: ['clashes','clearance_clashes','duration_ms','hard_clashes','tolerance','total_clashes']
 ```
 
+(The `113` in that pre-fix output is the same double count — the fixture has 57 unique walls, so the
+corrected test asserts `wall_boxes >= 57` **and** that every wall express id is boxed.)
+
 ### 3. Implement
 
 ```python
@@ -185,7 +190,7 @@ return ClashCheckResponse(
 .\backend\venv\Scripts\python.exe -m pytest backend/tests/test_step06_clash_correctness.py -v
 ```
 
-Expected: `4 passed`. The wall box count should equal 113 on that fixture.
+Expected: `4 passed`. All 57 unique wall ids in that fixture must be boxed.
 
 ### 5. Regression guard
 
@@ -199,7 +204,8 @@ record the new duration.
 
 ## Acceptance criteria
 
-- [ ] On the 113-wall fixture, `elements_checked` ≥ 113 and wall boxes > 0.
+- [ ] On the 57-wall fixture, every wall express id is boxed and `elements_checked` ≥ the 141 unique
+      target entities.
 - [ ] No clash item has `element_a_id == element_b_id`.
 - [ ] `geometry_failures` is `0` on a fixture where all geometry resolves, and `> 0` when it does not.
 - [ ] `ClashCheckResponse` exposes `elements_checked`, `sampled`, `geometry_failures`.
@@ -286,8 +292,8 @@ No implementation can satisfy `wall_boxes >= 113` while also satisfying spec ite
 supertype/subtype in the target list, de-duplicate by `express_id`) without emitting each wall
 twice. The repo copy of the test now counts unique wall express ids **and** asserts that every wall
 id is present — strictly stronger against the cap, and consistent with the spec. The canonical copy
-under `docs/audit-2026-10/tests/backend/` was left untouched; it should be corrected to the same
-form.
+under `docs/audit-2026-10/tests/backend/` has been corrected to the same form (issue 4.4), so a
+future copy cannot reintroduce `>= 113`.
 
 ### Deviations from the step text
 

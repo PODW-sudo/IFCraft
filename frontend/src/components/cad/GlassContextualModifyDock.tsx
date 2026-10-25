@@ -35,6 +35,7 @@ import {
 } from '../../services/destructiveActions';
 import { requestDestructiveConfirmation } from '../../services/destructiveConfirmation';
 import { notifyUser } from '../../services/userMessages';
+import { describeGeometryEditability } from '../../services/geometryEditability';
 
 export interface GlassContextualModifyDockProps {
   expressId: number;
@@ -142,6 +143,12 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
   const entityName = elementDetails?.name || `#${expressId}`;
   const showLabels = availableCanvasWidth >= 1350;
   const showDimensions = availableCanvasWidth >= 1200;
+
+  // STEP-21 / issue 1.3 — the backend only resizes walls and columns; flag the rest instead of
+  // letting the user commit an edit that will 409.
+  const geometryEditability = describeGeometryEditability(entityType);
+  const heightFieldDisabled = isPinned || !geometryEditability.canEditHeight;
+  const thicknessFieldDisabled = isPinned || !geometryEditability.canEditThickness;
 
   // Extract dimensions from element details / psets
   let heightVal = 3.0;
@@ -558,14 +565,19 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 </div>
               ) : (
                 <button
+                  data-qa="geometry-height-btn"
                   onClick={() => {
-                    if (isPinned) return;
+                    if (heightFieldDisabled) return;
                     setEditingParam('height');
                     setTempValue(heightVal.toFixed(2));
                   }}
-                  disabled={isPinned}
-                  className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-                  title="Click to edit height"
+                  disabled={heightFieldDisabled}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                  title={
+                    geometryEditability.canEditHeight
+                      ? 'Click to edit height'
+                      : geometryEditability.title ?? undefined
+                  }
                 >
                   <span className="opacity-60">H:</span>
                   <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{heightVal.toFixed(2)}m</span>
@@ -595,14 +607,19 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                   </div>
                 ) : (
                   <button
+                    data-qa="geometry-thickness-btn"
                     onClick={() => {
-                      if (isPinned) return;
+                      if (thicknessFieldDisabled) return;
                       setEditingParam('thickness');
                       setTempValue(thicknessVal.toFixed(2));
                     }}
-                    disabled={isPinned}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-                    title="Click to edit thickness"
+                    disabled={thicknessFieldDisabled}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-mono hover:bg-white/50 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                    title={
+                      geometryEditability.canEditThickness
+                        ? 'Click to edit thickness'
+                        : geometryEditability.title ?? undefined
+                    }
                   >
                     <span className="opacity-60">T:</span>
                     <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{thicknessVal.toFixed(2)}m</span>
@@ -644,6 +661,17 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                   <span className="opacity-60">El:</span>
                   <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">+{elevationVal.toFixed(2)}m</span>
                 </button>
+              )}
+
+              {/* Non-resizable selection: a short reason instead of a silent 409. */}
+              {geometryEditability.hint && (
+                <span
+                  data-qa="geometry-edit-hint"
+                  title={geometryEditability.title ?? geometryEditability.hint}
+                  className="px-1 text-[10px] font-medium whitespace-nowrap text-amber-600 dark:text-amber-400"
+                >
+                  {geometryEditability.hint}
+                </span>
               )}
             </div>
           </>

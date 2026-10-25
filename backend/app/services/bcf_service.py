@@ -60,10 +60,16 @@ def _count_products(file_path: Path) -> int:
 ADDED_ACTIONS = frozenset({
     "create_wall", "create_slab", "create_column", "create_door", "create_window",
     "create_opening", "clone_element", "array_element", "generate_building",
+    # audit 5.8: the AI write path now records transactions; a generated building is new
+    # geometry, not a modification.
+    "ai_generate_building",
 })
 MODIFIED_ACTIONS = frozenset({
     "move_element", "rotate_element", "align_element",
     "transform", "transform_element", "update_property", "update_placement",
+    # audit 5.8: resize / storey / material / AI transform+property are all "modified".
+    "update_geometry", "assign_storey", "assign_material",
+    "ai_transform", "ai_update_property",
 })
 
 

@@ -1,10 +1,12 @@
 import {
   Outbox,
+  POLICY_VIOLATION_CLOSE_CODE,
   dispatchServerMessage,
   nextReconnectDelay,
   shouldReconnect
 } from './wsResilience';
 import type { OutboxMessage } from './wsResilience';
+import { fetchSessionToken, invalidateSessionToken } from './api';
 import { notifyUser } from './userMessages';
 
 export interface Collaborator {
@@ -100,6 +102,14 @@ export class CollaborationClient {
   /** Spec 10 — re-sent on every reconnect so the server-side lock set converges. */
   private lastSelectedExpressId: number | null = null;
 
+  // Issue 3.5 / 3.3 state
+  /** Signed identity for the next JOIN, fetched before the socket is opened. */
+  private sessionToken: string | null = null;
+  /** Invalidates an in-flight `openSocket()` when connect/disconnect is called again. */
+  private connectGeneration = 0;
+  /** One message per connection, not one per failed reconnect. */
+  private sessionRejected = false;
+
   constructor(projectId: string, callbacks: CollaborationCallbacks) {
     this.projectId = projectId;
     this.userProfile = getOrCreateUserProfile();
@@ -155,6 +165,11 @@ export class CollaborationClient {
     return this.userProfile;
   }
 
+  /**
+   * Start (or restart) the transport. Still synchronous for every existing call site: the
+   * socket is opened once the signed session token has been fetched, and the reconnect timer
+   * is set from the same path (issue 3.5).
+   */
   public connect(): void {
     if (typeof WebSocket === 'undefined') {
       console.warn('[collab] WebSocket is unavailable - collaboration disabled');
@@ -162,8 +177,33 @@ export class CollaborationClient {
     }
 
     this.manualClose = false;
+    this.sessionRejected = false;
     this.clearReconnectTimer();
     this.setState('connecting');
+
+    const generation = ++this.connectGeneration;
+    void this.openSocket(generation);
+  }
+
+  /**
+   * Fetch the session token, then open the socket. A token failure is retried through the same
+   * backoff as a dropped connection: it is usually just "the backend is not up yet".
+   */
+  private async openSocket(generation: number): Promise<void> {
+    let token: string;
+    try {
+      token = await fetchSessionToken(this.userProfile.userId);
+    } catch (err) {
+      if (this.manualClose || generation !== this.connectGeneration) return;
+      console.warn('[collab] could not obtain a session token', err);
+      this.setState('closed');
+      this.scheduleReconnect();
+      return;
+    }
+
+    // connect()/disconnect() ran while the token was in flight: this socket is already stale.
+    if (this.manualClose || generation !== this.connectGeneration) return;
+    this.sessionToken = token;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
@@ -178,13 +218,14 @@ export class CollaborationClient {
       this.reconnectAttempt = 0;
       this.setState('open');
 
-      // Re-announce identity, then re-assert the current selection (Spec 10), then drain the
-      // outbox so edits made while disconnected are not lost.
+      // Re-announce identity (with the signed token, issue 3.5), then re-assert the current
+      // selection (Spec 10), then drain the outbox so edits made while disconnected survive.
       this.sendNow({
         action: 'JOIN',
         user_id: this.userProfile.userId,
         user_name: this.userProfile.userName,
-        user_color: this.userProfile.userColor
+        user_color: this.userProfile.userColor,
+        session_token: this.sessionToken ?? undefined
       });
 
       if (this.lastSelectedExpressId !== null) {
@@ -214,7 +255,10 @@ export class CollaborationClient {
         return;
       }
 
-      const handled = dispatchServerMessage(parsed, this.callbacks);
+      // Issue 3.3: `dispatchServerMessage` answers PING with PONG through this transport.
+      const handled = dispatchServerMessage(parsed, this.callbacks, {
+        send: (message) => this.sendNow(message as OutboxMessage)
+      });
       if (handled === 'UNKNOWN') {
         console.debug('[collab] ignored unrecognised server message', parsed);
       }
@@ -230,9 +274,23 @@ export class CollaborationClient {
       if (this.manualClose) return;
       if (shouldReconnect(event.code)) {
         this.scheduleReconnect();
-      } else {
-        console.debug(`[collab] not reconnecting after close code ${event.code}`);
+        return;
       }
+
+      if (event.code === POLICY_VIOLATION_CLOSE_CODE) {
+        // Issue 3.5: the server refused this identity. Retrying with the same token cannot
+        // succeed, so stop and tell the architect instead of looping silently.
+        invalidateSessionToken(this.userProfile.userId);
+        this.sessionToken = null;
+        if (!this.sessionRejected) {
+          this.sessionRejected = true;
+          notifyUser({
+            text: 'Live collaboration stopped: the session token was rejected. Reload to reconnect.',
+            tone: 'error'
+          });
+        }
+      }
+      console.debug(`[collab] not reconnecting after close code ${event.code}`);
     };
   }
 
@@ -292,6 +350,7 @@ export class CollaborationClient {
    */
   public disconnect(): void {
     this.manualClose = true;
+    this.connectGeneration += 1; // any in-flight openSocket() is now stale
     this.clearReconnectTimer();
     this.reconnectAttempt = 0;
     this.outbox.clear();

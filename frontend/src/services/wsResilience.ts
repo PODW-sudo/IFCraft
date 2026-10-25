@@ -20,6 +20,11 @@ export const BASE_RECONNECT_DELAY_MS = 500;
 export const SESSION_REPLACED_CLOSE_CODE = 4001;
 /** Normal closure - the client asked for it (project switch, unmount). */
 export const CLEAN_CLOSE_CODE = 1000;
+/**
+ * Issue 3.5 - policy violation: the handshake or a frame was refused (a WS `JOIN` without a
+ * valid session token, or a foreign Origin). Retrying with the same credentials cannot help.
+ */
+export const POLICY_VIOLATION_CLOSE_CODE = 1008;
 
 /**
  * Spec 7 — `min(30 s, 500 ms * 2**attempt)` with ±20 % jitter. Monotonic in `attempt` up to the
@@ -33,9 +38,10 @@ export function nextReconnectDelay(attempt: number, random: () => number = Math.
   return capped * jitter;
 }
 
-/** Spec 8 — do not retry a clean close (1000) or a session replaced by a newer socket (4001). */
+/** Spec 8 — do not retry a clean close (1000), a replaced session (4001) or a policy refusal. */
 export function shouldReconnect(closeCode: number | undefined | null): boolean {
   if (closeCode === CLEAN_CLOSE_CODE || closeCode === SESSION_REPLACED_CLOSE_CODE) return false;
+  if (closeCode === POLICY_VIOLATION_CLOSE_CODE) return false;
   return true;
 }
 
@@ -143,9 +149,19 @@ export type ServerMessageType =
   | 'REMOTE_PROPERTY_UPDATED'
   | 'COMMIT_REJECTED'
   | 'SESSION_REPLACED'
+  | 'PING'
+  | 'PONG'
   | 'ERROR';
 
 export type HandledServerMessageType = ServerMessageType | 'UNKNOWN';
+
+/**
+ * Issue 3.3 — how a handled `PING` gets answered. Only `send` is needed: the heartbeat has no
+ * UI surface and no application callback, so this is transport, not a collaboration event.
+ */
+export interface ServerMessageTransport {
+  send: (message: Record<string, unknown>) => void;
+}
 
 function toExpressId(value: unknown): number | null {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -164,10 +180,14 @@ function toMatrix(value: unknown): number[] | null {
  * Spec 6 — single entry point for inbound frames: returns the type it handled so the caller can
  * log unknowns, invokes exactly one callback, and never throws on an unrecognised type or a
  * malformed payload.
+ *
+ * Issue 3.3 — a `PING` is answered with `PONG` through `transport` (no callback, no UI); a
+ * `PONG` is liveness only and intentionally has no effect at all.
  */
 export function dispatchServerMessage(
   message: unknown,
-  callbacks: Partial<CollaborationCallbacks>
+  callbacks: Partial<CollaborationCallbacks>,
+  transport?: ServerMessageTransport
 ): HandledServerMessageType {
   if (!message || typeof message !== 'object') return 'UNKNOWN';
 
@@ -256,6 +276,17 @@ export function dispatchServerMessage(
     }
     case 'SESSION_REPLACED': {
       cb.onSessionReplaced?.();
+      return type;
+    }
+    case 'PING': {
+      // Issue 3.3: answer immediately so the server's idle watchdog sees an inbound frame.
+      // A missing transport (a unit test dispatching a frame in isolation) is not an error.
+      transport?.send({ type: 'PONG', ts: Date.now() });
+      return type;
+    }
+    case 'PONG': {
+      // The server only answers PINGs with nothing; a PONG arriving here is a stray and is
+      // deliberately ignored.
       return type;
     }
     case 'ERROR': {

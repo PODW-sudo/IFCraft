@@ -3,7 +3,7 @@ import time
 import uuid
 import logging
 from pathlib import Path
-from typing import Optional, Any
+from typing import Callable, Optional, Any
 from dataclasses import dataclass
 
 import ifcopenshell
@@ -16,6 +16,27 @@ from ..models.schemas import ClashItem, ClashCheckResponse
 from .project_service import ProjectService
 
 logger = logging.getLogger("ifc_editor.clash_service")
+
+#: ``(phase, checked, total) -> None``.
+#:
+#: ``checked``/``total`` are *cumulative work units* of the whole check: elements boxed during
+#: the extraction phase, then (elements + element pairs) during the comparison phase, so the
+#: counter never moves backwards. The callback may be invoked from an IFC worker thread, so it
+#: must be thread-safe and must not touch the event loop.
+ClashProgressCallback = Callable[[str, int, int], None]
+
+
+def _emit_progress(
+    progress: Optional[ClashProgressCallback], phase: str, checked: int, total: int
+) -> None:
+    """Report progress if a callback was supplied; a reporting bug must not fail the check."""
+    if progress is None:
+        return
+    try:
+        progress(phase, int(checked), int(total))
+    except Exception:  # pragma: no cover - defensive: progress is advisory
+        logger.debug("Clash progress callback failed", exc_info=True)
+
 
 @dataclass
 class ElementBox:
@@ -102,10 +123,15 @@ class ClashService:
         model_id: str,
         model_name: str,
         discipline: str,
+        progress: Optional[Callable[[int, int], None]] = None,
     ) -> tuple[list[ElementBox], int, int]:
         """Box every target element; disclose what was examined and what failed.
 
         Returns ``(boxes, elements_checked, geometry_failures)``.
+
+        ``progress(checked, total)`` is optional and called with the number of target products
+        *processed* (attempted, including failures) so a background job can show progress. It
+        runs on the caller's thread - i.e. an IFC worker thread - so it must be thread-safe.
 
         There is deliberately **no per-type cap**: a silent sample is what made "110 clashes,
         zero walls" possible. If a cap is ever reintroduced for performance, `sampled` must be
@@ -145,9 +171,31 @@ class ClashService:
         if not products:
             return [], 0, 0
 
+        total_products = len(products)
+        # ~50 updates per model: enough for a live progress bar, cheap enough for 50k elements.
+        progress_step = max(1, total_products // 50)
+        reported = 0
+
+        def _report(done: int) -> None:
+            """Report processed products, never moving the counter backwards."""
+            nonlocal reported
+            if progress is None:
+                return
+            done = max(reported, min(int(done), total_products))
+            if done == reported:
+                return
+            reported = done
+            progress(done, total_products)
+
+        if progress is not None:
+            progress(0, total_products)
+
         # One parallel triangulation pass over the target products. The iterator resolves the
         # Body representation itself (it produced the identical AABB as the explicit-Body path
         # on all 141 target elements of the Duplex fixture).
+        #
+        # This pass dominates the runtime, so it reports progress too: without that, a 47 s
+        # scan would sit at "0/141" until the very end.
         verts_by_id: dict[int, Any] = {}
         try:
             iterator = ifcopenshell.geom.iterator(
@@ -157,11 +205,15 @@ class ClashService:
                 include=[prod for prod, _type_name in products],
             )
             if iterator.initialize():
+                iterated = 0
                 while True:
                     shape = iterator.get()
                     verts = shape.geometry.verts
                     if verts and len(verts) >= 3:
                         verts_by_id[shape.id] = verts
+                    iterated += 1
+                    if iterated % progress_step == 0:
+                        _report(iterated)
                     if not iterator.next():
                         break
         except Exception as e:
@@ -173,7 +225,7 @@ class ClashService:
         boxes: list[ElementBox] = []
         failures = 0
 
-        for prod, type_name in products:
+        for processed, (prod, type_name) in enumerate(products, start=1):
             express_id = prod.id()
             try:
                 verts = verts_by_id.get(express_id)
@@ -205,6 +257,11 @@ class ClashService:
                     express_id, prod.is_a(), model_name, e
                 )
 
+            if processed % progress_step == 0:
+                _report(processed)
+
+        _report(total_products)
+
         if failures:
             logger.warning(
                 "Clash extraction for %s: %d/%d target elements had no usable geometry "
@@ -227,10 +284,15 @@ class ClashService:
         cls,
         project_id: str,
         tolerance: float = 0.01,
-        model_ids: Optional[list[str]] = None
+        model_ids: Optional[list[str]] = None,
+        progress: Optional[ClashProgressCallback] = None
     ) -> ClashCheckResponse:
         """
         Run geometric collision / clash detection across federated discipline models.
+
+        ``progress(phase, checked, total)`` is optional; it is called from the IFC worker thread
+        while element boxes are built and from the event loop while pairs are compared. Totals
+        are cumulative work units, so ``checked`` never decreases.
         """
         start_time = time.perf_counter()
 
@@ -274,23 +336,60 @@ class ClashService:
         all_boxes_by_model: dict[str, list[ElementBox]] = {}
         elements_checked = 0
         geometry_failures = 0
+        extraction_base = 0
         for m in models_to_check:
+            # `total` is only known per model, so the cumulative total grows as more models are
+            # opened. `checked` stays monotonic because `base` is the sum of prior models.
+            base = extraction_base
+
+            def _model_progress(checked: int, total: int, _base: int = base) -> None:
+                _emit_progress(progress, "extracting", _base + checked, _base + total)
+
             # STEP-04: opening the model and triangulating every target element is the most
             # expensive thing in the backend; it must not run on the event loop.
             boxes, checked, failures = await run_ifc(
                 cls._extract_element_boxes_with_stats,
-                m["path"], m["id"], m["name"], m["discipline"],
+                m["path"], m["id"], m["name"], m["discipline"], _model_progress,
             )
             all_boxes_by_model[m["id"]] = boxes
             elements_checked += checked
+            extraction_base += checked
             geometry_failures += failures
+
+        _emit_progress(progress, "extracting", elements_checked, elements_checked)
 
         clashes: list[ClashItem] = []
         model_id_list = list(all_boxes_by_model.keys())
 
         # 3. Collision testing
         # If multiple models exist, prioritize cross-model clashes
-        if len(model_id_list) > 1:
+        cross_model = len(model_id_list) > 1
+        pair_total = 0
+        if cross_model:
+            for i in range(len(model_id_list)):
+                for j in range(i + 1, len(model_id_list)):
+                    pair_total += (
+                        len(all_boxes_by_model[model_id_list[i]])
+                        * len(all_boxes_by_model[model_id_list[j]])
+                    )
+        elif model_id_list:
+            n = len(all_boxes_by_model[model_id_list[0]])
+            pair_total = n * (n - 1) // 2
+
+        pairs_processed = 0
+        pair_step = max(1, pair_total // 50)
+
+        def _tick() -> None:
+            """Count one examined pair and report cumulative progress ~50 times per check."""
+            nonlocal pairs_processed
+            pairs_processed += 1
+            if pairs_processed % pair_step == 0 or pairs_processed == pair_total:
+                _emit_progress(
+                    progress, "comparing",
+                    elements_checked + pairs_processed, elements_checked + pair_total,
+                )
+
+        if cross_model:
             for i in range(len(model_id_list)):
                 id_a = model_id_list[i]
                 boxes_a = all_boxes_by_model[id_a]
@@ -300,6 +399,7 @@ class ClashService:
 
                     for b_a in boxes_a:
                         for b_b in boxes_b:
+                            _tick()
                             if cls._is_same_element(b_a, b_b):
                                 continue
                             clash = cls._check_intersection(b_a, b_b, tolerance)
@@ -314,6 +414,7 @@ class ClashService:
                     b_a = boxes[i]
                     for j in range(i + 1, len(boxes)):
                         b_b = boxes[j]
+                        _tick()
                         # An element is never in clash with itself.
                         if cls._is_same_element(b_a, b_b):
                             continue
@@ -323,6 +424,11 @@ class ClashService:
                         clash = cls._check_intersection(b_a, b_b, tolerance)
                         if clash:
                             clashes.append(clash)
+
+        _emit_progress(
+            progress, "comparing",
+            elements_checked + pairs_processed, elements_checked + pair_total,
+        )
 
         hard_count = sum(1 for c in clashes if c.severity == "hard")
         clearance_count = sum(1 for c in clashes if c.severity == "clearance")

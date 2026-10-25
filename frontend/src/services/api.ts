@@ -63,6 +63,146 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   return fetch(url, { ...init, headers });
 }
 
+// ---------------------------------------------------------------------------------------------
+// Signed session identity (open issue 3.5)
+// ---------------------------------------------------------------------------------------------
+
+/** What `POST /api/bootstrap/session` returns (`backend/app/api/bootstrap.py`). */
+export interface SessionToken {
+  token: string;
+  userId: string;
+  /** Unix seconds, as issued by the server. */
+  expiresAt: number;
+}
+
+/** Refresh this long before expiry so a reconnect never presents a token about to lapse. */
+const SESSION_TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+const sessionTokens = new Map<string, SessionToken>();
+const sessionTokenRequests = new Map<string, Promise<SessionToken>>();
+
+async function requestSessionToken(userId: string): Promise<SessionToken> {
+  if (!userId) throw new Error('A user id is required to obtain a session token');
+
+  const res = await apiFetch(`${BASE_URL}/bootstrap/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId })
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Failed to obtain a session token (HTTP ${res.status} ${res.statusText})`
+    );
+  }
+
+  const body = (await res.json()) as {
+    session_token?: string;
+    user_id?: string;
+    expires_at?: number;
+  };
+  if (!body || typeof body.session_token !== 'string' || !body.session_token) {
+    throw new Error('The session bootstrap endpoint returned no session token');
+  }
+  const expiresAt =
+    typeof body.expires_at === 'number' && Number.isFinite(body.expires_at)
+      ? body.expires_at
+      : Math.floor(Date.now() / 1000) + 60;
+
+  const entry: SessionToken = { token: body.session_token, userId, expiresAt };
+  sessionTokens.set(userId, entry);
+  return entry;
+}
+
+/**
+ * Issue 3.5 — the signed identity the WebSocket `JOIN` now has to present.
+ *
+ * Cached per user id until (just before) the server-side expiry, and de-duplicated so two
+ * sockets for the same profile in one tab share one bootstrap request. Goes through `apiFetch`
+ * because the route sits behind the API token like the rest of `/api`.
+ */
+export async function fetchSessionToken(userId: string): Promise<string> {
+  const cached = sessionTokens.get(userId);
+  if (cached && cached.expiresAt * 1000 - Date.now() > SESSION_TOKEN_REFRESH_MARGIN_MS) {
+    return cached.token;
+  }
+
+  const pending = sessionTokenRequests.get(userId);
+  if (pending) return (await pending).token;
+
+  const request = requestSessionToken(userId).finally(() => {
+    sessionTokenRequests.delete(userId);
+  });
+  sessionTokenRequests.set(userId, request);
+  return (await request).token;
+}
+
+/** Drop a cached token — the server said it is not acceptable (close 1008) or it expired. */
+export function invalidateSessionToken(userId: string): void {
+  sessionTokens.delete(userId);
+  sessionTokenRequests.delete(userId);
+}
+
+/** Test seam: forget every cached session token. */
+export function clearSessionTokens(): void {
+  sessionTokens.clear();
+  sessionTokenRequests.clear();
+}
+
+
+/**
+ * STEP-21 / issue 1.3 — a refused write keeps its machine-readable reason.
+ *
+ * FastAPI returns `{"detail": {"code": "unsupported_geometry", "message": "..."}}` for a
+ * geometry refusal. `new Error(err.detail)` turned that object into `[object Object]`, so the
+ * UI could neither show the reason nor branch on the code. This error carries both.
+ */
+export class ApiError extends Error {
+  readonly code?: string;
+  readonly status: number;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+interface ApiErrorDetailRecord {
+  message?: unknown;
+  code?: unknown;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Turn a failed response body into an `ApiError`.
+ *
+ * Precedence for the message: structured `detail.message` → `detail.code` → `statusText` →
+ * caller fallback. `code` is only set when the server sent one.
+ */
+export function buildApiError(
+  body: unknown,
+  status: number,
+  statusText: string,
+  fallback: string
+): ApiError {
+  const detail = (body as { detail?: unknown } | null | undefined)?.detail;
+  if (detail && typeof detail === 'object') {
+    const record = detail as ApiErrorDetailRecord;
+    const code = nonEmptyString(record.code);
+    const message =
+      nonEmptyString(record.message) ??
+      code ??
+      nonEmptyString(statusText) ??
+      fallback;
+    return new ApiError(message, status, code);
+  }
+  return new ApiError(nonEmptyString(detail) ?? nonEmptyString(statusText) ?? fallback, status);
+}
+
 /** Saves a fetched blob through an object URL — the only way to download with a header. */
 function saveBlob(blob: Blob, fileName: string): void {
   const objectUrl = URL.createObjectURL(blob);
@@ -582,8 +722,9 @@ export async function updateElementGeometry(
       body: JSON.stringify(req)
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || 'Failed to update geometry');
+      // STEP-21 / issue 1.3 — keep `detail.code` and `detail.message` (see `ApiError`).
+      const body = await res.json().catch(() => null);
+      throw buildApiError(body, res.status, res.statusText, 'Failed to update geometry');
     }
     return res.json();
   });

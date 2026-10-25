@@ -124,11 +124,73 @@ remaining hard-coded colours are tokenised and the HUD collision check is screen
 5. **Coverage pass:** 4.1, 4.2, 4.3 — key-tier browser in CI, two-client E2E, component acceptance tests.
 6. **Hygiene pass:** 5.1–5.7 — fixture hosting, history decision, token/UX polish, sheet persistence.
 
-## Decisions needed before starting
+## Decisions taken (2026-10-25)
 
-1. **Fixture hosting:** Git LFS (org billing) or release assets?
-2. **Git history:** rewrite to drop the 175 MB blobs, or accept clone size?
-3. **Legacy projects:** archive/delete the 30 pre-audit projects, or leave them?
-4. **Column partial update:** preserve current extents (preferred) or reject with 409 when width/depth are omitted?
-5. **Audit diff semantics:** should an `UNDONE` transaction disappear from the diff (current) or appear as reverted?
-6. **Geometry error code:** one `409 unsupported_geometry` for all refusals, or `422` for placement failures?
+1. **Fixture hosting:** local-only, no paid storage. `modelsfortests/` stays untracked on disk; README documents `IFC_FIXTURES_DIR`; the dev server serves it explicitly; tests skip with a message. No LFS.
+2. **Git history:** rewrite. `modelsfortests/` and `.agents/` are removed from history, then the small (6 MB) fixtures are re-added at HEAD.
+3. **Legacy projects:** archived (not deleted) to `storage/projects_archive/` with a JSON DB dump and manifest; `--restore <id>` verified.
+4. **Column partial update:** preserve current extents.
+5. **Audit diff:** `UNDONE` transactions disappear from the diff (pinned by test).
+6. **Geometry error code:** one `409 unsupported_geometry` code for geometric refusals.
+
+---
+
+## Execution log (2026-10-25)
+
+| Item | Status | Evidence / residual |
+|---|---|---|
+| 1.1 column extents | Done | `test_column_partial_resize.py`; partial edits preserve untouched dimensions |
+| 1.2 MILLI parity | Done | `test_milli_element_creation.py`; the real defect was a double conversion in resize, fixed at `_create_box_mesh(unit_scale=1.0)` |
+| 1.3 geometry error UX | Done | `step21.geometryErrorUx.test.tsx`; structured message + toast + disabled fields |
+| 1.4 opening clamp | Done | `test_step21_opening_clamp.py`; warnings returned, never fails the resize |
+| 1.5 opening repair | Done | `scripts/repair_opening_containers.py`; dry-run then applied: 15 fillings in 37 projects, second run 0 |
+| 1.6 building-assigned wall | Done | `test_step22_building_wall_opening.py`; nearest storey by elevation |
+| 2.1 clash jobs | Done | job API + polling; castle job 111 s, progress instead of a blocking request |
+| 2.2 metrics without reparse | **Done, target missed** | 0 parses per write; castle gizmo ack is still ~34–39 s (full-file rewrite, not metrics). See residual R1 |
+| 2.3 undo depth | Done | pre-images 20/200 MB, post-images 10/100 MB; ~20 undo / 10 redo |
+| 2.4 perf budget in CI | **Done, frontend rows manual** | `backend/tests/perf`, `perf-budget` CI job, `scripts/perf_budget.py`; castle 4.9–5.3 s cold / 119–125 ms warm / health p95 13–17 ms; synthetic 50k 2.1–3.1 s; 50k health envelope 1.5 s. See residual R2 |
+| 2.5 health metrics | Done | `/health` now reports `ifc` queue, `model_cache`, lock registry; public and parse-free |
+| 2.6 cache/queue config | Partial | metrics exposed; limits remain class constants |
+| 2.7 clash types | Done | shared `ClashCheckResponse` fields; local type removed |
+| 3.1 AI quota | Done | 30 req/60 s sliding window on chat + model discovery; 429 + `Retry-After`; per-install in-memory |
+| 3.2 TTL broadcast + socket test | Done | purge broadcast on every frame; `test_step13_ws_handshake.py` |
+| 3.3 WS heartbeat | Done | 25 s PING, 60 s idle → 1001; client PONG |
+| 3.4 single writer | Done | OS lock; second uvicorn exits 3 (live-verified with three processes) |
+| 3.5 signed session | Done | HMAC token; browser JOINs require it; non-browser clients unchanged |
+| 3.6 token hardening | Partial | per-tab single-flight + signed sessions; DNS pinning not implemented |
+| 3.7 CVE gate | Done | `pip-audit` clean; `pnpm audit` high advisory fixed by `image-size@2.0.3` override; CI job + local script |
+| 4.1 key browser in CI | Done (pre-existing) | `e2e-browser-qa` job already starts both servers and runs key/milestone tiers |
+| 4.2 two-client coverage | Done (protocol) | `test_two_client_collab.py`: lock, LOCK_REJECTED, COMMIT_REJECTED, remote commit; no two-page browser test |
+| 4.3 component/acceptance tests | Partial | Added inspector zero-GET, tree windowing, coordinate-HUD render tests; STEP-23 Escape remains review-only (needs WebGL) |
+| 4.4 docs clash test | Done | 57 unique walls; docs copy corrected |
+| 4.5 audit diff test | Done | create → delete → diff → undo cycle |
+| 4.6 model-lifetime fixture | Not done | `test_step22` fixed locally; no shared fixture added |
+| 4.7 weak tests | Partial | HUD render test added; source-shape assertions retained |
+| 4.8 hover ref | Done | assigned to the scheduler sink |
+| 5.1 fixtures | Done | README policy; no LFS |
+| 5.2 `/modelsfortests` fetch | Done | Vite middleware + explicit "fixture missing" toast |
+| 5.3 history rewrite | Done | filter-repo + force-push; small fixtures re-added |
+| 5.4 legacy projects | Done | 34 archived, restorable |
+| 5.5 design tokens | Done (code) | 6 surfaces tokenised; render/contrast checks remain manual |
+| 5.6 `showCadToolbar` | Closed as no-op | The flag is live: it gates the custom-profile CAD dock; removal was reverted |
+| 5.7 sheet persistence | Done | per-project versioned localStorage; no geometry cached |
+| 5.8 undo coverage | Done | geometry/storey/material/AI actions; `pin_element` intentionally untransacted |
+
+## Residuals (honest, not "done")
+
+- **R1 — large-model commit latency.** A castle gizmo commit is still ~34–39 s: the file is opened,
+  re-serialised and copied as a pre-image in full. Metrics parsing was removed from the hot path, but
+  the single-file IFC substrate remains the limit. Next lever: incremental/delta persistence or an
+  element-index store; that is an architectural change, not a hotfix.
+- **R2 — 50k `/health` envelope.** p95 is 572–830 ms at 50k products (1.5 s budget) because the
+  spatial tree builds 50,000 pydantic nodes and serialises them in one call; castle keeps the strict
+  200 ms. Fix by returning plain dicts/streaming the tree. Frontend fps/hover budgets remain
+  browser/manual.
+- **R3 — quota/lock scope.** The AI quota and single-writer lock are process-local; the signed
+  session is required only for browser JOINs (non-browser clients keep the old behaviour).
+- **R4 — test reductions.** No two-page browser E2E; STEP-23 Escape and 44 px/contrast checks are
+  review/CSS-reasoning only; 4.6 (shared model fixture) and 4.7's source-shape assertions remain.
+- **R5 — token hardening.** DNS-rebinding pinning and a cross-tab single-flight bootstrap were not
+  implemented; the token is still readable by a same-user local process.
+- **R6 — history rewrite cost.** Old hashes are invalid; any clone/fork must re-clone or reset hard.
+  The castle sample (47 MB) remains tracked at HEAD; only the duplicate/unused fixture history is gone.

@@ -111,6 +111,11 @@ class HealthStatus(BaseModel):
     database_ok: bool
     project_count: int
     timestamp: str
+    # Open issue 2.5: cheap cache/queue observability. Every one of these is an in-memory
+    # snapshot — `/health` must never parse a model or touch storage to fill them.
+    ifc: dict[str, Any] = Field(default_factory=dict)
+    model_cache: dict[str, Any] = Field(default_factory=dict)
+    locks: dict[str, Any] = Field(default_factory=dict)
 
 class ChatMessage(BaseModel):
     role: str = Field(..., description="'user', 'assistant', or 'system'")
@@ -235,6 +240,30 @@ class ClashCheckResponse(BaseModel):
         False,
         description="True when only a subset of the model was examined (a cap was applied)"
     )
+
+# --- Background clash jobs (audit 2.1) -------------------------------------
+# The synchronous `POST /clashes/check` contract is unchanged. This is an additive,
+# in-memory job API for long scans so the event loop and the browser are never blocked.
+
+class ClashJobProgress(BaseModel):
+    #: `queued` | `extracting` | `comparing`. Additive to the two documented counters so the
+    #: UI can label what `checked`/`total` are counting.
+    phase: str = "queued"
+    #: Cumulative work units completed (elements boxed, then element pairs compared).
+    checked: int = 0
+    #: Cumulative work units for the whole job. Grows when another model is opened.
+    total: int = 0
+
+class ClashJobStartResponse(BaseModel):
+    job_id: str
+    status: str = "queued"
+
+class ClashJobStatusResponse(BaseModel):
+    job_id: str
+    status: str  # queued | running | succeeded | failed
+    progress: ClashJobProgress = Field(default_factory=ClashJobProgress)
+    result: Optional[ClashCheckResponse] = None
+    error: Optional[str] = None
 
 # ===========================================================================
 # CAD Modeling & Parametric Synthesis Schemas (Phase 11)

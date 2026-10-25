@@ -16,6 +16,7 @@ from ..core.workers import run_ifc
 from ..services.ifc_service import IFCService, open_model_for_read
 from ..services.project_service import ProjectService
 from .atomic_store import atomic_write_model, project_read_lock, project_write_lock
+from .cad_service import CADService
 from ..models.schemas import (
     ChatMessage,
     ToolCall,
@@ -867,7 +868,24 @@ class AIService:
 
         element_count = counts["element_count"]
 
-        # Record edit and touch DB
+        # audit 5.8: an AI write is a model mutation, so it is undoable like any other. The
+        # transaction row goes in before the audit-log line so a failure can never leave a
+        # model change that Ctrl+Z cannot reach.
+        await CADService.record_transaction(
+            project_id, counts["transaction_id"], "ai_generate_building",
+            counts["building_id"], "IfcBuilding",
+            {
+                "length": counts["length"],
+                "width": counts["width"],
+                "num_storeys": counts["num_storeys"],
+                "storey_height": counts["storey_height"],
+                "source": "ai-copilot",
+            },
+            counts["pre_snapshot"],
+        )
+
+        # Record edit and touch DB (audit 2.2: the count came from the model just written, so
+        # the refresh does not re-parse the whole file).
         await ProjectService.record_edit(
             project_id=project_id,
             user_id="ai-copilot",
@@ -880,7 +898,8 @@ class AIService:
                 "width": counts["width"],
                 "storeys": counts["num_storeys"],
                 "elements": element_count,
-            }
+            },
+            element_count=counts["product_count"],
         )
 
         # Prose is built from what was actually placed: no column claim for a building with none.
@@ -1059,7 +1078,20 @@ class AIService:
                 generated_elements_count += 1
                 column_count += 1
 
-        atomic_write_model(model, file_path)
+        # audit 5.8: an AI generate is a model mutation, so it gets the same
+        # begin_snapshot -> write -> record_transaction seam as every CAD edit. The pre-image
+        # has to be taken before the single atomic write below.
+        trans_id, pre_snapshot = CADService.begin_snapshot(project_id)
+        try:
+            atomic_write_model(model, file_path)
+        except Exception:
+            CADService.discard_snapshot(project_id, pre_snapshot)
+            raise
+
+        # A cad_transactions row needs an express id; the generated building is the subject.
+        building_id = building.id() if building is not None else (
+            model.by_type("IfcProject")[0].id() if model.by_type("IfcProject") else 0
+        )
 
         # Report the file's actual contents rather than a running counter, so the number shown to
         # the user can never drift from the model on disk (spec 5 of STEP-07).
@@ -1071,6 +1103,7 @@ class AIService:
 
         return {
             "element_count": element_count,
+            "product_count": len(model.by_type("IfcProduct")),
             "wall_count": wall_count,
             "slab_count": slab_count,
             "column_count": column_count,
@@ -1078,6 +1111,9 @@ class AIService:
             "storey_height": storey_height,
             "length": length,
             "width": width,
+            "building_id": building_id,
+            "transaction_id": trans_id,
+            "pre_snapshot": pre_snapshot,
         }
 
     @classmethod
@@ -1089,7 +1125,21 @@ class AIService:
         and cannot stall the event loop. The STEP-01/STEP-07 unit maths is untouched.
         """
         async with project_write_lock(project_id):
-            result = await run_ifc(cls._transform_element_sync, file_path, args)
+            result = await run_ifc(cls._transform_element_sync, project_id, file_path, args)
+
+        # audit 5.8: an AI transform is undoable. A no-op transform writes nothing and
+        # records nothing (no row, no snapshot).
+        if result["transaction_id"]:
+            await CADService.record_transaction(
+                project_id, result["transaction_id"], "ai_transform", result["element_id"],
+                "IfcProduct",
+                {
+                    "delta": result["delta"],
+                    "matrix": result["matrix"],
+                    "source": "ai-copilot",
+                },
+                result["pre_snapshot"],
+            )
 
         await ProjectService.record_edit(
             project_id=project_id,
@@ -1099,6 +1149,8 @@ class AIService:
             express_id=result["element_id"],
             entity_type="IfcProduct",
             payload={"matrix": result["matrix"], "delta": result["delta"]},
+            # audit 2.2: a transform cannot change the product count - no re-parse.
+            count_unchanged=True,
         )
 
         return {
@@ -1110,7 +1162,7 @@ class AIService:
         }
 
     @classmethod
-    def _transform_element_sync(cls, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
+    def _transform_element_sync(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
         element_id = int(args["element_id"])
         dx = float(args.get("dx", 0.0))
         dy = float(args.get("dy", 0.0))
@@ -1173,8 +1225,17 @@ class AIService:
         new_matrix_16 = M_for_writer.flatten(order="F").tolist()
 
         is_noop = not any((dx, dy, dz, rx, ry, rz))
+        trans_id: Optional[str] = None
+        pre_snapshot: Optional[str] = None
         if not is_noop:
-            IFCService.update_element_placement(file_path, element_id, new_matrix_16)
+            # audit 5.8: pre-image first, so Ctrl+Z can restore the previous placement. Runs
+            # inside the IFC pool under the caller's project lock, like every other snapshot.
+            trans_id, pre_snapshot = CADService.begin_snapshot(project_id)
+            try:
+                IFCService.update_element_placement(file_path, element_id, new_matrix_16)
+            except Exception:
+                CADService.discard_snapshot(project_id, pre_snapshot)
+                raise
 
         return {
             "element_id": element_id,
@@ -1182,7 +1243,31 @@ class AIService:
             "new_position": [float(M_new[0, 3]), float(M_new[1, 3]), float(M_new[2, 3])],
             "matrix": new_matrix_16,
             "delta": {"dx": dx, "dy": dy, "dz": dz, "rx": rx, "ry": ry, "rz": rz},
+            "transaction_id": trans_id,
+            "pre_snapshot": pre_snapshot,
         }
+
+    @classmethod
+    def _update_property_with_snapshot(
+        cls,
+        project_id: str,
+        file_path: Path,
+        element_id: int,
+        pset_name: str,
+        property_name: str,
+        value: Any,
+        prop_type: str,
+    ) -> dict[str, Any]:
+        """Write one property with an undo pre-image (audit 5.8), on the IFC pool."""
+        trans_id, pre_snapshot = CADService.begin_snapshot(project_id)
+        try:
+            IFCService.update_element_property(
+                file_path, element_id, pset_name, property_name, value, prop_type
+            )
+        except Exception:
+            CADService.discard_snapshot(project_id, pre_snapshot)
+            raise
+        return {"transaction_id": trans_id, "pre_snapshot": pre_snapshot}
 
     @classmethod
     async def _exec_update_property(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
@@ -1203,10 +1288,23 @@ class AIService:
             value = str(value)
 
         async with project_write_lock(project_id):
-            await run_ifc(
-                IFCService.update_element_property,
-                file_path, element_id, pset_name, property_name, value, prop_type,
+            write = await run_ifc(
+                cls._update_property_with_snapshot,
+                project_id, file_path, element_id, pset_name, property_name, value, prop_type,
             )
+
+        # audit 5.8: an AI property write is undoable, like the REST property route (STEP-10).
+        await CADService.record_transaction(
+            project_id, write["transaction_id"], "ai_update_property", element_id,
+            "IfcProduct",
+            {
+                "pset_name": pset_name,
+                "property_name": property_name,
+                "value": value,
+                "source": "ai-copilot",
+            },
+            write["pre_snapshot"],
+        )
 
         await ProjectService.record_edit(
             project_id=project_id,
@@ -1215,7 +1313,9 @@ class AIService:
             action_type="update_property",
             express_id=element_id,
             entity_type="IfcProduct",
-            payload={"pset_name": pset_name, "property_name": property_name, "value": value}
+            payload={"pset_name": pset_name, "property_name": property_name, "value": value},
+            # audit 2.2: a property write cannot change the product count - no re-parse.
+            count_unchanged=True,
         )
 
         return {

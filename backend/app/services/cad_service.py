@@ -9,6 +9,7 @@ from typing import Any, Optional
 import numpy as np
 import ifcopenshell
 import ifcopenshell.api
+import ifcopenshell.geom
 import ifcopenshell.api.root
 import ifcopenshell.api.geometry
 import ifcopenshell.api.feature
@@ -52,6 +53,14 @@ class GeometryNotEditable(Exception):
 
 
 class CADService:
+    #: Actions whose inverse the legacy path cannot reconstruct from `parameters`. Rows written
+    #: before snapshots existed (or whose pre-image was pruned) must report "no restorable
+    #: pre-image" instead of falling into the create_* branch, which *removes* the element.
+    NON_INVERTIBLE_ACTIONS = frozenset({
+        "update_geometry", "assign_storey", "assign_material",
+        "ai_transform", "ai_update_property", "ai_generate_building",
+    })
+
     # ------------------------------------------------------------------
     # Undo snapshot plumbing (STEP-10)
     #
@@ -70,14 +79,24 @@ class CADService:
     # mutation writer that bypasses it.
     #
     # Snapshot layout: storage/projects/{project_id}/undo/{transaction_id}.ifc
-    # (pre-image) and .../{transaction_id}.post.ifc (post-image, captured lazily on
+    # (pre-image) and .../undo/post/{transaction_id}.ifc (post-image, captured lazily on
     # undo so redo does not double every commit). Paths are stored in the row's
     # `parameters` JSON under `pre_snapshot` / `post_snapshot`, relative to the
     # project directory, so a moved storage root keeps working.
+    #
+    # Pre- and post-images have *separate* budgets (STEP-10 open issue: one shared
+    # 20-file budget halved the usable undo depth to ~10 actions, because every undone
+    # action added a post-image to the same directory). 20 pre-images / 200 MB keeps
+    # ~20 actions undoable; post-images get 10 files / 100 MB of their own.
+    # Legacy post-images written as `undo/{id}.post.ifc` still resolve and still count
+    # against the pre-image budget (they are in the same directory).
     # ------------------------------------------------------------------
     UNDO_SNAPSHOT_ENABLED = True
     UNDO_SNAPSHOT_MAX_FILES = 20
     UNDO_SNAPSHOT_MAX_BYTES = 200 * 1024 * 1024
+    UNDO_POST_SUBDIR = "post"
+    UNDO_POST_MAX_FILES = 10
+    UNDO_POST_MAX_BYTES = 100 * 1024 * 1024
 
     @staticmethod
     def _try_by_id(model: Any, express_id: Any) -> Optional[Any]:
@@ -94,9 +113,14 @@ class CADService:
             return None
 
     @staticmethod
-    def _snapshot_dir(project_id: str) -> Path:
-        """Per-project undo snapshot directory, next to ``model.ifc``."""
-        return ProjectService.get_project_file_path(project_id).parent / "undo"
+    def _snapshot_dir(project_id: str, *, post: bool = False) -> Path:
+        """Per-project undo snapshot directory, next to ``model.ifc``.
+
+        Pre-images live in ``undo/``; redo post-images in ``undo/post/`` so the two
+        retention budgets cannot evict each other (STEP-10 open issue).
+        """
+        base = ProjectService.get_project_file_path(project_id).parent / "undo"
+        return base / CADService.UNDO_POST_SUBDIR if post else base
 
     @staticmethod
     def _file_digest(path: Path) -> str:
@@ -108,12 +132,13 @@ class CADService:
 
     @classmethod
     def _take_snapshot(
-        cls, project_id: str, transaction_id: str, *, suffix: str = ""
+        cls, project_id: str, transaction_id: str, *, post: bool = False
     ) -> Optional[str]:
-        """Copy ``model.ifc`` to ``undo/{transaction_id}{suffix}.ifc``.
+        """Copy ``model.ifc`` to ``undo/{transaction_id}.ifc`` (or ``undo/post/...``).
 
         Must be called *before* the file is replaced. Returns the project-relative path
-        (``undo/<name>.ifc``) or ``None`` when snapshotting is disabled/unavailable.
+        (``undo/<name>.ifc`` or ``undo/post/<name>.ifc``) or ``None`` when snapshotting is
+        disabled/unavailable.
         """
         file_path = ProjectService.get_project_file_path(project_id)
         if not cls.UNDO_SNAPSHOT_ENABLED or not file_path.exists():
@@ -121,27 +146,41 @@ class CADService:
 
         target: Optional[Path] = None
         try:
-            snapshot_dir = cls._snapshot_dir(project_id)
+            snapshot_dir = cls._snapshot_dir(project_id, post=post)
             snapshot_dir.mkdir(parents=True, exist_ok=True)
-            target = snapshot_dir / f"{transaction_id}{suffix}.ifc"
+            target = snapshot_dir / f"{transaction_id}.ifc"
             # copyfile, not copy2: the mtime must be "now" so pruning is oldest-first.
             shutil.copyfile(file_path, target)
         except OSError as exc:
             logger.warning("Could not write undo snapshot %s: %s", target, exc)
             return None
 
-        cls._prune_snapshots(project_id)
-        return f"undo/{target.name}"
+        cls._prune_snapshots(project_id, post=post)
+        return f"undo/{target.relative_to(cls._snapshot_dir(project_id)).as_posix()}"
 
     @classmethod
-    def _prune_snapshots(cls, project_id: str) -> None:
-        """Enforce the retention budget: 20 files / 200 MB per project, oldest evicted first."""
-        snapshot_dir = cls._snapshot_dir(project_id)
+    def _prune_snapshots(cls, project_id: str, *, post: bool = False) -> None:
+        """Enforce one budget (oldest evicted first).
+
+        Pre-images: 20 files / 200 MB. Post-images (``undo/post/``): 10 files / 100 MB.
+        Each directory is pruned only against its own limits, so a long undo streak
+        cannot evict the pre-images that still make older actions undoable.
+        """
+        if post:
+            max_files = cls.UNDO_POST_MAX_FILES
+            max_bytes = cls.UNDO_POST_MAX_BYTES
+        else:
+            max_files = cls.UNDO_SNAPSHOT_MAX_FILES
+            max_bytes = cls.UNDO_SNAPSHOT_MAX_BYTES
+
+        snapshot_dir = cls._snapshot_dir(project_id, post=post)
         if not snapshot_dir.is_dir():
             return
 
         entries: list[tuple[float, int, Path]] = []
         for path in snapshot_dir.glob("*.ifc"):
+            if not path.is_file():
+                continue
             try:
                 stat = path.stat()
             except OSError:
@@ -150,10 +189,7 @@ class CADService:
         entries.sort(key=lambda entry: (entry[0], entry[2].name))
 
         total_bytes = sum(size for _mtime, size, _path in entries)
-        while entries and (
-            len(entries) > cls.UNDO_SNAPSHOT_MAX_FILES
-            or total_bytes > cls.UNDO_SNAPSHOT_MAX_BYTES
-        ):
+        while entries and (len(entries) > max_files or total_bytes > max_bytes):
             _mtime, size, victim = entries.pop(0)
             try:
                 victim.unlink()
@@ -302,8 +338,87 @@ class CADService:
         return storey
 
     @staticmethod
+    def _storey_datum_units(storey: Any) -> float:
+        """Storey datum in project units: its placement Z, else ``IfcBuildingStorey.Elevation``.
+
+        Both are IfcLengthMeasure values in the model's length unit, which is the same frame
+        ``get_local_placement`` reports for the host wall, so the two can be compared directly.
+        """
+        placement = getattr(storey, "ObjectPlacement", None)
+        if placement is not None:
+            try:
+                return float(ifcopenshell.util.placement.get_local_placement(placement)[2, 3])
+            except Exception:
+                pass
+        try:
+            return float(storey.Elevation) if storey.Elevation is not None else 0.0
+        except Exception:
+            return 0.0
+
+    @classmethod
+    def _nearest_storey(cls, model: Any, wall: Any) -> Optional[Any]:
+        """The ``IfcBuildingStorey`` whose datum is nearest the wall base, or ``None``."""
+        storeys = list(model.by_type("IfcBuildingStorey"))
+        if not storeys:
+            return None
+        try:
+            wall_base = float(
+                ifcopenshell.util.placement.get_local_placement(wall.ObjectPlacement)[2, 3]
+            )
+        except Exception as exc:
+            logger.warning("Could not read the base elevation of wall #%d: %s", wall.id(), exc)
+            return None
+        return min(storeys, key=lambda storey: abs(cls._storey_datum_units(storey) - wall_base))
+
+    @classmethod
+    def _resolve_filling_storey(cls, model: Any, wall: Any) -> Any:
+        """Storey a door/window filling created on ``wall`` belongs to.
+
+        STEP-22: the host wall's own storey wins, so a first-floor door is not filed on the
+        ground floor. audit 1.6: a wall assigned straight to the ``IfcBuilding`` has no
+        storey container, so match the storey nearest the wall base instead of falling back
+        to ``storeys[0]`` - wrong whenever the first storey is a basement. Only a model with
+        no storeys at all uses the ``_get_target_storey`` fallback (which creates one).
+        """
+        container: Optional[Any] = None
+        try:
+            container = ifcopenshell.util.element.get_container(wall)
+        except Exception as exc:
+            logger.warning("Could not resolve the spatial container of wall #%d: %s", wall.id(), exc)
+
+        if container is not None and container.is_a("IfcBuildingStorey"):
+            return container
+
+        nearest = cls._nearest_storey(model, wall)
+        if nearest is not None:
+            if container is not None and container.is_a("IfcBuilding"):
+                logger.info(
+                    "Wall #%d is contained in IfcBuilding #%d rather than a storey; filing its "
+                    "filling in the nearest storey #%d.", wall.id(), container.id(), nearest.id(),
+                )
+            else:
+                logger.warning(
+                    "Host wall #%d has no IfcBuildingStorey container; filing its filling in the "
+                    "nearest storey #%d.", wall.id(), nearest.id(),
+                )
+            return nearest
+
+        logger.warning(
+            "Host wall #%d has no storey to file a filling in; falling back to the first "
+            "(or a newly created) storey.", wall.id(),
+        )
+        return cls._get_target_storey(model)
+
+    @staticmethod
     def _create_box_mesh(model: Any, body: Any, dx: float, dy: float, dz: float) -> Any:
-        """Helper to create a closed 6-sided box mesh representation."""
+        """Helper to create a closed 6-sided box mesh representation.
+
+        Dimensions are **project units**. ifcopenshell's ``add_mesh_representation``
+        divides its input by the model unit scale by default (it assumes SI), so
+        ``unit_scale=1.0`` is passed explicitly: callers convert metres -> project units
+        themselves (``dx / unit_scale``). Without that the conversion happens twice on a
+        MILLI model, and creation and resize disagree.
+        """
         verts = [
             (0.0, 0.0, 0.0), (dx, 0.0, 0.0), (dx, dy, 0.0), (0.0, dy, 0.0),
             (0.0, 0.0, dz),  (dx, 0.0, dz),  (dx, dy, dz),  (0.0, dy, dz)
@@ -316,7 +431,14 @@ class CADService:
             (0, 4, 7, 3),  # left
             (1, 2, 6, 5)   # right
         ]
-        return ifcopenshell.api.run("geometry.add_mesh_representation", model, context=body, vertices=[verts], faces=[faces])
+        return ifcopenshell.api.run(
+            "geometry.add_mesh_representation",
+            model,
+            context=body,
+            vertices=[verts],
+            faces=[faces],
+            unit_scale=1.0,
+        )
 
     @classmethod
     async def create_wall(cls, project_id: str, req: CadWallRequest) -> CadElementResponse:
@@ -368,12 +490,20 @@ class CADService:
                 "name": wall.Name or "Parametric Wall",
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: the model is open, so the metrics refresh needs no re-parse.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         # STEP-03: the lock is taken before the model is opened and held across the whole
         # write, so concurrent edits to this project serialise (no lost updates).
         async with project_write_lock(project_id):
             created = await run_ifc(_work)
+            # STEP-19 / audit 2.2: keep the project row (element_count/updated_at) truthful
+            # without opening the model again. Inside the lock, so the supplied count still
+            # describes the file on disk when the UPDATE lands.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=created["element_count"]
+            )
 
         logger.info("Created IfcWall #%d in project %s", created["express_id"], project_id)
 
@@ -382,8 +512,6 @@ class CADService:
             project_id, created["transaction_id"], "create_wall", created["express_id"], "IfcWall",
             req.model_dump(), created["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return CadElementResponse(
             success=True,
@@ -406,6 +534,7 @@ class CADService:
             model = ifcopenshell.open(str(file_path))
             _, body = cls._ensure_contexts(model)
             storey = cls._get_target_storey(model, req.storey_id)
+            unit_scale = ifcopenshell.util.unit.calculate_unit_scale(model) or 1.0
 
             slab = ifcopenshell.api.run(
                 "root.create_entity",
@@ -423,9 +552,14 @@ class CADService:
             dy = max(max_y - min_y, 1.0)
             dz = float(req.thickness)
 
-            rep = cls._create_box_mesh(model, body, dx, dy, dz)
+            # _create_box_mesh takes project units (it pins unit_scale=1.0), so convert
+            # metres here exactly like the resize branch does - one convention, both paths.
+            rep = cls._create_box_mesh(
+                model, body, dx / unit_scale, dy / unit_scale, dz / unit_scale
+            )
             ifcopenshell.api.run("geometry.assign_representation", model, product=slab, representation=rep)
 
+            # The placement matrix stays in SI metres - edit_object_placement converts it.
             mat = np.identity(4)
             mat[0, 3] = min_x
             mat[1, 3] = min_y
@@ -441,10 +575,16 @@ class CADService:
                 "name": slab.Name or "Parametric Slab",
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: count from the open model instead of a second parse.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             created = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=created["element_count"]
+            )
 
         logger.info("Created IfcSlab #%d in project %s", created["express_id"], project_id)
 
@@ -452,8 +592,6 @@ class CADService:
             project_id, created["transaction_id"], "create_slab", created["express_id"], "IfcSlab",
             req.model_dump(), created["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return CadElementResponse(
             success=True,
@@ -476,6 +614,7 @@ class CADService:
             model = ifcopenshell.open(str(file_path))
             _, body = cls._ensure_contexts(model)
             storey = cls._get_target_storey(model, req.storey_id)
+            unit_scale = ifcopenshell.util.unit.calculate_unit_scale(model) or 1.0
 
             column = ifcopenshell.api.run(
                 "root.create_entity",
@@ -488,9 +627,15 @@ class CADService:
             dy = float(req.depth)
             dz = float(req.height)
 
-            rep = cls._create_box_mesh(model, body, dx, dy, dz)
+            # _create_box_mesh takes project units (it pins unit_scale=1.0), so convert
+            # metres here exactly like the resize branch does - one convention, both paths.
+            rep = cls._create_box_mesh(
+                model, body, dx / unit_scale, dy / unit_scale, dz / unit_scale
+            )
             ifcopenshell.api.run("geometry.assign_representation", model, product=column, representation=rep)
 
+            # The placement matrix stays in SI metres - edit_object_placement converts it,
+            # so the offsets below must not be divided by unit_scale as well.
             mat = np.identity(4)
             mat[0, 3] = float(req.position[0]) - (dx / 2.0)
             mat[1, 3] = float(req.position[1]) - (dy / 2.0)
@@ -506,10 +651,16 @@ class CADService:
                 "name": column.Name or "Parametric Column",
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: count from the open model instead of a second parse.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             created = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=created["element_count"]
+            )
 
         logger.info("Created IfcColumn #%d in project %s", created["express_id"], project_id)
 
@@ -517,8 +668,6 @@ class CADService:
             project_id, created["transaction_id"], "create_column", created["express_id"], "IfcColumn",
             req.model_dump(), created["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return CadElementResponse(
             success=True,
@@ -548,16 +697,10 @@ class CADService:
             if not wall or not wall.is_a("IfcWall"):
                 raise ValueError(f"Host wall #{req.host_wall_id} not found in model.")
 
-            # The filling belongs in the host wall's storey, not in the first storey of the model.
-            host_storey = ifcopenshell.util.element.get_container(wall)
-            if host_storey is not None and host_storey.is_a("IfcBuildingStorey"):
-                storey = host_storey
-            else:
-                logger.warning(
-                    "Host wall #%d has no IfcBuildingStorey container; falling back to the "
-                    "first storey in the model.", wall.id(),
-                )
-                storey = cls._get_target_storey(model)
+            # The filling belongs in the host wall's storey, not in the first storey of the model
+            # (STEP-22), and a wall assigned straight to the building resolves to the nearest
+            # storey by elevation rather than storeys[0] (audit 1.6).
+            storey = cls._resolve_filling_storey(model, wall)
 
             # Retrieve wall placement
             try:
@@ -631,10 +774,16 @@ class CADService:
                 "fill_class": fill_class,
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: opening + filling were just created; count from the open model.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             created = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=created["element_count"]
+            )
 
         fill_class = created["fill_class"]
         logger.info(
@@ -649,8 +798,6 @@ class CADService:
             project_id, created["transaction_id"], f"create_{req.opening_type.lower()}",
             created["express_id"], fill_class, params, created["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return CadElementResponse(
             success=True,
@@ -674,6 +821,14 @@ class CADService:
         lying, and a missing entity is a ``None`` rather than the RuntimeError that used to
         turn Ctrl+Z into an HTTP 500.
         """
+        if action_type in cls.NON_INVERTIBLE_ACTIONS:
+            # audit 5.8: a resize / storey / material / AI write has no parameter-level
+            # inverse here, and the generic branch below would delete the element.
+            logger.warning(
+                "Cannot invert %s for #%d without a pre-image snapshot", action_type, express_id
+            )
+            return False
+
         try:
             model = ifcopenshell.open(str(file_path))
         except Exception as exc:
@@ -766,7 +921,7 @@ class CADService:
         the event loop should do. ``atomic_copy_file`` renames the snapshot into place, so a
         crash mid-restore cannot truncate the model, and it drops the STEP-04 cache entry.
         """
-        post_snapshot = cls._take_snapshot(project_id, transaction_id, suffix=".post")
+        post_snapshot = cls._take_snapshot(project_id, transaction_id, post=True)
         digest_before = cls._file_digest(file_path)
         atomic_copy_file(pre_snapshot, file_path)
         changed = cls._file_digest(file_path) != digest_before
@@ -1143,10 +1298,16 @@ class CADService:
                 "entity_name": entity_name,
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: the removal count comes from the model being written.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             deleted = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=deleted["element_count"]
+            )
 
         logger.info("Deleted %s #%d in project %s", deleted["entity_type"], express_id, project_id)
 
@@ -1154,8 +1315,6 @@ class CADService:
             project_id, deleted["transaction_id"], "delete_element", express_id,
             deleted["entity_type"], {"name": deleted["entity_name"]}, deleted["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return {
             "success": True,
@@ -1223,10 +1382,16 @@ class CADService:
                 "name": new_name,
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
+                # audit 2.2: one more product; read it from the open model.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             created = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=created["element_count"]
+            )
 
         logger.info(
             "Cloned %s #%d to new element #%d", created["entity_type"], express_id, created["express_id"]
@@ -1236,8 +1401,6 @@ class CADService:
             project_id, created["transaction_id"], "clone_element", created["express_id"],
             created["entity_type"], req.model_dump(), created["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return CadElementResponse(
             success=True,
@@ -1283,6 +1446,105 @@ class CADService:
             ys = [float(point[1]) for point in coords]
             return max(ys) - min(ys)
         return None
+
+    @staticmethod
+    def _body_representation_items(entity: Any) -> list[Any]:
+        """All items of every Body representation on ``entity``."""
+        items: list[Any] = []
+        for rep in (getattr(getattr(entity, "Representation", None), "Representations", None) or []):
+            if getattr(rep, "RepresentationIdentifier", None) != "Body":
+                continue
+            items.extend(list(getattr(rep, "Items", None) or []))
+        return items
+
+    @classmethod
+    def _representation_coord_spans(cls, entity: Any) -> Optional[tuple[float, float, float]]:
+        """(X, Y, Z) spans of a single-item Body, in *project units*.
+
+        Reads the stored representation rather than a tessellation so an omitted dimension
+        can be reused exactly (a 0.4 m column stays 0.4 m, not 0.39999...).
+        """
+        items = cls._body_representation_items(entity)
+        if len(items) != 1:
+            return None
+        item = items[0]
+
+        if item.is_a("IfcExtrudedAreaSolid"):
+            profile = getattr(item, "SweptArea", None)
+            depth = getattr(item, "Depth", None)
+            if profile is None or depth is None:
+                return None
+            direction = getattr(item, "ExtrudedDirection", None)
+            ratios = tuple(round(float(v), 6) for v in getattr(direction, "DirectionRatios", ()))
+            if ratios != (0.0, 0.0, 1.0):
+                # The Z span of a skewed extrusion is not its Depth.
+                return None
+            if profile.is_a("IfcRectangleProfileDef"):
+                spans = (float(profile.XDim), float(profile.YDim), float(depth))
+            elif getattr(profile, "OuterCurve", None) is not None and profile.OuterCurve.is_a(
+                "IfcIndexedPolyCurve"
+            ):
+                points = list(profile.OuterCurve.Points.CoordList or [])
+                if not points:
+                    return None
+                xs = [float(p[0]) for p in points]
+                ys = [float(p[1]) for p in points]
+                spans = (max(xs) - min(xs), max(ys) - min(ys), float(depth))
+            else:
+                return None
+            return spans if all(span > 0 for span in spans) else None
+
+        # Mesh bodies (what _create_box_mesh writes): local coordinates in project units.
+        container = getattr(item, "Coordinates", None)
+        coords = list(getattr(container, "CoordList", None) or [])
+        if not coords:
+            return None
+        xs = [float(c[0]) for c in coords]
+        ys = [float(c[1]) for c in coords]
+        zs = [float(c[2]) for c in coords]
+        spans = (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+        return spans if all(span > 0 for span in spans) else None
+
+    @classmethod
+    def _body_extents_metres(
+        cls, entity: Any, unit_scale: float = 1.0
+    ) -> Optional[tuple[float, float, float]]:
+        """Current (width, depth, height) of an element's Body in metres, or ``None``.
+
+        Used to preserve the dimensions of a partial column resize. Project-unit
+        coordinates are scaled by ``unit_scale``; the tessellation fallback is already in
+        SI metres and is requested in local coordinates, so an element placement cannot
+        inflate the measured extents.
+        """
+        scale = float(unit_scale) if unit_scale else 1.0
+        if scale <= 0:
+            return None
+
+        spans = cls._representation_coord_spans(entity)
+        if spans is not None:
+            return tuple(span * scale for span in spans)  # type: ignore[return-value]
+
+        items = cls._body_representation_items(entity)
+        if len(items) != 1:
+            return None
+        try:
+            settings = ifcopenshell.geom.settings()
+            settings.set("use-world-coords", False)
+            shape = ifcopenshell.geom.create_shape(settings, entity)
+            verts = np.asarray(shape.geometry.verts, dtype=float)
+        except Exception as exc:
+            logger.warning(
+                "Could not measure Body extents of %s: %s",
+                getattr(entity, "is_a", lambda: "entity")(), exc,
+            )
+            return None
+        if verts.size == 0:
+            return None
+        points = verts.reshape(-1, 3)
+        measured = tuple(
+            float(points[:, axis].max() - points[:, axis].min()) for axis in range(3)
+        )
+        return measured if all(span > 0 for span in measured) else None  # type: ignore[return-value]
 
     @classmethod
     def _resize_extruded_solid(
@@ -1378,7 +1640,7 @@ class CADService:
         *,
         new_height: Optional[float] = None,
         new_thickness: Optional[float] = None,
-        box_height: Optional[float] = None,
+        box_extents: Optional[tuple[float, float, float]] = None,
         unit_scale: float = 1.0,
     ) -> None:
         """Re-read the written model and refuse to report success for a no-op."""
@@ -1386,7 +1648,7 @@ class CADService:
         entity = model.by_id(express_id)
         scale = float(unit_scale) if unit_scale else 1.0
 
-        if box_height is not None:
+        if box_extents is not None:
             entity_rep = getattr(entity, "Representation", None)
             body_items = [
                 item
@@ -1400,12 +1662,15 @@ class CADService:
                 )
             coords = getattr(getattr(body_items[0], "Coordinates", None), "CoordList", None)
             if coords:
-                z_span = max(float(c[2]) for c in coords) - min(float(c[2]) for c in coords)
-                expected = float(box_height) / scale
-                if abs(z_span - expected) > 1e-6:
-                    raise RuntimeError(
-                        f"geometry did not persist: body height is {z_span}, expected {expected}"
+                for axis, label in enumerate(("width", "depth", "height")):
+                    span = (
+                        max(float(c[axis]) for c in coords) - min(float(c[axis]) for c in coords)
                     )
+                    expected = float(box_extents[axis]) / scale
+                    if abs(span - expected) > 1e-6:
+                        raise RuntimeError(
+                            f"geometry did not persist: body {label} is {span}, expected {expected}"
+                        )
             return
 
         found = cls._find_body_extruded_solid(entity) if entity is not None else None
@@ -1428,14 +1693,152 @@ class CADService:
                     f"geometry did not persist: profile thickness is {actual}, expected {expected}"
                 )
 
+    #: Opening geometry tolerance, in metres (0.1 mm). Below it a clamp is not worth a model
+    #: write, and a void that starts *above* the new wall top cannot be clamped at all.
+    OPENING_TOLERANCE_M = 1e-4
+
+    @classmethod
+    def _clamp_openings_to_wall(
+        cls,
+        wall: Any,
+        *,
+        new_height: Optional[float],
+        new_thickness: Optional[float],
+        unit_scale: float,
+    ) -> list[str]:
+        """Keep every void in ``wall`` inside the resized wall (audit 1.4).
+
+        A host resize edited the wall extrusion only: shortening a wall below a door left a
+        void sticking out of the wall top, and thinning a wall left the void wider than the
+        wall - both invalid IFC and wrong in every schedule, cut and export.
+
+        Best-effort by design: each opening is clamped on its own, every failure becomes a
+        human-readable warning in the response, and *no* opening failure may fail the resize
+        (the wall edit is already the user's decision). Returns the warning strings.
+        """
+        warnings: list[str] = []
+        if new_height is None and new_thickness is None:
+            return warnings
+
+        scale = float(unit_scale) if unit_scale else 1.0
+
+        def metres(value_units: Any) -> float:
+            return float(value_units) * scale
+
+        try:
+            relations = list(getattr(wall, "HasOpenings", None) or [])
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Could not inspect the openings of wall #%d: %s", wall.id(), exc)
+            return [f"Could not inspect the openings of wall #{wall.id()}: {exc}"]
+
+        if not relations:
+            return warnings
+
+        wall_base_m: Optional[float] = None
+        if new_height is not None:
+            try:
+                wall_base_m = metres(
+                    ifcopenshell.util.placement.get_local_placement(wall.ObjectPlacement)[2, 3]
+                )
+            except Exception as exc:
+                warnings.append(
+                    f"Could not measure the base of wall #{wall.id()} ({exc}); "
+                    "its openings were not revalidated."
+                )
+
+        wall_top_m = (
+            wall_base_m + float(new_height)
+            if wall_base_m is not None and new_height is not None
+            else None
+        )
+
+        for rel in relations:
+            opening = getattr(rel, "RelatedOpeningElement", None)
+            if opening is None:
+                continue
+            label = f"Opening #{opening.id()}"
+
+            found = cls._find_body_extruded_solid(opening)
+            if found is None:
+                warnings.append(
+                    f"{label} is not a single extruded void, so it was left unchanged and "
+                    "was not revalidated against the resized wall."
+                )
+                continue
+            solid, _rep = found
+
+            if wall_top_m is not None:
+                try:
+                    base_m = metres(
+                        ifcopenshell.util.placement.get_local_placement(opening.ObjectPlacement)[2, 3]
+                    )
+                    depth_m = metres(solid.Depth)
+                    top_m = base_m + depth_m
+                    if top_m > wall_top_m + cls.OPENING_TOLERANCE_M:
+                        remaining_m = wall_top_m - base_m
+                        if remaining_m <= cls.OPENING_TOLERANCE_M:
+                            warnings.append(
+                                f"{label} starts at {base_m:.3f} m, at or above the new wall top "
+                                f"({wall_top_m:.3f} m); it was left unchanged - lower it or "
+                                "restore the wall height."
+                            )
+                        else:
+                            cls._resize_extruded_solid(
+                                solid, new_height=remaining_m, unit_scale=scale
+                            )
+                            warnings.append(
+                                f"{label} was {depth_m:.3f} m tall from {base_m:.3f} m and would "
+                                f"have crossed the {wall_top_m:.3f} m wall top; its height was "
+                                f"reduced to {remaining_m:.3f} m."
+                            )
+                except GeometryNotEditable as exc:
+                    warnings.append(
+                        f"{label} could not be shortened to fit the resized wall: {exc}"
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    warnings.append(
+                        f"{label} could not be revalidated against the resized wall: {exc}"
+                    )
+
+            if new_thickness is not None:
+                try:
+                    thickness_units = cls._profile_thickness_units(solid)
+                    if thickness_units is not None:
+                        thickness_m = metres(thickness_units)
+                        if thickness_m > float(new_thickness) + cls.OPENING_TOLERANCE_M:
+                            cls._resize_extruded_solid(
+                                solid, new_thickness=float(new_thickness), unit_scale=scale
+                            )
+                            warnings.append(
+                                f"{label} was {thickness_m:.3f} m thick in a wall that is now "
+                                f"{float(new_thickness):.3f} m thick; the void was clamped to the "
+                                "wall thickness."
+                            )
+                except GeometryNotEditable as exc:
+                    warnings.append(
+                        f"{label} could not be narrowed to the new wall thickness: {exc}"
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    warnings.append(
+                        f"{label} thickness could not be revalidated against the resized wall: {exc}"
+                    )
+
+        return warnings
+
     @classmethod
     async def update_geometry(cls, project_id: str, express_id: int, req: CadGeometryUpdateRequest) -> dict[str, Any]:
-        """Parametrically resize an element's representation, then update its dimensions."""
+        """Parametrically resize an element's representation, then update its dimensions.
+
+        audit 1.4: after a wall height/thickness change, every void in that wall is clamped
+        back inside it, and anything that could not be clamped is reported in
+        ``warnings`` instead of failing the resize. audit 5.8: the whole edit is one
+        undoable transaction (``begin_snapshot`` before the first write).
+        """
         file_path = ProjectService.get_project_file_path(project_id)
         if not file_path.exists():
             raise FileNotFoundError(f"Project file {file_path} not found.")
 
-        def _work() -> None:
+        def _work() -> dict[str, Any]:
             model = ifcopenshell.open(str(file_path))
             entity = model.by_id(express_id)
             if not entity:
@@ -1443,6 +1846,7 @@ class CADService:
 
             _, body = cls._ensure_contexts(model)
             unit_scale = ifcopenshell.util.unit.calculate_unit_scale(model) or 1.0
+            entity_type = entity.is_a()
 
             is_wall = entity.is_a("IfcWall")
             is_column = entity.is_a("IfcColumn")
@@ -1461,7 +1865,7 @@ class CADService:
 
             resized_height: Optional[float] = None
             resized_thickness: Optional[float] = None
-            resized_box_height: Optional[float] = None
+            resized_box: Optional[tuple[float, float, float]] = None
 
             if is_wall and (req.height is not None or req.thickness is not None):
                 found = cls._find_body_extruded_solid(entity)
@@ -1479,16 +1883,46 @@ class CADService:
                 )
                 resized_height = req.height
                 resized_thickness = req.thickness
-            elif is_column:
-                w = float(req.width) if req.width is not None else 0.35
-                d = float(req.depth) if req.depth is not None else 0.35
-                h = float(req.height) if req.height is not None else 3.0
+            elif is_column and (
+                req.width is not None or req.depth is not None or req.height is not None
+            ):
+                # A partial update must change exactly the requested dimension: read the
+                # current extents first and reuse them for whatever the caller omitted
+                # ({"height": 4.0} on a 0.4x0.4x3.0 column used to rebuild 0.35x0.35x4.0).
+                current: Optional[tuple[float, float, float]] = None
+                if req.width is None or req.depth is None or req.height is None:
+                    current = cls._body_extents_metres(entity, unit_scale)
+                    if current is None:
+                        raise GeometryNotEditable(
+                            f"IfcColumn #{express_id} body geometry cannot be measured; "
+                            "send width, depth and height together to resize it"
+                        )
+                w = float(req.width) if req.width is not None else current[0]  # type: ignore[index]
+                d = float(req.depth) if req.depth is not None else current[1]  # type: ignore[index]
+                h = float(req.height) if req.height is not None else current[2]  # type: ignore[index]
+                for label, value in (("width", w), ("depth", d), ("height", h)):
+                    if value <= 0:
+                        raise GeometryNotEditable(f"{label} must be positive (got {value})")
                 # _create_box_mesh writes raw numbers into the file, so convert metres -> project units.
                 rep = cls._create_box_mesh(
                     model, body, w / unit_scale, d / unit_scale, h / unit_scale
                 )
                 cls._replace_body_representation(model, entity, rep)
-                resized_box_height = h
+                resized_box = (w, d, h)
+
+            # audit 1.4: a shorter/thinner wall must not leave a void sticking out of it. This
+            # runs after the wall extrusion is resized and before the single write below, so
+            # the wall and its openings always land in the same atomic commit.
+            warnings: list[str] = []
+            if is_wall and (req.height is not None or req.thickness is not None):
+                warnings = cls._clamp_openings_to_wall(
+                    entity,
+                    new_height=req.height,
+                    new_thickness=req.thickness,
+                    unit_scale=unit_scale,
+                )
+                for warning in warnings:
+                    logger.warning("Wall #%d resize: %s", express_id, warning)
 
             if req.elevation is not None:
                 try:
@@ -1502,51 +1936,85 @@ class CADService:
                         f"elevation edit failed for #{express_id}: {exc}"
                     ) from exc
 
-            atomic_write_model(model, file_path)
+            # audit 5.8: geometry edits were the only mutation left out of the undo stack, so
+            # Ctrl+Z skipped over a resize. The pre-image is taken before the first write.
+            trans_id, pre_snapshot = cls.begin_snapshot(project_id)
+            try:
+                atomic_write_model(model, file_path)
 
-            # Properties are written only after the geometry is committed, and only for what changed.
-            # Each call re-opens the model from disk (never the stale handle above), which is what
-            # makes the F-002 lost update impossible: the property write cannot be clobbered by a
-            # later write from this snapshot.
-            if is_wall or is_column:
-                if req.height is not None:
-                    IFCService.update_element_property(
-                        file_path, express_id, "Dimensions", "Height", float(req.height), "IfcLengthMeasure"
-                    )
-                if is_wall and req.thickness is not None:
-                    IFCService.update_element_property(
-                        file_path, express_id, "Dimensions", "Thickness", float(req.thickness), "IfcLengthMeasure"
-                    )
+                # Properties are written only after the geometry is committed, and only for what changed.
+                # Each call re-opens the model from disk (never the stale handle above), which is what
+                # makes the F-002 lost update impossible: the property write cannot be clobbered by a
+                # later write from this snapshot.
+                if is_wall or is_column:
+                    if req.height is not None:
+                        IFCService.update_element_property(
+                            file_path, express_id, "Dimensions", "Height", float(req.height), "IfcLengthMeasure"
+                        )
+                    if is_wall and req.thickness is not None:
+                        IFCService.update_element_property(
+                            file_path, express_id, "Dimensions", "Thickness", float(req.thickness), "IfcLengthMeasure"
+                        )
 
-            if resized_height is not None or resized_thickness is not None or resized_box_height is not None:
-                cls._verify_persisted_geometry(
-                    file_path,
-                    express_id,
-                    new_height=resized_height,
-                    new_thickness=resized_thickness,
-                    box_height=resized_box_height,
-                    unit_scale=unit_scale,
-                )
+                if resized_height is not None or resized_thickness is not None or resized_box is not None:
+                    cls._verify_persisted_geometry(
+                        file_path,
+                        express_id,
+                        new_height=resized_height,
+                        new_thickness=resized_thickness,
+                        box_extents=resized_box,
+                        unit_scale=unit_scale,
+                    )
+            except Exception:
+                # STEP-10 seam: a failed edit must not leave a pre-image behind.
+                cls.discard_snapshot(project_id, pre_snapshot)
+                raise
+
+            return {
+                "entity_type": entity_type,
+                "transaction_id": trans_id,
+                "pre_snapshot": pre_snapshot,
+                "warnings": warnings,
+            }
 
         async with project_write_lock(project_id):
-            await run_ifc(_work)
+            result = await run_ifc(_work)
 
-        # STEP-19: this path writes the model twice (geometry + Dimensions pset) without a
-        # cad_transactions row, so the metrics have to be refreshed here explicitly.
-        await ProjectService.refresh_project_metrics(project_id)
+        params = {
+            "height": req.height,
+            "thickness": req.thickness,
+            "elevation": req.elevation,
+            "warnings": result["warnings"],
+        }
+        await cls.record_transaction(
+            project_id, result["transaction_id"], "update_geometry", express_id,
+            result["entity_type"], params, result["pre_snapshot"],
+        )
+        # STEP-19 / audit 2.2: a resize never changes the product count - no re-parse.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         logger.info("Updated geometry parameters for #%d", express_id)
 
-        return {"success": True, "express_id": express_id, "updated": True}
+        return {
+            "success": True,
+            "express_id": express_id,
+            "updated": True,
+            "transaction_id": result["transaction_id"],
+            "warnings": result["warnings"],
+        }
 
     @classmethod
     async def assign_storey(cls, project_id: str, express_id: int, req: CadAssignStoreyRequest) -> dict[str, Any]:
-        """Reassign spatial container of element to another IfcBuildingStorey."""
+        """Reassign spatial container of element to another IfcBuildingStorey.
+
+        audit 5.8: a storey move is a model mutation, so it is one undoable transaction
+        (``assign_storey``) instead of an untracked write Ctrl+Z skips over.
+        """
         file_path = ProjectService.get_project_file_path(project_id)
         if not file_path.exists():
             raise FileNotFoundError(f"Project file {file_path} not found.")
 
-        def _work() -> str:
+        def _work() -> dict[str, Any]:
             model = ifcopenshell.open(str(file_path))
             entity = model.by_id(express_id)
             if not entity:
@@ -1556,47 +2024,100 @@ class CADService:
             if not storey or not storey.is_a("IfcBuildingStorey"):
                 raise ValueError(f"Target storey #{req.storey_id} not found or is not an IfcBuildingStorey.")
 
-            ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[entity])
-            atomic_write_model(model, file_path)
-            return str(getattr(storey, "Name", "Storey"))
+            entity_type = entity.is_a()
+            previous = ifcopenshell.util.element.get_container(entity)
+            trans_id, pre_snapshot = cls.begin_snapshot(project_id)
+            try:
+                ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[entity])
+                atomic_write_model(model, file_path)
+            except Exception:
+                cls.discard_snapshot(project_id, pre_snapshot)
+                raise
+            return {
+                "storey_name": str(getattr(storey, "Name", "Storey")),
+                "entity_type": entity_type,
+                "previous_storey_id": previous.id() if previous is not None else None,
+                "transaction_id": trans_id,
+                "pre_snapshot": pre_snapshot,
+            }
 
         async with project_write_lock(project_id):
-            storey_name = await run_ifc(_work)
+            assigned = await run_ifc(_work)
 
-        # STEP-19: no transaction row here, so refresh the project metrics directly.
-        await ProjectService.refresh_project_metrics(project_id)
-        logger.info("Assigned element #%d to storey #%d (%s)", express_id, req.storey_id, storey_name)
+        await cls.record_transaction(
+            project_id, assigned["transaction_id"], "assign_storey", express_id,
+            assigned["entity_type"],
+            {
+                "storey_id": req.storey_id,
+                "storey_name": assigned["storey_name"],
+                "previous_storey_id": assigned["previous_storey_id"],
+            },
+            assigned["pre_snapshot"],
+        )
+        # STEP-19 / audit 2.2: containment does not change the product count - no re-parse.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
+        logger.info(
+            "Assigned element #%d to storey #%d (%s)", express_id, req.storey_id, assigned["storey_name"]
+        )
 
         return {
             "success": True,
             "express_id": express_id,
             "storey_id": req.storey_id,
-            "storey_name": storey_name
+            "storey_name": assigned["storey_name"]
         }
 
     @classmethod
     async def assign_material(cls, project_id: str, express_id: int, req: CadMaterialRequest) -> dict[str, Any]:
-        """Assign or override architectural material and color appearance for an element."""
+        """Assign or override architectural material and color appearance for an element.
+
+        audit 5.8: material/colour assignment is a model mutation and therefore one undoable
+        transaction (``assign_material``), like every other write path.
+        """
         file_path = ProjectService.get_project_file_path(project_id)
         if not file_path.exists():
             raise FileNotFoundError(f"Project file {file_path} not found.")
 
-        def _work() -> None:
+        def _work() -> dict[str, Any]:
             model = ifcopenshell.open(str(file_path))
             entity = model.by_id(express_id)
             if not entity:
                 raise ValueError(f"Entity #{express_id} not found in model.")
+            entity_type = entity.is_a()
 
-            # Each property write re-opens the model and replaces the file atomically, so the
-            # three values below accumulate instead of the last write winning (F-002).
-            IFCService.update_element_property(file_path, express_id, "Materials", "MaterialName", req.material_name, "IfcLabel")
-            if req.color_hex:
-                IFCService.update_element_property(file_path, express_id, "Materials", "SurfaceColor", req.color_hex, "IfcLabel")
-            if req.transparency is not None:
-                IFCService.update_element_property(file_path, express_id, "Materials", "Transparency", float(req.transparency), "IfcReal")
+            trans_id, pre_snapshot = cls.begin_snapshot(project_id)
+            try:
+                # Each property write re-opens the model and replaces the file atomically, so the
+                # three values below accumulate instead of the last write winning (F-002).
+                IFCService.update_element_property(file_path, express_id, "Materials", "MaterialName", req.material_name, "IfcLabel")
+                if req.color_hex:
+                    IFCService.update_element_property(file_path, express_id, "Materials", "SurfaceColor", req.color_hex, "IfcLabel")
+                if req.transparency is not None:
+                    IFCService.update_element_property(file_path, express_id, "Materials", "Transparency", float(req.transparency), "IfcReal")
+            except Exception:
+                cls.discard_snapshot(project_id, pre_snapshot)
+                raise
+            return {
+                "entity_type": entity_type,
+                "transaction_id": trans_id,
+                "pre_snapshot": pre_snapshot,
+            }
 
         async with project_write_lock(project_id):
-            await run_ifc(_work)
+            assigned = await run_ifc(_work)
+
+        await cls.record_transaction(
+            project_id, assigned["transaction_id"], "assign_material", express_id,
+            assigned["entity_type"],
+            {
+                "material_name": req.material_name,
+                "color_hex": req.color_hex,
+                "transparency": req.transparency,
+            },
+            assigned["pre_snapshot"],
+        )
+        # STEP-19 / audit 2.2: a material write cannot change the product count - no re-parse.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         return {
             "success": True,
@@ -1632,7 +2153,13 @@ class CADService:
 
     @classmethod
     async def pin_element(cls, project_id: str, express_id: int, req: CadPinRequest) -> dict[str, Any]:
-        """Pin or unpin an element."""
+        """Pin or unpin an element.
+
+        Deliberately **not** an undoable transaction: pinning is a database annotation plus a
+        non-geometric ``Constraints.Pinned`` flag, and Ctrl+Z must never spend a model restore
+        (a whole 49 MB pre-image) on it. The ``pinned_elements`` row is the source of truth
+        for locking; the IFC property is a persistence convenience.
+        """
         file_path = ProjectService.get_project_file_path(project_id)
         if not file_path.exists():
             raise FileNotFoundError(f"Project file {file_path} not found.")
@@ -1723,8 +2250,9 @@ class CADService:
             project_id, moved["transaction_id"], "move_element", express_id,
             moved["entity_type"], params, moved["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
+        # STEP-19 / audit 2.2: a transform cannot change the product count, so the refresh
+        # only touches file_size/updated_at - no re-parse of a 49 MB model per gizmo commit.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         return CadElementResponse(
             success=True,
@@ -1819,8 +2347,9 @@ class CADService:
             project_id, rotated["transaction_id"], "rotate_element", express_id,
             rotated["entity_type"], params, rotated["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
+        # STEP-19 / audit 2.2: a transform cannot change the product count, so the refresh
+        # only touches file_size/updated_at - no re-parse of a 49 MB model per gizmo commit.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         return CadElementResponse(
             success=True,
@@ -1916,6 +2445,9 @@ class CADService:
                 "pre_snapshot": pre_snapshot,
                 "old_matrix": old_mat.tolist(),
                 "new_matrix": mat.tolist(),
+                # audit 2.2: only meaningful for a mirror copy (is_copy=True), but reading it
+                # from the open model costs nothing and keeps the count truthful either way.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
@@ -1932,8 +2464,15 @@ class CADService:
             project_id, mirrored["transaction_id"], "mirror_element", mirrored["express_id"],
             mirrored["entity_type"], params, mirrored["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
+        # STEP-19 / audit 2.2: an in-place mirror cannot change the product count, so the
+        # refresh only touches file_size/updated_at. A mirrored *copy* does add one product,
+        # and the count comes from the model that was just written - still no re-parse.
+        if req.is_copy:
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=mirrored["element_count"]
+            )
+        else:
+            await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         return CadElementResponse(
             success=True,
@@ -2004,10 +2543,16 @@ class CADService:
                 "transaction_id": trans_id,
                 "pre_snapshot": pre_snapshot,
                 "created": created_rows,
+                # audit 2.2: N products were just added; count from the open model.
+                "element_count": len(model.by_type("IfcProduct")),
             }
 
         async with project_write_lock(project_id):
             arrayed = await run_ifc(_work)
+            # STEP-19 / audit 2.2: no re-parse; the count came from the model just written.
+            await ProjectService.refresh_project_metrics(
+                project_id, element_count=arrayed["element_count"]
+            )
 
         created_ids = [row[0] for row in arrayed["created"]]
         created_responses = [
@@ -2038,8 +2583,6 @@ class CADService:
             project_id, arrayed["transaction_id"], "array_element", express_id,
             arrayed["entity_type"], params, arrayed["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
 
         return created_responses
 
@@ -2110,8 +2653,9 @@ class CADService:
             project_id, aligned["transaction_id"], "align_element", express_id,
             aligned["entity_type"], params, aligned["pre_snapshot"],
         )
-        # STEP-19: keep the project row (element_count/updated_at) truthful.
-        await ProjectService.refresh_project_metrics(project_id)
+        # STEP-19 / audit 2.2: a transform cannot change the product count, so the refresh
+        # only touches file_size/updated_at - no re-parse of a 49 MB model per gizmo commit.
+        await ProjectService.refresh_project_metrics(project_id, count_unchanged=True)
 
         return CadElementResponse(
             success=True,

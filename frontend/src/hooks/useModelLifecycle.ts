@@ -10,7 +10,24 @@ import type {
   DisciplineType
 } from '../types/ifc';
 import * as api from '../services/api';
+import {
+  CLASH_JOB_POLL_INTERVAL_MS,
+  ClashJobUnavailableError,
+  startClashJob,
+  waitForClashJob
+} from '../services/clashJob';
+import { resetClashJobState, setClashJobState } from '../services/clashJobState';
+import { notifyUser } from '../services/userMessages';
 import IfcWorker from '../workers/ifcWorker?worker';
+
+/** Abort from an unmount/project change, not a real failure to report. */
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'AbortError'
+  );
+}
 
 export interface UseModelLifecycleProps {
   autoInit?: boolean;
@@ -58,6 +75,8 @@ export function useModelLifecycle({
   const [clashResult, setClashResult] = useState<ClashCheckResponse | null>(null);
   const [activeClash, setActiveClash] = useState<ClashRecord | null>(null);
   const [isClashLoading, setIsClashLoading] = useState(false);
+  // Aborts job polling on unmount or when the project changes (audit issue 2.1).
+  const clashJobAbortRef = useRef<AbortController | null>(null);
 
   // Worker reference
   const workerRef = useRef<Worker | null>(null);
@@ -248,32 +267,120 @@ export function useModelLifecycle({
       });
       return;
     }
+
+    // A new run supersedes any in-flight poll. The server-side job keeps going (it is
+    // bounded and one-per-project); only this tab stops listening to it.
+    clashJobAbortRef.current?.abort();
+    const controller = new AbortController();
+    clashJobAbortRef.current = controller;
+    const projectId = currentProject.id;
+
     setIsClashLoading(true);
+    setClashJobState({
+      status: 'queued',
+      phase: 'queued',
+      checked: 0,
+      total: 0,
+      error: null,
+      usedSyncFallback: false
+    });
+
     try {
-      const res = await api.runClashCheck(currentProject.id, tolerance);
-      setClashResult(res);
-      if (res.clashes.length > 0) {
-        setActiveClash(res.clashes[0]);
+      let result: ClashCheckResponse;
+      try {
+        const started = await startClashJob(projectId, tolerance);
+        result = await waitForClashJob(projectId, started.job_id, {
+          intervalMs: CLASH_JOB_POLL_INTERVAL_MS,
+          signal: controller.signal,
+          onProgress: (status) => {
+            setClashJobState({
+              status: status.status,
+              phase: status.progress?.phase ?? 'queued',
+              checked: status.progress?.checked ?? 0,
+              total: status.progress?.total ?? 0,
+              error: status.error
+            });
+          }
+        });
+      } catch (e) {
+        if (e instanceof ClashJobUnavailableError) {
+          // Older backend or a proxy that strips the route: fall back to the synchronous
+          // endpoint *once*. The job API exists so this path is never the normal one.
+          console.warn('Clash job endpoint unavailable, using the synchronous clash check.');
+          setClashJobState({
+            status: 'running',
+            phase: 'extracting',
+            checked: 0,
+            total: 0,
+            error: null,
+            usedSyncFallback: true
+          });
+          result = await api.runClashCheck(projectId, tolerance);
+        } else {
+          throw e;
+        }
       }
+
+      if (controller.signal.aborted) return;
+      setClashResult(result);
+      if (result.clashes.length > 0) {
+        setActiveClash(result.clashes[0]);
+      }
+      setClashJobState({ status: 'succeeded', phase: 'done', error: null });
     } catch (e) {
+      if (isAbortError(e)) return;
+      const message =
+        e instanceof Error && e.message
+          ? e.message
+          : 'Clash detection failed. See the server log for details.';
       console.error('Clash detection failed:', e);
+      setClashJobState({ status: 'failed', phase: 'failed', error: message });
+      notifyUser({ tone: 'error', text: message });
     } finally {
-      setIsClashLoading(false);
+      // Only the run that still owns the ref may clear the shared loading flag.
+      if (clashJobAbortRef.current === controller) {
+        clashJobAbortRef.current = null;
+        if (!controller.signal.aborted) setIsClashLoading(false);
+      }
     }
   }, [currentProject]);
+
+  // Project change: stop polling and never show another project's clashes/progress.
+  useEffect(() => {
+    clashJobAbortRef.current?.abort();
+    clashJobAbortRef.current = null;
+    resetClashJobState();
+    setClashResult(null);
+    setActiveClash(null);
+    setIsClashLoading(false);
+  }, [currentProject?.id]);
+
+  // Unmount: stop polling (the server-side job is bounded and finishes on its own).
+  useEffect(() => () => clashJobAbortRef.current?.abort(), []);
 
   const handleLoadSampleDiscipline = useCallback(async (discipline: 'STRUCT' | 'MEP') => {
     if (!currentProject) return;
     const sampleFileName = discipline === 'STRUCT' ? 'Ifc4_Revit_STR.ifc' : 'Ifc4_Revit_MEP.ifc';
     try {
       const resp = await fetch(`/modelsfortests/${sampleFileName}`);
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const file = new File([blob], sampleFileName, { type: 'application/octet-stream' });
-        await handleUploadSubModel(file, discipline, `${discipline} Model`);
+      if (!resp.ok) {
+        // F-057 residual: the fixtures are local-only (not in git). Say so instead of
+        // failing silently when a fresh clone or a production build has no copy.
+        notifyUser({
+          tone: 'error',
+          text: `${discipline} sample model is not available. Place ${sampleFileName} in modelsfortests/ and retry.`,
+        });
+        return;
       }
+      const blob = await resp.blob();
+      const file = new File([blob], sampleFileName, { type: 'application/octet-stream' });
+      await handleUploadSubModel(file, discipline, `${discipline} Model`);
     } catch (e) {
       console.warn('Could not load sample model:', e);
+      notifyUser({
+        tone: 'error',
+        text: `Could not load the ${discipline} sample model: ${e instanceof Error ? e.message : String(e)}`,
+      });
     }
   }, [currentProject, handleUploadSubModel]);
 

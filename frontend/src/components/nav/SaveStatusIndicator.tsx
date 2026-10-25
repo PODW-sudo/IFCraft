@@ -21,7 +21,7 @@ const LABELS: Record<SaveStatus, string> = {
 };
 
 const TONE: Record<SaveStatus, string> = {
-  idle: 'text-slate-500 dark:text-slate-400 border-transparent',
+  idle: 'text-[var(--text-secondary)] border-transparent',
   saving: 'text-sky-600 dark:text-sky-300 border-sky-500/30 bg-sky-500/10',
   saved: 'text-emerald-600 dark:text-emerald-300 border-emerald-500/30 bg-emerald-500/10',
   error: 'text-rose-600 dark:text-rose-300 border-rose-500/40 bg-rose-500/10'
