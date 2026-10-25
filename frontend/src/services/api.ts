@@ -22,9 +22,19 @@ let tokenRequest: Promise<string> | null = null;
 
 async function requestToken(): Promise<string> {
   // The bootstrap route itself is public; `apiFetch` would recurse (and has no token yet).
-  const res = await fetch(`${BASE_URL}/bootstrap/token`, { cache: 'no-store' });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/bootstrap/token`, { cache: 'no-store' });
+  } catch (err) {
+    throw new Error(
+      `Cannot reach the backend (${err instanceof Error ? err.message : String(err)}). Is uvicorn running on port 8000?`
+    );
+  }
   if (!res.ok) {
-    throw new Error(`Failed to obtain the API token (HTTP ${res.status} ${res.statusText})`);
+    const hint = res.status >= 500 ? ' The backend appears to be down or still starting.' : '';
+    throw new Error(
+      `Failed to obtain the API token (HTTP ${res.status} ${res.statusText}).${hint}`
+    );
   }
   const body = (await res.json()) as { token?: string };
   if (!body || typeof body.token !== 'string' || !body.token) {

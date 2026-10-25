@@ -141,6 +141,12 @@ Open `http://localhost:5173` in your browser.
 > backend is already running` - when a second process tries to serve the same `storage/`. Use
 > `--workers 1` (the default) and stop the previous backend before starting a new one. The
 > guard is disabled only by `ENFORCE_SINGLE_WRITER = False` in `backend/app/core/config.py`.
+>
+> **Troubleshooting "502 Bad Gateway" / "Failed to obtain the API token":** the Vite dev server is
+> up but nothing is listening on port 8000. On Windows an asyncio accept failure (`WinError 64`)
+> can leave a zombie uvicorn that still holds `storage/.server.lock`, so a normal restart refuses to
+> start. Run `.\scripts\stop_backend.ps1` (it stops only this app's uvicorn), then start the backend
+> again. The upload dialog now reports this inline instead of leaving a stuck progress bar.
 
 > **AI quota guard.** `POST /api/copilot/chat` and both `/api/copilot/models` routes admit 30
 > requests per caller per minute in memory (`AI_RATE_LIMIT_*` in `backend/app/core/config.py`);

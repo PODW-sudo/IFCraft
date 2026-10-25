@@ -98,7 +98,7 @@ export function useModelLifecycle({
         onCloseUploadModalRef.current?.();
       } else if (data.type === 'ERROR') {
         console.error('Web-IFC Worker Error:', data.message);
-        alert(`Failed to parse IFC file: ${data.message}`);
+        notifyUser({ tone: 'error', text: `Failed to parse IFC file: ${data.message}` });
         setIsLoading(false);
       }
     };
@@ -399,7 +399,14 @@ export function useModelLifecycle({
       parseBufferInWorker(arrayBuffer, file.name);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Upload error: ${msg}`);
+      // A native alert blocks the UI and leaves the progress bar looking stuck. Keep the
+      // modal usable: reset the progress and surface a non-blocking message instead.
+      notifyUser({
+        tone: 'error',
+        text: `Upload failed: ${msg}${/502|Failed to fetch|NetworkError/i.test(msg) ? ' Is the backend running on port 8000?' : ''}`,
+      });
+      setLoadingStage('');
+      setLoadingPercent(0);
       setIsLoading(false);
     }
   }, [parseBufferInWorker, refreshProjects, onResetSelection]);
@@ -413,7 +420,7 @@ export function useModelLifecycle({
       await loadProject(project);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Creation error: ${msg}`);
+      notifyUser({ tone: 'error', text: `Could not create the project: ${msg}` });
       setIsLoading(false);
     }
   }, [refreshProjects, loadProject, onCloseNewProjectModal]);
@@ -444,7 +451,7 @@ export function useModelLifecycle({
       await loadProject(sample);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Failed to load sample model: ${msg}`);
+      notifyUser({ tone: 'error', text: `Failed to load the sample model: ${msg}` });
       setIsLoading(false);
     }
   }, [refreshProjects, loadProject, onCloseNewProjectModal]);
