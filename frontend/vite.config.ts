@@ -45,6 +45,11 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    // Atomic-write helpers create `*.tmp` next to their target. Watching those briefly makes
+    // Vite crash with EBUSY on Windows, so they are never part of the module graph anyway.
+    watch: {
+      ignored: ['**/*.tmp', '**/*.bak', '**/__pycache__/**']
+    },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp'
