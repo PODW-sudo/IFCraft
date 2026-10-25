@@ -14,7 +14,10 @@ param(
 )
 
 $targets = Get-CimInstance Win32_Process |
-    Where-Object { $_.Name -match '^python' -and $_.CommandLine -match 'uvicorn\s+app\.main:app' }
+    Where-Object {
+        $_.Name -match '^python' -and
+        $_.CommandLine -match 'uvicorn\s+app\.main:app|run_server\.py'
+    }
 
 if (-not $targets) {
     Write-Host "[INFO] No IFC Editor uvicorn process is running."
@@ -37,5 +40,5 @@ if ($listener) {
 }
 
 Write-Host "[OK] Port $Port is free. Start the backend with:"
-Write-Host "     cd backend; .\venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+Write-Host "     cd backend; .\venv\Scripts\python.exe run_server.py --port $Port"
 exit 0

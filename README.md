@@ -124,7 +124,10 @@ python -m venv venv
 source venv/bin/activate
 
 pip install -r requirements.txt
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+# Windows (recommended): Selector event loop avoids the Proactor WinError 64 accept failure
+.\venv\Scripts\python.exe run_server.py --reload
+# Linux/macOS
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 **Frontend:**
@@ -146,7 +149,13 @@ Open `http://localhost:5173` in your browser.
 > up but nothing is listening on port 8000. On Windows an asyncio accept failure (`WinError 64`)
 > can leave a zombie uvicorn that still holds `storage/.server.lock`, so a normal restart refuses to
 > start. Run `.\scripts\stop_backend.ps1` (it stops only this app's uvicorn), then start the backend
-> again. The upload dialog now reports this inline instead of leaving a stuck progress bar.
+> again with `.\venv\Scripts\python.exe run_server.py`. The upload dialog now reports this inline
+> instead of leaving a stuck progress bar.
+>
+> `run_server.py` switches Windows to the **Selector** event loop. The default Proactor loop can
+> raise `WinError 64` from its accept path after a WebSocket disconnects, leaving a process that
+> holds the writer lock but no longer accepts connections (the 502 above). The Selector loop has
+> been verified through an idle-heartbeat close (1001 at ~62 s) followed by a reconnect.
 
 > **AI quota guard.** `POST /api/copilot/chat` and both `/api/copilot/models` routes admit 30
 > requests per caller per minute in memory (`AI_RATE_LIMIT_*` in `backend/app/core/config.py`);
