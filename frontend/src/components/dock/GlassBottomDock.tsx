@@ -5,6 +5,8 @@ import {
   Ruler,
   Scissors,
   Grid,
+  Grid3x3,
+  LayoutGrid,
   Camera,
   Layers,
   Trash2,
@@ -76,6 +78,9 @@ interface GlassBottomDockProps {
   isClashOpen?: boolean;
   onToggleClash?: () => void;
   isCadOpen?: boolean;
+  showGrid?: boolean;
+  onToggleGrid?: () => void;
+  onOpenDrawingSheets?: () => void;
 }
 
 export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
@@ -84,6 +89,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
   cadToolMode = 'select',
   onSelectCadTool,
   isCadOpen = true,
+  showGrid = true,
+  onToggleGrid,
+  onOpenDrawingSheets,
   wallHeight = 3.0,
   setWallHeight,
   wallThickness = 0.2,
@@ -337,12 +345,12 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         {(profile === 'review' || (profile === 'modify' && !isCadActive)) && (
           <>
             {/* Select Tool */}
-            <button
+            <button data-touch-target="true"
               type="button"
               data-qa="transform-mode-select"
               data-qa-btn="tool-select"
               onClick={() => onSetTransformMode('select')}
-              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+              className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                 transformMode === 'select'
                   ? 'bg-blue-600 text-white shadow-xs font-semibold'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
@@ -355,9 +363,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {/* Camera Orientation Presets Dropdown */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <button
+                <button data-touch-target="true"
                   data-qa="dock-camera-preset-trigger"
-                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                   title="Camera Orientation Presets"
                 >
                   <Camera className="w-3.5 h-3.5" />
@@ -392,9 +400,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {/* Render Style Dropdown */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <button
+                <button data-touch-target="true"
                   data-qa="dock-render-style-trigger"
-                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                   title={`Render Style: ${renderStyle}`}
                 >
                   <Layers className="w-3.5 h-3.5" />
@@ -443,7 +451,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
           <div className="flex items-center gap-1">
             {/* Transform Modes Segment */}
             <div className="flex items-center rounded-full p-0.5 bg-white/40 dark:bg-slate-800/40 border border-white/50 dark:border-white/5">
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="transform-mode-select"
                 data-qa-btn="tool-select"
@@ -451,7 +459,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   onSetTransformMode('select');
                   onSelectCadTool?.('select');
                 }}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   transformMode === 'select' && cadToolMode === 'select'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -461,12 +469,12 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                 <MousePointer className="w-3.5 h-3.5" />
               </button>
 
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="transform-mode-translate"
                 data-qa-btn="tool-translate"
                 onClick={() => onSetTransformMode('translate')}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   transformMode === 'translate'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -476,12 +484,12 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                 <Move className="w-3.5 h-3.5" />
               </button>
 
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="transform-mode-rotate"
                 data-qa-btn="tool-rotate"
                 onClick={() => onSetTransformMode('rotate')}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   transformMode === 'rotate'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -492,11 +500,11 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               </button>
 
               {showSnap && (
-                <button
+                <button data-touch-target="true"
                   type="button"
                   data-qa="dock-snap-toggle"
                   onClick={onToggleSnap}
-                  className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                  className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                     snapEnabled
                       ? 'bg-blue-600 text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -504,6 +512,22 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   title="Toggle Grid Snapping"
                 >
                   <Grid className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {onToggleGrid && (
+                <button data-touch-target="true"
+                  type="button"
+                  data-qa="dock-ground-grid-toggle"
+                  onClick={onToggleGrid}
+                  className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
+                    showGrid
+                      ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
+                  }`}
+                  title="Toggle 3D Ground Grid (G)"
+                >
+                  <Grid3x3 className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -534,14 +558,14 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               })}
 
               {/* Parametric Settings Flyout Toggle */}
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="cad-settings-btn"
                 onClick={() => {
                   setShowSettings(!showSettings);
                   if (!showSettings) setShowHistory(false);
                 }}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   showSettings
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
@@ -556,14 +580,14 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
 
             {/* Undo / Redo / History */}
             <div className="flex items-center gap-0.5">
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="cad-undo-btn"
                 data-qa-btn="dock-undo-btn"
                 disabled={!canUndo}
                 onClick={onUndo}
                 title="Undo (Ctrl+Z)"
-                className={`p-1.5 rounded-full transition-colors ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors ${
                   canUndo
                     ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
                     : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
@@ -571,14 +595,14 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               >
                 <Undo2 className="w-3.5 h-3.5" />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="cad-redo-btn"
                 data-qa-btn="dock-redo-btn"
                 disabled={!canRedo}
                 onClick={onRedo}
                 title="Redo (Ctrl+Y)"
-                className={`p-1.5 rounded-full transition-colors ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors ${
                   canRedo
                     ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
                     : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
@@ -586,7 +610,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               >
                 <Redo2 className="w-3.5 h-3.5" />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="cad-history-btn"
                 onClick={() => {
@@ -595,7 +619,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   if (!showHistory) setShowSettings(false);
                 }}
                 title="Transaction Stack"
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   showHistory
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/60'
@@ -609,9 +633,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               {/* Camera Orientation Presets Dropdown */}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button
+                  <button data-touch-target="true"
                     data-qa="dock-camera-preset-trigger"
-                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                     title="Camera Orientation Presets"
                   >
                     <Camera className="w-3.5 h-3.5" />
@@ -646,9 +670,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
               {/* Render Style Dropdown */}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button
+                  <button data-touch-target="true"
                     data-qa="dock-render-style-trigger"
-                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                     title={`Render Style: ${renderStyle}`}
                   >
                     <Layers className="w-3.5 h-3.5" />
@@ -700,9 +724,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {/* Render Style */}
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <button
+                <button data-touch-target="true"
                   data-qa="dock-render-style-trigger"
-                  className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                   title="Render Style"
                 >
                   <Layers className="w-3.5 h-3.5" />
@@ -752,7 +776,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {customSettings?.showCadToolbar && (
               <>
                 <div className="flex items-center rounded-full p-0.5 bg-white/40 dark:bg-slate-800/40 border border-white/50 dark:border-white/5">
-                  <button
+                  <button data-touch-target="true"
                     type="button"
                     data-qa="transform-mode-select"
                     data-qa-btn="tool-select"
@@ -760,7 +784,7 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                       onSetTransformMode('select');
                       onSelectCadTool?.('select');
                     }}
-                    className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                       transformMode === 'select' && cadToolMode === 'select'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -770,12 +794,12 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                     <MousePointer className="w-3.5 h-3.5" />
                   </button>
 
-                  <button
+                  <button data-touch-target="true"
                     type="button"
                     data-qa="transform-mode-translate"
                     data-qa-btn="tool-translate"
                     onClick={() => onSetTransformMode('translate')}
-                    className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                       transformMode === 'translate'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -785,12 +809,12 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                     <Move className="w-3.5 h-3.5" />
                   </button>
 
-                  <button
+                  <button data-touch-target="true"
                     type="button"
                     data-qa="transform-mode-rotate"
                     data-qa-btn="tool-rotate"
                     onClick={() => onSetTransformMode('rotate')}
-                    className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                    className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                       transformMode === 'rotate'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -826,13 +850,13 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                 <div className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" />
 
                 <div className="flex items-center gap-0.5">
-                  <button
+                  <button data-touch-target="true"
                     type="button"
                     data-qa="cad-undo-btn"
                     disabled={!canUndo}
                     onClick={onUndo}
                     title="Undo (Ctrl+Z)"
-                    className={`p-1.5 rounded-full transition-colors ${
+                    className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors ${
                       canUndo
                         ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
                         : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
@@ -840,13 +864,13 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
                   >
                     <Undo2 className="w-3.5 h-3.5" />
                   </button>
-                  <button
+                  <button data-touch-target="true"
                     type="button"
                     data-qa="cad-redo-btn"
                     disabled={!canRedo}
                     onClick={onRedo}
                     title="Redo (Ctrl+Y)"
-                    className={`p-1.5 rounded-full transition-colors ${
+                    className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors ${
                       canRedo
                         ? 'text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 cursor-pointer active:scale-95'
                         : 'text-slate-400/40 dark:text-slate-600/40 cursor-not-allowed'
@@ -860,11 +884,11 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
 
             {/* Snapping if enabled */}
             {customSettings?.showSnap && (
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="dock-snap-toggle"
                 onClick={onToggleSnap}
-                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                   snapEnabled
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -879,9 +903,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {customSettings?.showCameraPresets && (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button
+                  <button data-touch-target="true"
                     data-qa="dock-camera-trigger"
-                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                     title="Camera Orientation Presets"
                   >
                     <Camera className="w-3.5 h-3.5" />
@@ -918,9 +942,9 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             {customSettings?.showRenderStyle && (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button
+                  <button data-touch-target="true"
                     data-qa="dock-render-style-trigger"
-                    className="p-1.5 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                     title={`Render Style: ${renderStyle}`}
                   >
                     <Layers className="w-3.5 h-3.5" />
@@ -968,11 +992,11 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
         {/* Measure Tool */}
         {showMeasure && (
           <div className="flex items-center gap-0.5">
-            <button
+            <button data-touch-target="true"
               type="button"
               data-qa="dock-measure-toggle"
               onClick={onToggleMeasure}
-              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+              className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
                 isMeasureActive
                   ? 'bg-emerald-600 text-white shadow-xs font-medium'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
@@ -983,11 +1007,11 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             </button>
 
             {measurementCount > 0 && (
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="dock-clear-measurements"
                 onClick={onClearMeasurements}
-                className="p-1 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                className="p-1 min-h-11 min-w-11 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
                 title="Clear all measurements"
               >
                 <Trash2 className="w-3 h-3 text-rose-500" />
@@ -998,14 +1022,14 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
 
         {/* Section Cut Toggle */}
         {showSection && (
-          <button
+          <button data-touch-target="true"
             type="button"
             data-qa="dock-section-toggle"
             onClick={() => {
               const nextState = !sectionConfig.enabled;
               onUpdateSection({ ...sectionConfig, enabled: nextState });
             }}
-            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+            className={`p-1.5 min-h-11 min-w-11 rounded-full transition-colors cursor-pointer ${
               sectionConfig.enabled
                 ? 'bg-rose-600 text-white shadow-xs font-semibold'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50'
@@ -1013,6 +1037,19 @@ export const GlassBottomDock: React.FC<GlassBottomDockProps> = ({
             title="Toggle Orthogonal Section Plane"
           >
             <Scissors className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Drawing Sheets and Views Composer */}
+        {onOpenDrawingSheets && (
+          <button data-touch-target="true"
+            type="button"
+            data-qa="dock-drawing-sheets-btn"
+            onClick={onOpenDrawingSheets}
+            className="p-1.5 min-h-11 min-w-11 rounded-full text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+            title="Drawing Sheets & Views Composer (Shift+S)"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           </button>
         )}
       </div>

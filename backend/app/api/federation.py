@@ -7,22 +7,50 @@ from fastapi.responses import FileResponse
 
 from ..core.config import settings
 from ..core.database import get_db_connection
+from ..core.workers import run_ifc
 from ..models.schemas import (
     SubModelResponse,
     ClashCheckRequest,
     ClashCheckResponse
 )
+from ..services.atomic_store import atomic_write_bytes
 from ..services.ifc_service import IFCService
 from ..services.clash_service import ClashService
-from ..services.project_service import ProjectService
+from ..services.project_service import (
+    IFCZIP_MAGIC,
+    ProjectService,
+    UploadTooLarge,
+    extract_ifc_from_ifczip,
+)
 
 logger = logging.getLogger("ifc_editor.federation_api")
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["Federation & Clashes"])
 
+#: Size of one read from the upload stream. The body is bounded by
+#: `settings.MAX_SUBMODEL_BYTES`, not by this chunk.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _require_uuid(project_id: str) -> None:
+    """Reject a non-UUID `project_id` before it is used as a path component.
+
+    STEP-20 / F-026: these routes build `PROJECTS_DIR / project_id / "models" / ...`
+    themselves instead of going through `ProjectService.get_project_file_path`, so they
+    need the same guarantee at the entry point. The DB lookup already 404s for an
+    unknown id; this closes the primitive even if a row is ever inserted by another
+    path.
+    """
+    try:
+        uuid.UUID(str(project_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+
 @router.get("/models", response_model=list[SubModelResponse])
 async def list_sub_models(project_id: str) -> list[SubModelResponse]:
     """List all federated sub-models attached to a project."""
+    _require_uuid(project_id)
     project = await ProjectService.get_project(project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found.")
@@ -43,6 +71,7 @@ async def upload_sub_model(
     name: Optional[str] = Form(None)
 ) -> SubModelResponse:
     """Upload and attach a discipline sub-model to a federated project."""
+    _require_uuid(project_id)
     project = await ProjectService.get_project(project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found.")
@@ -51,19 +80,51 @@ async def upload_sub_model(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be .ifc or .ifczip.")
 
     models_dir = settings.PROJECTS_DIR / project_id / "models"
+
+    safe_filename = Path(file.filename or "submodel.ifc").name
+
+    # STEP-20 / F-027: `await file.read()` buffered an unbounded body in RAM, so one
+    # request could exhaust the host. Read in fixed chunks and stop the moment the cap is
+    # crossed - nothing has been written to disk at this point, so there is no partial
+    # file to clean up.
+    max_bytes = settings.MAX_SUBMODEL_BYTES
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Sub-model exceeds the maximum allowed size.",
+            )
+    content = bytes(buffer)
+
+    # .ifczip is detected by magic bytes, not by the declared extension: the
+    # stored artefact must be the extracted STEP, never the archive.
+    if content.startswith(IFCZIP_MAGIC):
+        try:
+            # STEP-04: extraction is CPU work; keep it off the event loop.
+            content = await run_ifc(extract_ifc_from_ifczip, content)
+        except UploadTooLarge as e:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid IFC file: {e}")
+        safe_filename = f"{Path(safe_filename).stem}.ifc"
+
     models_dir.mkdir(parents=True, exist_ok=True)
 
     submodel_id = str(uuid.uuid4())
-    safe_filename = Path(file.filename or "submodel.ifc").name
     stored_filename = f"{submodel_id}_{safe_filename}"
     file_path = models_dir / stored_filename
 
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    # STEP-03: the sub-model is written atomically. STEP-04: the validation parse (~seconds
+    # on a large model) runs on the bounded IFC pool instead of blocking every request.
+    await run_ifc(atomic_write_bytes, content, file_path)
 
     try:
-        metrics = IFCService.validate_ifc(file_path)
+        metrics = await run_ifc(IFCService.validate_ifc, file_path)
     except Exception as e:
         if file_path.exists():
             file_path.unlink()
@@ -97,6 +158,7 @@ async def upload_sub_model(
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_sub_model(project_id: str, model_id: str) -> None:
     """Remove a federated sub-model from the project."""
+    _require_uuid(project_id)
     async with get_db_connection() as db:
         cursor = await db.execute(
             "SELECT file_name FROM project_models WHERE id = ? AND project_id = ?",
@@ -116,6 +178,7 @@ async def delete_sub_model(project_id: str, model_id: str) -> None:
 @router.get("/models/{model_id}/download")
 async def download_sub_model(project_id: str, model_id: str) -> FileResponse:
     """Download a sub-model IFC file."""
+    _require_uuid(project_id)
     async with get_db_connection() as db:
         cursor = await db.execute(
             "SELECT name, file_name FROM project_models WHERE id = ? AND project_id = ?",
@@ -149,5 +212,9 @@ async def check_clashes(project_id: str, req: ClashCheckRequest) -> ClashCheckRe
             model_ids=req.model_ids
         )
     except Exception as e:
+        # STEP-20: clash failures quote model paths (spec 11); keep them in the log.
         logger.exception("Clash check failed: %s", e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Clash check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Clash check failed. See the server log for details.",
+        )

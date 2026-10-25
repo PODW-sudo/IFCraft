@@ -64,6 +64,8 @@ def test_phase6_ai_copilot_suite():
         gen_res = client.post("/api/copilot/chat", json={
             "project_id": project_id,
             "provider": "local",
+            # STEP-17: model-writing tools are gated behind an explicit confirmation flag.
+            "confirm_writes": True,
             "messages": [
                 {"role": "user", "content": "Please generate a 2-storey building 12m by 8m"}
             ]
@@ -97,6 +99,7 @@ def test_phase6_ai_copilot_suite():
         query_res = client.post("/api/copilot/chat", json={
             "project_id": project_id,
             "provider": "local",
+            "confirm_writes": True,
             "messages": [
                 {"role": "user", "content": "How many walls are in the model?"}
             ]
@@ -114,6 +117,7 @@ def test_phase6_ai_copilot_suite():
         trans_res = client.post("/api/copilot/chat", json={
             "project_id": project_id,
             "provider": "local",
+            "confirm_writes": True,
             "selected_express_id": target_wall_id,
             "messages": [
                 {"role": "user", "content": f"Move element #{target_wall_id} by 3 meters on x and 1.5m up"}
@@ -135,6 +139,7 @@ def test_phase6_ai_copilot_suite():
         prop_res = client.post("/api/copilot/chat", json={
             "project_id": project_id,
             "provider": "local",
+            "confirm_writes": True,
             "selected_express_id": target_wall_id,
             "messages": [
                 {"role": "user", "content": f"Set property IsExternal to true on element #{target_wall_id}"}

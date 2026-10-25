@@ -131,7 +131,8 @@ export function useModelLifecycle({
       setLoadingPercent(10);
 
       const downloadUrl = `${api.getDownloadUrl(project.id)}?t=${Date.now()}`;
-      const res = await fetch(downloadUrl, { cache: 'no-store' });
+      // STEP-05 / F-003: authenticated fetch — the download route requires the API token.
+      const res = await api.apiFetch(downloadUrl, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to download project model');
       const arrayBuffer = await res.arrayBuffer();
 
@@ -310,15 +311,18 @@ export function useModelLifecycle({
     }
   }, [refreshProjects, loadProject, onCloseNewProjectModal]);
 
-  const handleDownloadProject = useCallback(() => {
+  const handleDownloadProject = useCallback(async () => {
     if (!currentProject) return;
-    const downloadUrl = api.getDownloadUrl(currentProject.id);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `${currentProject.name.replace(/\s+/g, '_')}.ifc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // STEP-05 / F-003: a bare `<a href>` cannot send the API token, so the file is fetched
+    // through the authenticated helper and saved from a blob instead.
+    try {
+      await api.downloadProjectFile(
+        currentProject.id,
+        `${currentProject.name.replace(/\s+/g, '_')}.ifc`
+      );
+    } catch (err) {
+      console.error('Failed to download project:', err);
+    }
   }, [currentProject]);
 
   const handleLoadSample = useCallback(async (sampleId: string) => {

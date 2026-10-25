@@ -1,4 +1,3 @@
-import asyncio
 import re
 import json
 import math
@@ -12,9 +11,19 @@ import ifcopenshell
 import ifcopenshell.api
 
 from ..core.config import settings
-from ..services.ifc_service import IFCService
+from ..core.net_guard import UrlNotAllowed, validate_outbound_url
+from ..core.workers import run_ifc
+from ..services.ifc_service import IFCService, open_model_for_read
 from ..services.project_service import ProjectService
-from ..models.schemas import ChatMessage, ToolCall, CopilotChatRequest, CopilotChatResponse
+from .atomic_store import atomic_write_model, project_read_lock, project_write_lock
+from ..models.schemas import (
+    ChatMessage,
+    ToolCall,
+    CopilotChatRequest,
+    CopilotChatResponse,
+    CopilotToolError,
+    PendingToolCall,
+)
 
 logger = logging.getLogger("ifc_editor.ai_service")
 
@@ -107,8 +116,188 @@ OPENAI_TOOLS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Tool capabilities
+# ---------------------------------------------------------------------------
+
+# Tools that mutate the project model. Nothing in this set may run unless the caller
+# set `confirm_writes` on the request: the copilot proposes, the user confirms.
+WRITE_TOOLS: frozenset[str] = frozenset({
+    "generate_building",
+    "transform_element",
+    "update_property",
+})
+
+# Declared metadata for every advertised tool, so a capability question is answered by
+# data rather than by a hard-coded name check at the call site.
+TOOL_SPECS: dict[str, dict[str, Any]] = {
+    spec["function"]["name"]: {
+        "writes_model": spec["function"]["name"] in WRITE_TOOLS,
+        "description": spec["function"]["description"],
+    }
+    for spec in OPENAI_TOOLS
+}
+
+# Ceiling on provider rounds per chat request: round 1 asks, round 2 is the single
+# tool-feedback follow-up. Unbounded iteration against a paid API is a cost risk.
+MAX_TOOL_ROUNDS = 2
+
+# Pre-execution placeholder the provider callers emit when a model returned tool calls
+# without prose. It must never be the whole reply to a failed tool.
+_TOOL_PLACEHOLDER_RE = re.compile(r"^Executing \d+ tool operation\(s\)\.\.\.$")
+
+# ---------------------------------------------------------------------------
+# Unit helpers
+# ---------------------------------------------------------------------------
+
+def _unit_scale(model) -> float:
+    """Project units per metre. 1.0 for metres, 0.001 for millimetres.
+
+    Delegates to ifcopenshell so conversion-based units (feet, inches) are handled too.
+    """
+    import ifcopenshell.util.unit as unit_util
+    return float(unit_util.calculate_unit_scale(model))
+
+
+def _message_view(message: Any) -> dict[str, Any]:
+    """Normalise a conversation turn to a plain provider message dict.
+
+    A conversation starts as ``list[ChatMessage]``, but the tool-feedback round appends
+    ``role="tool"`` turns carrying ``tool_call_id`` / ``tool_calls`` - fields ChatMessage
+    cannot express. Normalising once lets every provider caller see one shape.
+    """
+    if isinstance(message, dict):
+        return dict(message)
+    return {"role": message.role, "content": message.content}
+
+
+# ---------------------------------------------------------------------------
+# Intent matching (deterministic engine)
+# ---------------------------------------------------------------------------
+#
+# Natural language on a chat surface must be matched on *tokens*, never on substrings:
+# `"move" in "remove element 5"` is True, and `"house" in "what is a house?"` generated a
+# building for a question. Both defects came from the same unanchored `.in` test, so the
+# rules live here once and every intent goes through them.
+
+INTERROGATIVE_LEADERS: frozenset[str] = frozenset({
+    "what", "why", "how", "who", "when", "where", "which",
+    "is", "are", "does", "do", "can", "could", "should",
+    "explain", "tell", "describe", "list",
+})
+
+BUILDING_VERBS: tuple[str, ...] = ("generate", "create", "make", "build", "add", "construct")
+TRANSFORM_VERBS: tuple[str, ...] = ("move", "translate", "rotate", "shift", "offset", "transform", "nudge")
+DELETE_VERBS: tuple[str, ...] = ("delete", "remove", "erase", "purge")
+
+_BUILDING_NOUN_RE = re.compile(r"\b(building|house|tower|block|pavilion)\b")
+
+
+def _has_verb(text: str, verbs: tuple[str, ...]) -> bool:
+    """True when one of ``verbs`` appears in ``text`` as a whole word."""
+    return re.search(rf"\b(?:{'|'.join(verbs)})\b", text) is not None
+
+
+def _is_interrogative(text: str) -> bool:
+    """True for a message that asks rather than instructs.
+
+    A question never writes to the model, whatever nouns it contains. Decided by the first
+    word (the grammatical mood marker) or a trailing question mark.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped.endswith("?"):
+        return True
+    first_word = re.split(r"[\s,.;:!]+", stripped, maxsplit=1)[0].strip("'\"()[]")
+    return first_word.lower() in INTERROGATIVE_LEADERS
+
+
+def _match_building_intent(text: str) -> bool:
+    """Building generation needs an imperative verb *and* a building noun, and not a question."""
+    return (
+        not _is_interrogative(text)
+        and _has_verb(text, BUILDING_VERBS)
+        and _BUILDING_NOUN_RE.search(text) is not None
+    )
+
+
+def _describe_write(name: str, args: dict[str, Any]) -> str:
+    """Plain-language description of a withheld write, built from its own arguments.
+
+    The user is being asked to approve a specific change, so the confirmation prompt must
+    name the element and the numbers - not just the tool.
+    """
+    if name == "generate_building":
+        return (
+            f"generate a {args.get('num_storeys', 1)}-storey building "
+            f"{args.get('length', 10.0)}m x {args.get('width', 8.0)}m"
+        )
+    if name == "transform_element":
+        deltas = ", ".join(
+            f"{axis}={args.get(axis)}"
+            for axis in ("dx", "dy", "dz", "rx", "ry", "rz")
+            if args.get(axis)
+        )
+        return f"transform element #{args.get('element_id')} ({deltas or 'no delta'})"
+    if name == "update_property":
+        return (
+            f"set {args.get('pset_name')}.{args.get('property_name')} = "
+            f"{args.get('value')!r} on element #{args.get('element_id')}"
+        )
+    return f"run {name}"
+
+
+# ---------------------------------------------------------------------------
+# Parametric building generation rules
+# ---------------------------------------------------------------------------
+
+#: Smallest floor plate, in metres, that justifies interior structural columns.
+MIN_BUILDING_FOR_COLUMNS_M = (6.0, 5.0)  # (length, width)
+
+#: Interior bay fractions along each plan axis. A 2x2 grid => 4 columns per storey.
+COLUMN_GRID_FRACTIONS = (0.35, 0.65)
+
+
+def column_grid(length: float, width: float, col_size: float = 0.35) -> list[tuple[float, float]]:
+    """Interior structural column positions for a rectangular floor plate.
+
+    Rule: a building whose floor plate is at least ``MIN_BUILDING_FOR_COLUMNS_M`` (6.0 m x 5.0 m)
+    receives a 2x2 interior grid - one column at every combination of the
+    ``COLUMN_GRID_FRACTIONS`` (0.35 and 0.65) along X and Y - i.e. 4 columns per storey.
+    Anything smaller receives no columns.
+
+    The result is a pure function of (length, width, col_size): no randomness, no state.
+    (It returned 1-2 columns per storey between 2026-10-12 and 2026-10-24 - see STEP-07.)
+    """
+    if length < MIN_BUILDING_FOR_COLUMNS_M[0] or width < MIN_BUILDING_FOR_COLUMNS_M[1]:
+        return []
+    return [
+        (length * fx - col_size / 2.0, width * fy - col_size / 2.0)
+        for fx in COLUMN_GRID_FRACTIONS
+        for fy in COLUMN_GRID_FRACTIONS
+    ]
+
+
+# ---------------------------------------------------------------------------
 # AIService implementation
 # ---------------------------------------------------------------------------
+
+def _validated_local_base_url(base_url: Optional[str], *, default: str = "") -> str:
+    """Validate a caller-supplied base URL for a local provider (STEP-20 / F-019).
+
+    `custom` and `ollama` legitimately point at a server on the same machine or LAN, so
+    private addresses are permitted — link-local, multicast, reserved and unspecified
+    addresses are not, and a URL with userinfo or a non-HTTP scheme never is.
+
+    Raises `UrlNotAllowed` (a `ValueError`) so the API layer answers `400` before any
+    socket is opened, instead of `200` with an error string.
+    """
+    candidate = (base_url or "").strip() or default
+    try:
+        return validate_outbound_url(candidate, allow_private=True)
+    except UrlNotAllowed as exc:
+        raise UrlNotAllowed(f"base_url not allowed: {exc}") from exc
+
 
 class AIService:
     @classmethod
@@ -237,6 +426,18 @@ class AIService:
                 "error": f"API key required for {prov_def['name']}"
             }
 
+        # STEP-20 / F-019: `custom` and `ollama` are the only providers that accept a
+        # caller-supplied base URL. Validate it here, *outside* the broad `except` below,
+        # so an unsafe URL is a 400 with no outbound request rather than a 200 whose
+        # `error` string describes a host we reached.
+        local_base: Optional[str] = None
+        if provider == "custom":
+            local_base = _validated_local_base_url(base_url)
+        elif provider == "ollama":
+            local_base = _validated_local_base_url(
+                base_url, default="http://localhost:11434/v1"
+            )
+
         try:
             if provider == "gemini":
                 models, err = await cls._fetch_gemini_models(effective_key)
@@ -279,7 +480,9 @@ class AIService:
                 }
 
             elif provider == "openai":
-                effective_base = base_url or "https://api.openai.com/v1"
+                # STEP-20: the cloud endpoint is server-fixed; `base_url` from the client
+                # is ignored (a caller that needs another endpoint uses `custom`).
+                effective_base = settings.AI_CLOUD_HOSTS["openai"]
                 models, err = await cls._fetch_openai_models(effective_key, effective_base)
                 if models:
                     return {
@@ -320,16 +523,7 @@ class AIService:
                 }
 
             elif provider == "custom":
-                effective_base = (base_url or "").strip()
-                if not effective_base:
-                    return {
-                        "provider": provider,
-                        "models": fallback_models,
-                        "default_model": default_model,
-                        "source": "fallback",
-                        "connected": False,
-                        "error": "Base URL required for Custom Provider"
-                    }
+                effective_base = local_base or ""
                 models, err = await cls._fetch_custom_models(effective_key, effective_base)
                 if models:
                     return {
@@ -350,7 +544,7 @@ class AIService:
                 }
 
             elif provider == "ollama":
-                effective_base = base_url or "http://localhost:11434/v1"
+                effective_base = local_base or "http://localhost:11434/v1"
                 models, err = await cls._fetch_ollama_models(effective_base)
                 if models:
                     return {
@@ -442,7 +636,15 @@ class AIService:
 
     @classmethod
     async def _fetch_openai_models(cls, api_key: str, base_url: str) -> tuple[list[str], Optional[str]]:
-        url = f"{base_url.rstrip('/')}/models"
+        # STEP-20: the endpoint is validated before the request. It is server-fixed for
+        # this provider (`settings.AI_CLOUD_HOSTS`), so the private allowance is inert
+        # here - it only keeps a corporate proxy that resolves the cloud host internally
+        # working.
+        try:
+            clean_base = validate_outbound_url(base_url, allow_private=True)
+        except UrlNotAllowed as exc:
+            return [], f"base_url not allowed: {exc}"
+        url = f"{clean_base}/models"
         headers = {"Authorization": f"Bearer {api_key}"}
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
@@ -542,7 +744,13 @@ class AIService:
 
     @classmethod
     async def _fetch_custom_models(cls, api_key: Optional[str], base_url: str) -> tuple[list[str], Optional[str]]:
-        clean_base = base_url.rstrip("/")
+        # STEP-20: refuse an out-of-policy endpoint before opening a socket. The caller
+        # only reaches this line through `_validated_local_base_url`, so this is the
+        # second, independent gate (a direct caller cannot skip the policy).
+        try:
+            clean_base = validate_outbound_url(base_url, allow_private=True)
+        except UrlNotAllowed as exc:
+            return [], f"base_url not allowed: {exc}"
         url = f"{clean_base}/models"
         headers: dict[str, str] = {}
         if api_key and api_key.strip():
@@ -575,7 +783,11 @@ class AIService:
 
     @classmethod
     async def _fetch_ollama_models(cls, base_url: str) -> tuple[list[str], Optional[str]]:
-        clean_base = base_url.rstrip("/")
+        # STEP-20: same policy gate as `_fetch_custom_models`; loopback stays reachable.
+        try:
+            clean_base = validate_outbound_url(base_url, allow_private=True)
+        except UrlNotAllowed as exc:
+            return [], f"base_url not allowed: {exc}"
         root_url = clean_base[:-3] if clean_base.endswith("/v1") else clean_base
         models: list[str] = []
         try:
@@ -614,9 +826,19 @@ class AIService:
     @classmethod
     async def execute_tool(cls, project_id: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute a tool against the project model and return result."""
-        file_path = ProjectService.get_project_file_path(project_id)
+        try:
+            file_path = ProjectService.get_project_file_path(project_id)
+        except ValueError:
+            # STEP-20: a non-UUID id is the caller's mistake; report it like a missing
+            # model rather than letting the containment check surface as a 500.
+            logger.warning("Rejected tool call %s for invalid project id %r", name, project_id)
+            return {"error": "Project model file not found."}
+
         if not file_path.exists():
-            return {"error": f"Project file {file_path} not found."}
+            # STEP-20 / F-045: the client-visible result must not describe where the
+            # server keeps its models; the path goes to the log only.
+            logger.debug("Project model file missing for %s: %s", project_id, file_path)
+            return {"error": "Project model file not found."}
 
         try:
             if name == "generate_building":
@@ -635,6 +857,52 @@ class AIService:
 
     @classmethod
     async def _exec_generate_building(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
+        """Generate a parametric building; the write is serialised and off the event loop.
+
+        STEP-03: the whole open/mutate/write runs under the per-project write lock.
+        STEP-04: it runs on the bounded IFC pool, never on the event loop.
+        """
+        async with project_write_lock(project_id):
+            counts = await run_ifc(cls._generate_building_sync, project_id, file_path, args)
+
+        element_count = counts["element_count"]
+
+        # Record edit and touch DB
+        await ProjectService.record_edit(
+            project_id=project_id,
+            user_id="ai-copilot",
+            user_name="AI Copilot",
+            action_type="generate_building",
+            express_id=None,
+            entity_type="IfcBuilding",
+            payload={
+                "length": counts["length"],
+                "width": counts["width"],
+                "storeys": counts["num_storeys"],
+                "elements": element_count,
+            }
+        )
+
+        # Prose is built from what was actually placed: no column claim for a building with none.
+        summary_parts = [
+            f"{counts['num_storeys']}-storey building ({counts['length']}m x {counts['width']}m x {counts['storey_height']}m per floor)",
+            f"{counts['wall_count']} perimeter walls",
+            f"{counts['slab_count']} floor slabs",
+        ]
+        if counts["column_count"]:
+            summary_parts.append(f"{counts['column_count']} structural columns")
+
+        return {
+            "success": True,
+            "summary": "Generated " + ", ".join(summary_parts) + f". Element count: {element_count}.",
+            "num_storeys": counts["num_storeys"],
+            "element_count": element_count,
+            "length": counts["length"],
+            "width": counts["width"]
+        }
+
+    @classmethod
+    def _generate_building_sync(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
         # Sanitize & clamp parameters to prevent denial-of-service / memory exhaustion
         length = max(1.0, min(float(args.get("length", 10.0)), 500.0))
         width = max(1.0, min(float(args.get("width", 8.0)), 500.0))
@@ -683,6 +951,9 @@ class AIService:
         building = model.by_type("IfcBuilding")[0] if model.by_type("IfcBuilding") else None
 
         generated_elements_count = 0
+        wall_count = 0
+        slab_count = 0
+        column_count = 0
         wall_thickness = 0.25
         col_size = 0.35
 
@@ -720,6 +991,7 @@ class AIService:
             ifcopenshell.api.run("geometry.edit_object_placement", model, product=slab, matrix=mat_slab)
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[slab])
             generated_elements_count += 1
+            slab_count += 1
 
             # 2. Perimeter Walls (Clean butt-joints without overlapping corner volumes or coplanar Z-fighting)
             # South Wall (along X, y=0)
@@ -768,18 +1040,11 @@ class AIService:
             ifcopenshell.api.run("geometry.edit_object_placement", model, product=w_east, matrix=me)
             ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[w_east])
             generated_elements_count += 4
+            wall_count += 4
 
             # 3. Interior Structural Columns (supporting floor spans, positioned in interior bays without clashing with perimeter walls)
-            col_positions = []
-            if length >= 10.0 and width >= 7.0:
-                col_positions = [
-                    (length * 0.35 - col_size / 2.0, width * 0.5 - col_size / 2.0),
-                    (length * 0.65 - col_size / 2.0, width * 0.5 - col_size / 2.0)
-                ]
-            elif length >= 6.0 and width >= 5.0:
-                col_positions = [
-                    (length * 0.5 - col_size / 2.0, width * 0.5 - col_size / 2.0)
-                ]
+            # The grid is a documented pure rule - see column_grid() / MIN_BUILDING_FOR_COLUMNS_M.
+            col_positions = column_grid(length, width, col_size)
 
             for c_i, (cx, cy) in enumerate(col_positions):
                 col = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcColumn", name=f"{level_name} Column C{c_i+1}")
@@ -792,31 +1057,60 @@ class AIService:
                 ifcopenshell.api.run("geometry.edit_object_placement", model, product=col, matrix=mc)
                 ifcopenshell.api.run("spatial.assign_container", model, relating_structure=storey, products=[col])
                 generated_elements_count += 1
+                column_count += 1
 
-        model.write(str(file_path))
+        atomic_write_model(model, file_path)
 
-        # Record edit and touch DB
-        await ProjectService.record_edit(
-            project_id=project_id,
-            user_id="ai-copilot",
-            user_name="AI Copilot",
-            action_type="generate_building",
-            express_id=None,
-            entity_type="IfcBuilding",
-            payload={"length": length, "width": width, "storeys": num_storeys, "elements": generated_elements_count}
+        # Report the file's actual contents rather than a running counter, so the number shown to
+        # the user can never drift from the model on disk (spec 5 of STEP-07).
+        element_count = (
+            len(model.by_type("IfcWall"))
+            + len(model.by_type("IfcSlab"))
+            + len(model.by_type("IfcColumn"))
         )
 
         return {
-            "success": True,
-            "summary": f"Generated {num_storeys}-storey building ({length}m x {width}m x {storey_height}m per floor) with {generated_elements_count} elements.",
+            "element_count": element_count,
+            "wall_count": wall_count,
+            "slab_count": slab_count,
+            "column_count": column_count,
             "num_storeys": num_storeys,
-            "element_count": generated_elements_count,
+            "storey_height": storey_height,
             "length": length,
-            "width": width
+            "width": width,
         }
 
     @classmethod
     async def _exec_transform_element(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
+        """Apply a delta transform to an element.
+
+        STEP-03/STEP-04: the read-matrix -> compose -> write sequence runs under the
+        per-project write lock on the bounded IFC pool, so it cannot lose a concurrent edit
+        and cannot stall the event loop. The STEP-01/STEP-07 unit maths is untouched.
+        """
+        async with project_write_lock(project_id):
+            result = await run_ifc(cls._transform_element_sync, file_path, args)
+
+        await ProjectService.record_edit(
+            project_id=project_id,
+            user_id="ai-copilot",
+            user_name="AI Copilot",
+            action_type="transform_element",
+            express_id=result["element_id"],
+            entity_type="IfcProduct",
+            payload={"matrix": result["matrix"], "delta": result["delta"]},
+        )
+
+        return {
+            "success": True,
+            "element_id": result["element_id"],
+            "summary": result["summary"],
+            "new_position": result["new_position"],
+            "matrix": result["matrix"],
+        }
+
+    @classmethod
+    def _transform_element_sync(cls, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
         element_id = int(args["element_id"])
         dx = float(args.get("dx", 0.0))
         dy = float(args.get("dy", 0.0))
@@ -827,14 +1121,13 @@ class AIService:
 
         current_matrix_16 = IFCService.get_element_placement_matrix(file_path, element_id)
 
-        # Convert column-major 16-element array to 4x4 numpy matrix
+        # Convert column-major 16-element array to 4x4 numpy matrix.
+        # This is the element's WORLD matrix expressed in PROJECT UNITS (e.g. millimetres).
         M = np.array(current_matrix_16).reshape((4, 4), order="F")
 
-        # Delta translation
-        T = np.identity(4)
-        T[0, 3] = dx
-        T[1, 3] = dy
-        T[2, 3] = dz
+        # Project units per metre (1.0 for metres, 0.001 for millimetres). The AI tool schema and
+        # the prompt both document dx/dy/dz in METRES, so convert before composing.
+        scale = _unit_scale(open_model_for_read(file_path))
 
         # Delta rotations in degrees
         rad_x = math.radians(rx)
@@ -861,28 +1154,34 @@ class AIService:
         ])
         R = Rz @ Ry @ Rx
 
-        # Apply transformation
-        M_new = T @ R @ M
-        new_matrix_16 = M_new.flatten(order="F").tolist()
+        # Rotate about the element's own origin: only the orientation block changes, so a pure
+        # rotation cannot translate the element (cad_service.py uses the same pattern).
+        M_new = M.copy()
+        M_new[:3, :3] = R[:3, :3] @ M[:3, :3]
 
-        await asyncio.to_thread(IFCService.update_element_placement, file_path, element_id, new_matrix_16)
+        # Translate in world space. dx/dy/dz are metres; the matrix is in project units.
+        M_new[0, 3] += dx / scale
+        M_new[1, 3] += dy / scale
+        M_new[2, 3] += dz / scale
 
-        await ProjectService.record_edit(
-            project_id=project_id,
-            user_id="ai-copilot",
-            user_name="AI Copilot",
-            action_type="transform_element",
-            express_id=element_id,
-            entity_type="IfcProduct",
-            payload={"matrix": new_matrix_16, "delta": {"dx": dx, "dy": dy, "dz": dz, "rx": rx, "ry": ry, "rz": rz}}
-        )
+        # IFCService.update_element_placement declares is_si=True, i.e. it expects a world matrix
+        # whose translation is in SI METRES. Convert project units -> metres for the writer.
+        M_for_writer = M_new.copy()
+        M_for_writer[0, 3] *= scale
+        M_for_writer[1, 3] *= scale
+        M_for_writer[2, 3] *= scale
+        new_matrix_16 = M_for_writer.flatten(order="F").tolist()
+
+        is_noop = not any((dx, dy, dz, rx, ry, rz))
+        if not is_noop:
+            IFCService.update_element_placement(file_path, element_id, new_matrix_16)
 
         return {
-            "success": True,
             "element_id": element_id,
             "summary": f"Transformed element #{element_id} by delta (dx={dx}m, dy={dy}m, dz={dz}m, rx={rx}°, ry={ry}°, rz={rz}°).",
             "new_position": [float(M_new[0, 3]), float(M_new[1, 3]), float(M_new[2, 3])],
-            "matrix": new_matrix_16
+            "matrix": new_matrix_16,
+            "delta": {"dx": dx, "dy": dy, "dz": dz, "rx": rx, "ry": ry, "rz": rz},
         }
 
     @classmethod
@@ -903,7 +1202,11 @@ class AIService:
             prop_type = "IfcLabel"
             value = str(value)
 
-        IFCService.update_element_property(file_path, element_id, pset_name, property_name, value, prop_type)
+        async with project_write_lock(project_id):
+            await run_ifc(
+                IFCService.update_element_property,
+                file_path, element_id, pset_name, property_name, value, prop_type,
+            )
 
         await ProjectService.record_edit(
             project_id=project_id,
@@ -926,10 +1229,16 @@ class AIService:
 
     @classmethod
     async def _exec_query_model(cls, project_id: str, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
+        """Read-only model query, served from the warm cache on the bounded IFC pool."""
+        async with project_read_lock(project_id):
+            return await run_ifc(cls._query_model_sync, file_path, args)
+
+    @classmethod
+    def _query_model_sync(cls, file_path: Path, args: dict[str, Any]) -> dict[str, Any]:
         query_type = args.get("query_type", "summary")
         filters = args.get("filters", {}) or {}
 
-        model = ifcopenshell.open(str(file_path))
+        model = open_model_for_read(file_path)
         project = model.by_type("IfcProject")[0] if model.by_type("IfcProject") else None
 
         if query_type == "summary":
@@ -1081,68 +1390,180 @@ class AIService:
         tool_calls: list[ToolCall] = []
         assistant_content = ""
         project_modified = False
+        requires_confirmation = False
+        pending_tool_calls: list[PendingToolCall] = []
+        errors: list[CopilotToolError] = []
 
-        # Route to provider or deterministic fallback
-        if provider == "gemini" and api_key:
-            gemini_model = (model or "gemini-3.8-flash").removeprefix("models/").strip()
-            if gemini_model in ("gemini-2.5-flash", "gemini-2.0-flash-exp"):
-                gemini_model = "gemini-3.8-flash"
-            assistant_content, raw_calls = await cls._call_gemini(api_key, gemini_model, messages, selected_id)
-        elif provider == "claude" and api_key:
-            assistant_content, raw_calls = await cls._call_anthropic(api_key, model or "claude-3-7-sonnet", messages, selected_id)
-        elif provider == "openai" and api_key:
-            assistant_content, raw_calls = await cls._call_openai(api_key, model or "gpt-4o", messages, request.base_url or "https://api.openai.com/v1", selected_id)
-        elif provider == "openrouter" and api_key:
-            openrouter_base = request.base_url or "https://openrouter.ai/api/v1"
-            extra_headers = {
-                "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "IFC Editor"
-            }
-            assistant_content, raw_calls = await cls._call_openai(
-                api_key,
-                model or "anthropic/claude-3.7-sonnet",
-                messages,
-                openrouter_base,
-                selected_id,
-                extra_headers=extra_headers
-            )
-        elif provider == "custom":
-            custom_base = (request.base_url or "").strip() or "http://localhost:8000/v1"
-            assistant_content, raw_calls = await cls._call_openai(
-                api_key,
-                model or "custom-model",
-                messages,
-                custom_base,
-                selected_id
+        # STEP-20 / F-019: the local providers take a caller-supplied `base_url`, so it is
+        # validated once, before the first provider round can open a socket. Raises
+        # `UrlNotAllowed` (a ValueError) -> the route answers 400.
+        local_base: Optional[str] = None
+        if provider == "custom":
+            local_base = _validated_local_base_url(
+                request.base_url, default="http://localhost:8000/v1"
             )
         elif provider == "ollama":
-            base_url = request.base_url or "http://localhost:11434/v1"
-            assistant_content, raw_calls = await cls._call_openai("ollama", model or "llama3.2", messages, base_url, selected_id)
-        else:
+            local_base = _validated_local_base_url(
+                request.base_url, default="http://localhost:11434/v1"
+            )
+
+        # Provider-round dispatch. The transport stays in the `_call_*` helpers; this closure
+        # only decides which one runs, so the tool-feedback loop can reuse it verbatim.
+        async def dispatch(turns: list[Any]) -> tuple[str, list[dict[str, Any]]]:
+            if provider == "gemini" and api_key:
+                gemini_model = (model or "gemini-3.8-flash").removeprefix("models/").strip()
+                if gemini_model in ("gemini-2.5-flash", "gemini-2.0-flash-exp"):
+                    gemini_model = "gemini-3.8-flash"
+                return await cls._call_gemini(api_key, gemini_model, turns, selected_id)
+            elif provider == "claude" and api_key:
+                return await cls._call_anthropic(api_key, model or "claude-3-7-sonnet", turns, selected_id)
+            elif provider == "openai" and api_key:
+                # STEP-20 / F-019: the cloud endpoint comes from config, never from the
+                # request, so a caller cannot redirect a paid key at an arbitrary host.
+                return await cls._call_openai(
+                    api_key, model or "gpt-4o", turns,
+                    settings.AI_CLOUD_HOSTS["openai"], selected_id,
+                )
+            elif provider == "openrouter" and api_key:
+                openrouter_base = settings.AI_CLOUD_HOSTS["openrouter"]
+                extra_headers = {
+                    "HTTP-Referer": "http://localhost:5173",
+                    "X-Title": "IFC Editor"
+                }
+                return await cls._call_openai(
+                    api_key,
+                    model or "anthropic/claude-3.7-sonnet",
+                    turns,
+                    openrouter_base,
+                    selected_id,
+                    extra_headers=extra_headers
+                )
+            elif provider == "custom":
+                custom_base = local_base or "http://localhost:8000/v1"
+                return await cls._call_openai(
+                    api_key, model or "custom-model", turns, custom_base, selected_id,
+                )
+            elif provider == "ollama":
+                base_url = local_base or "http://localhost:11434/v1"
+                return await cls._call_openai("ollama", model or "llama3.2", turns, base_url, selected_id)
             # Deterministic local engine (Zero-Key / Offline / Test)
-            assistant_content, raw_calls = await cls._call_local_deterministic(messages, selected_id)
+            return await cls._call_local_deterministic(turns, selected_id)
 
-        # Execute any triggered tool calls
-        for raw in raw_calls:
-            call_id = raw.get("id", f"call_{uuid.uuid4().hex[:8]}")
-            name = raw.get("name", "")
-            args = raw.get("arguments", {})
+        # Normalised once: the tool-feedback round appends plain dict turns, and every
+        # provider caller (plus the deterministic engine) reads that single shape.
+        conversation: list[Any] = [_message_view(m) for m in messages]
 
-            result = await cls.execute_tool(project_id, name, args)
-            tool_calls.append(ToolCall(
-                id=call_id,
-                name=name,
-                arguments=args,
-                result=result
-            ))
+        withheld: list[tuple[str, str, dict[str, Any]]] = []
+        rounds = 0
 
-            if name in ("generate_building", "transform_element", "update_property") and result.get("success"):
-                project_modified = True
+        while True:
+            rounds += 1
+            assistant_content, raw_calls = await dispatch(conversation)
+
+            executed: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
+            withheld = []
+
+            for raw in raw_calls:
+                call_id = raw.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                name = raw.get("name", "")
+                args = raw.get("arguments", {}) or {}
+
+                # Spec 5: a model-writing tool never runs without explicit confirmation.
+                if name in WRITE_TOOLS and not request.confirm_writes:
+                    withheld.append((call_id, name, args))
+                    continue
+
+                result = await cls.execute_tool(project_id, name, args)
+                tool_calls.append(ToolCall(
+                    id=call_id,
+                    name=name,
+                    arguments=args,
+                    result=result
+                ))
+                executed.append((call_id, name, args, result))
+
+                if name in WRITE_TOOLS and isinstance(result, dict) and result.get("success"):
+                    project_modified = True
+
+                # Spec 9: a failed tool must not read as success.
+                if isinstance(result, dict) and result.get("error"):
+                    errors.append(CopilotToolError(tool=name, message=str(result["error"])))
+                    project_modified = False
+
+            # Spec 11: the deterministic engine has no model to paraphrase the result, so the
+            # reply is the executed tool's own summary rather than a pre-execution template.
+            if (
+                provider == "local"
+                and len(tool_calls) == 1
+                and tool_calls[0].name == "query_model"
+                and isinstance(tool_calls[0].result, dict)
+            ):
+                summary = tool_calls[0].result.get("summary")
+                if isinstance(summary, str) and summary:
+                    assistant_content = summary
+
+            if withheld:
+                requires_confirmation = True
+                pending_tool_calls = [
+                    PendingToolCall(name=name, arguments=args) for _id, name, args in withheld
+                ]
+
+            # Spec 10: one follow-up round, carrying the executed results back to the model.
+            if (
+                not raw_calls
+                or withheld
+                or not executed
+                or rounds >= MAX_TOOL_ROUNDS
+                or provider == "local"
+            ):
+                break
+
+            conversation = conversation + [{
+                "role": "assistant",
+                "content": assistant_content or "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args, default=str)},
+                    }
+                    for call_id, name, args, _result in executed
+                ],
+            }] + [
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": json.dumps(result, default=str),
+                }
+                for call_id, _name, _args, result in executed
+            ]
+
+        if requires_confirmation:
+            intent_lines = "\n".join(f"- {_describe_write(name, args)}" for _id, name, args in withheld)
+            note = (
+                "**Confirmation required.** This request would change the model, so nothing has "
+                "been written yet:\n"
+                f"{intent_lines}\n\n"
+                "Confirm to apply it, or rephrase if that is not what you meant."
+            )
+            assistant_content = f"{assistant_content}\n\n{note}" if assistant_content.strip() else note
+
+        if errors:
+            project_modified = False
+            # A bare "Executing N tool operation(s)..." is not an answer to a failure.
+            if _TOOL_PLACEHOLDER_RE.match(assistant_content.strip()):
+                assistant_content = ""
+            detail = "\n".join(f"- `{e.tool}`: {e.message}" for e in errors)
+            note = f"**Tool failure.** The requested change was not applied:\n{detail}"
+            assistant_content = f"{assistant_content}\n\n{note}" if assistant_content.strip() else note
 
         return CopilotChatResponse(
             message=ChatMessage(role="assistant", content=assistant_content),
             tool_calls=tool_calls,
-            project_updated=project_modified
+            project_updated=project_modified,
+            requires_confirmation=requires_confirmation,
+            pending_tool_calls=pending_tool_calls,
+            errors=errors,
         )
 
     # -----------------------------------------------------------------------
@@ -1156,15 +1577,20 @@ class AIService:
             logger.info("Migrating deprecated model %s to gemini-3.8-flash", clean_model)
             clean_model = "gemini-3.8-flash"
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+        # STEP-20 / F-020: the key travels in a header, never in the query string.
+        # `httpx` logs the request URL at INFO; a `?key=` would be written to every
+        # access log, proxy log and exception trace that touches the URL.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
 
         
         # Build Gemini contents format
         contents = []
         for m in messages:
+            view = _message_view(m)
             contents.append({
-                "role": "model" if m.role == "assistant" else "user",
-                "parts": [{"text": m.content}]
+                "role": "model" if view.get("role") == "assistant" else "user",
+                "parts": [{"text": view.get("content") or ""}]
             })
 
         # Append current selection context if present
@@ -1189,9 +1615,14 @@ class AIService:
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
-                raise RuntimeError(f"Gemini API returned error {resp.status_code}: {resp.text}")
+                # STEP-20 / F-019: the upstream body stays in the server log. Relaying it
+                # turned the copilot into a read-only proxy for whatever host it reached.
+                logger.debug(
+                    "Gemini error body (truncated): %s", (resp.text or "")[:512]
+                )
+                raise RuntimeError(f"Gemini API returned error {resp.status_code}")
             data = resp.json()
 
         text = ""
@@ -1237,9 +1668,9 @@ class AIService:
         if extra_headers:
             headers.update(extra_headers)
 
-        openai_msgs = [{"role": m.role, "content": m.content} for m in messages]
-        if selected_id and openai_msgs:
-            openai_msgs[-1]["content"] += f"\n[Context: Currently selected 3D element express_id={selected_id}]"
+        openai_msgs = [_message_view(m) for m in messages]
+        if selected_id and openai_msgs and openai_msgs[-1].get("role") == "user":
+            openai_msgs[-1]["content"] = (openai_msgs[-1].get("content") or "") + f"\n[Context: Currently selected 3D element express_id={selected_id}]"
 
         payload = {
             "model": model,
@@ -1251,7 +1682,11 @@ class AIService:
         async with httpx.AsyncClient(timeout=35.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
-                raise RuntimeError(f"OpenAI API returned error {resp.status_code}: {resp.text}")
+                # STEP-20 / F-019: status code only, body to the DEBUG log (truncated).
+                logger.debug(
+                    "OpenAI error body (truncated): %s", (resp.text or "")[:512]
+                )
+                raise RuntimeError(f"OpenAI API returned error {resp.status_code}")
             data = resp.json()
 
         text = ""
@@ -1294,10 +1729,17 @@ class AIService:
 
         claude_msgs = []
         for m in messages:
-            if m.role in ("user", "assistant"):
-                claude_msgs.append({"role": m.role, "content": m.content})
+            view = _message_view(m)
+            role = view.get("role")
+            content = view.get("content") or ""
+            if role in ("user", "assistant"):
+                claude_msgs.append({"role": role, "content": content})
+            elif role == "tool":
+                # Anthropic has no bare tool-result turn in this transport; carry the result
+                # as user-visible context instead of dropping it.
+                claude_msgs.append({"role": "user", "content": f"Tool result: {content}"})
 
-        if selected_id and claude_msgs:
+        if selected_id and claude_msgs and claude_msgs[-1]["role"] == "user":
             claude_msgs[-1]["content"] += f"\n[Context: Currently selected 3D element express_id={selected_id}]"
 
         payload = {
@@ -1310,7 +1752,11 @@ class AIService:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
-                raise RuntimeError(f"Anthropic API returned error {resp.status_code}: {resp.text}")
+                # STEP-20 / F-019: status code only, body to the DEBUG log (truncated).
+                logger.debug(
+                    "Anthropic error body (truncated): %s", (resp.text or "")[:512]
+                )
+                raise RuntimeError(f"Anthropic API returned error {resp.status_code}")
             data = resp.json()
 
         text = ""
@@ -1342,8 +1788,9 @@ class AIService:
         """
         user_msg = ""
         for m in reversed(messages):
-            if m.role == "user":
-                user_msg = m.content.strip().lower()
+            view = _message_view(m)
+            if view.get("role") == "user":
+                user_msg = (view.get("content") or "").strip().lower()
                 break
 
         calls = []
@@ -1351,7 +1798,9 @@ class AIService:
 
         # 1. Building Generation Intent
         # Examples: "generate a 2 storey building", "create 12x8 building", "generate building 15m by 10m 3 floors"
-        if any(kw in user_msg for kw in ["generate building", "create building", "make building", "build a building", "generate a building", "storey building", "floor building", "house"]):
+        # Anchored (STEP-17): an imperative verb AND a building noun, and never a question.
+        # "what is a house?" is a question, so it must not build a house.
+        if _match_building_intent(user_msg):
             length = 10.0
             width = 8.0
             num_storeys = 1
@@ -1379,11 +1828,20 @@ class AIService:
                     "building_name": "Parametric Model"
                 }
             })
-            text = f"I am generating a {num_storeys}-storey building with dimensions {length}m x {width}m (floor height: {storey_height}m) complete with perimeter walls, floor slabs, and structural columns."
+            # Claims below are derived from the same documented rule the executor uses, so the
+            # copilot never promises structural columns a small building will not receive.
+            column_total = len(column_grid(length, width)) * num_storeys
+            text = (
+                f"I am generating a {num_storeys}-storey building with dimensions {length}m x {width}m "
+                f"(floor height: {storey_height}m) complete with perimeter walls and floor slabs"
+                + (f", and {column_total} structural columns." if column_total else ".")
+            )
 
         # 2. Transformation Intent
         # Examples: "move element 21 by 2 meters on x", "translate selected element by dx: 2, dz: 1", "rotate 45 degrees"
-        elif any(kw in user_msg for kw in ["move", "translate", "rotate", "shift", "offset", "transform"]):
+        # Word-boundary match (STEP-17): `"move" in "remove element 5"` is True, so a substring
+        # test turned a deletion request into a 13 km displacement on a millimetre model.
+        elif not _is_interrogative(user_msg) and _has_verb(user_msg, TRANSFORM_VERBS):
             target_id = selected_id
             id_match = re.search(r"(?:element|id|#)\s*(\d+)", user_msg)
             if id_match:
@@ -1444,7 +1902,18 @@ class AIService:
                 })
                 text = f"Transforming element #{target_id} with offsets: dx={dx}m, dy={dy}m, dz={dz}m, rz={rz}°."
 
-        # 3. Property Update Intent
+        # 3. Deletion Intent - explicitly unavailable (STEP-17, spec 3)
+        # Deletion from the copilot needs the confirmation + undo flow (STEP-10). Until then it
+        # must answer with a message and produce NO tool call, rather than matching some other
+        # verb and mutating the model by accident.
+        elif _has_verb(user_msg, DELETE_VERBS):
+            text = (
+                "Deleting elements from the copilot is not enabled yet: it needs the confirmation "
+                "and undo flow. Use the Delete key in the viewport, or the CAD delete command, so "
+                "the action is reversible."
+            )
+
+        # 4. Property Update Intent
         # Examples: "set property isexternal to true on element 21", "change loadbearing to false"
         elif any(kw in user_msg for kw in ["property", "pset", "set isexternal", "set loadbearing", "change name"]):
             target_id = selected_id
@@ -1482,7 +1951,7 @@ class AIService:
                 })
                 text = f"Updating property {pset_name}.{prop_name} = {val} on element #{target_id}."
 
-        # 4. Query Intent
+        # 5. Query Intent
         # Examples: "count elements", "how many walls", "summarize model", "model info"
         elif any(kw in user_msg for kw in ["count", "how many", "summary", "summarize", "list", "query", "info"]):
             if "wall" in user_msg:

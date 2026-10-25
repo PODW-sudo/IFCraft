@@ -80,7 +80,7 @@ def run_cmd(cmd: list[str], cwd: Path = ROOT_DIR, timeout: int = 120) -> tuple[i
 def main():
     parser = argparse.ArgumentParser(description="IFC Editor Autonomous UI Pipeline")
     parser.add_argument("--tier", choices=["quick", "key", "milestone"], default="key",
-                        help="Verification tier: quick (static+gates), key (standard+E2E if live), milestone (full 359 tests)")
+                        help="Verification tier: quick (static+gates), key (standard+E2E if live), milestone (full 372 tests)")
     parser.add_argument("--browser", action="store_true",
                         help="Force execution of live browser E2E tests in Google Chrome")
     parser.add_argument("--skip-layout", action="store_true",
@@ -157,7 +157,7 @@ def main():
     if QA_RUNNER.exists():
         ret, out, err = run_cmd([PYTHON_EXE, str(QA_RUNNER), "check"], cwd=ROOT_DIR, timeout=30)
         if ret == 0:
-            print_pass("QA harness integrity valid: 359 test cases verified across 22 categories.")
+            print_pass("QA harness integrity valid: 372 test cases verified across 22 categories.")
             pipeline_results.append(("Stage 3: QA Harness Integrity", True))
         else:
             print_fail("QA harness validator detected issues:")

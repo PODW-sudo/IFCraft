@@ -16,11 +16,19 @@ import {
   PinOff
 } from 'lucide-react';
 import type { CadToolMode } from '../../types/ifc';
+import {
+  buildDeleteElementRequest,
+  runDestructiveAction
+} from '../../services/destructiveActions';
+import { requestDestructiveConfirmation } from '../../services/destructiveConfirmation';
+import { notifyUser } from '../../services/userMessages';
 
 export interface SpatialContextMenuProps {
   position: { x: number; y: number } | null;
   expressId: number | null;
   isPinned?: boolean;
+  /** STEP-10 — used to name the element in the delete confirmation. */
+  elementLabel?: string;
   onClose: () => void;
   onFocus: (id: number) => void;
   onClone: (id: number) => void;
@@ -40,6 +48,7 @@ export const SpatialContextMenu: React.FC<SpatialContextMenuProps> = ({
   position,
   expressId,
   isPinned = false,
+  elementLabel,
   onClose,
   onFocus,
   onClone,
@@ -71,6 +80,23 @@ export const SpatialContextMenu: React.FC<SpatialContextMenuProps> = ({
   // Clamp within viewport
   const x = Math.min(window.innerWidth - 240, Math.max(16, position.x));
   const y = Math.min(window.innerHeight - 380, Math.max(16, position.y));
+
+  /**
+   * STEP-10 Spec 10 — the bin icon goes through the destructive gate. Cancelling (or Escape, or a
+   * backdrop click) leaves the model byte-identical because `onDelete` is never called.
+   */
+  const requestDelete = (id: number) => {
+    const label = elementLabel && elementLabel.trim() ? elementLabel.trim() : `Element #${id}`;
+    void runDestructiveAction(
+      buildDeleteElementRequest(id, label),
+      requestDestructiveConfirmation,
+      () => onDelete(id)
+    ).catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error('[context-menu] delete failed:', err);
+      notifyUser({ text: `Could not delete element #${id}: ${detail}`, tone: 'error' });
+    });
+  };
 
   return (
     <div
@@ -251,8 +277,8 @@ export const SpatialContextMenu: React.FC<SpatialContextMenuProps> = ({
             disabled={isPinned}
             onClick={() => {
               if (isPinned) return;
-              onDelete(expressId);
               onClose();
+              requestDelete(expressId);
             }}
             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl transition-colors text-left ${
               isPinned

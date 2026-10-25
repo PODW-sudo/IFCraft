@@ -171,6 +171,30 @@
   box-shadow: var(--glass-shadow) !important;
 }
 
+/* -------------------------------------------------------------------------
+   STEP-28 (F-052): 44 px touch targets.
+   Compact icon controls in the header/dock opt in with `data-touch-target`
+   plus the `min-h-11 min-w-11` floor. The floor only materialises on a coarse
+   pointer, so the fine-pointer desktop geometry (64 px header, dock width) is
+   unchanged - spec 4.4. Un-layered CSS outranks Tailwind's @layer utilities,
+   which is what makes the `min-h-11` cancel below work without !important.
+   ------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  [data-touch-target] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (pointer: fine) {
+  /* Keep the pre-STEP-28 26 px icon-button box on desktop: the old dock buttons
+     declared `min-w-[26px] min-h-[26px]`, so the floor is preserved rather than removed. */
+  .min-h-11.min-w-11 {
+    min-height: 26px;
+    min-width: 26px;
+  }
+}
+
 
 
 

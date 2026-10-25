@@ -10,6 +10,7 @@ import type {
   ElementLock
 } from '../services/collaboration';
 import * as api from '../services/api';
+import { ElementDetailsLoader } from '../services/elementDetailsLoader';
 
 export interface UseSpatialSelectionOptions {
   currentProject: ProjectMetadata | null;
@@ -19,6 +20,11 @@ export interface UseSpatialSelectionOptions {
   collabClientRef: React.RefObject<CollaborationClient | null>;
   onLockNotification?: (notif: { expressID: number; userName: string; userColor?: string }) => void;
   onElementSelected?: (expressId: number | null) => void;
+  /**
+   * Optional shared details loader. Pass one instance from the app shell so the
+   * selection effect and any post-save reload share the same ordering (STEP-14).
+   */
+  elementDetailsLoader?: ElementDetailsLoader;
 }
 
 export function useSpatialSelection({
@@ -28,7 +34,8 @@ export function useSpatialSelection({
   elementLocks,
   collabClientRef,
   onLockNotification,
-  onElementSelected
+  onElementSelected,
+  elementDetailsLoader
 }: UseSpatialSelectionOptions) {
   const [selectedExpressID, setSelectedExpressID] = useState<number | null>(null);
   const [isolatedExpressID, setIsolatedExpressID] = useState<number | null>(null);
@@ -38,10 +45,57 @@ export function useSpatialSelection({
   pinnedExpressIdsRef.current = pinnedExpressIds;
 
   const [selectedElementDetails, setSelectedElementDetails] = useState<ElementDetails | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [focusTrigger, setFocusTrigger] = useState<{
     expressId: number;
     timestamp: number;
   } | null>(null);
+
+  // One loader per hook (or the caller's shared one). The sequence guard inside it is
+  // what prevents a slow response for A from overwriting B's panel.
+  const internalLoaderRef = useRef<ElementDetailsLoader | null>(null);
+  if (internalLoaderRef.current === null) {
+    internalLoaderRef.current = new ElementDetailsLoader((projectId, expressId) =>
+      api.getElementDetails(projectId, expressId)
+    );
+  }
+  const loader = elementDetailsLoader ?? internalLoaderRef.current;
+
+  const applyDetailsResult = useCallback(
+    (expressId: number | null, result: { details: ElementDetails | null; error: string | null }) => {
+      setSelectedElementDetails(result.details);
+      setDetailsError(result.error);
+      if (result.error) {
+        console.warn(`Could not load element details for #${expressId}:`, result.error);
+      }
+    },
+    []
+  );
+
+  /**
+   * Re-fetches one element's details through the shared loader and applies the result
+   * only when it is still current. Exposed so a property save can refresh the panel
+   * (`onPropertyUpdated`).
+   */
+  const reloadElementDetails = useCallback(
+    async (expressId: number): Promise<ElementDetails | null> => {
+      if (!currentProject) return null;
+      setIsDetailsLoading(true);
+      const result = await loader.select(currentProject.id, expressId);
+      if (result.superseded) return result.details;
+      setIsDetailsLoading(false);
+      applyDetailsResult(expressId, result);
+      return result.details;
+    },
+    [currentProject, loader, applyDetailsResult]
+  );
+
+  /** Reloads whatever is selected now; convenience for `onPropertyUpdated`. */
+  const reloadSelectedElementDetails = useCallback(async (): Promise<ElementDetails | null> => {
+    if (selectedExpressID === null) return null;
+    return reloadElementDetails(selectedExpressID);
+  }, [reloadElementDetails, selectedExpressID]);
 
   // Sync Element Details on Project or Selected ID change
   useEffect(() => {
@@ -53,18 +107,27 @@ export function useSpatialSelection({
       selectedExpressID <= 0
     ) {
       setSelectedElementDetails(null);
+      setDetailsError(null);
+      setIsDetailsLoading(false);
+      // Supersede any in-flight request so it cannot repopulate a cleared panel.
+      void loader.select(null, null);
       return;
     }
+
     let isMounted = true;
-    api.getElementDetails(currentProject.id, selectedExpressID)
-      .then((data) => {
-        if (isMounted) setSelectedElementDetails(data);
-      })
-      .catch((err) => {
-        console.warn('Could not load element details for capsule:', err);
-      });
-    return () => { isMounted = false; };
-  }, [currentProject, selectedExpressID]);
+    setIsDetailsLoading(true);
+    setDetailsError(null);
+    void loader.select(currentProject.id, selectedExpressID).then((result) => {
+      // `isMounted` covers unmount only; `superseded` is the ordering guard.
+      if (!isMounted || result.superseded) return;
+      setIsDetailsLoading(false);
+      applyDetailsResult(selectedExpressID, result);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentProject, selectedExpressID, loader, applyDetailsResult]);
 
   // Extract Storeys from Spatial Tree
   const storeys = useMemo(() => {
@@ -72,7 +135,7 @@ export function useSpatialSelection({
     const list: { id: number; name: string; elevation: number }[] = [];
     const traverse = (node: SpatialNode) => {
       if (node.type === 'IfcBuildingStorey') {
-        list.push({ id: node.express_id, name: node.name, elevation: 0.0 });
+        list.push({ id: node.express_id, name: node.name, elevation: node.elevation ?? 0 });
       }
       node.children?.forEach(traverse);
     };
@@ -131,14 +194,16 @@ export function useSpatialSelection({
         pinnedExpressIdsRef.current = next;
         setPinnedExpressIds(next);
         if (selectedExpressID === expressId) {
-          const details = await api.getElementDetails(currentProject.id, expressId);
-          setSelectedElementDetails(details);
+          // Refresh through the shared loader so a pin cannot resurrect a stale panel.
+          const result = await loader.select(currentProject.id, expressId);
+          if (result.superseded) return;
+          applyDetailsResult(expressId, result);
         }
       } catch (err) {
         console.error('Failed to toggle pin status:', err);
       }
     },
-    [currentProject, selectedExpressID]
+    [currentProject, selectedExpressID, loader, applyDetailsResult]
   );
 
   const toggleCategoryVisibility = useCallback((category: string) => {
@@ -167,6 +232,12 @@ export function useSpatialSelection({
     pinnedExpressIdsRef,
     selectedElementDetails,
     setSelectedElementDetails,
+    detailsError,
+    isDetailsLoading,
+    /** Shared details loader; pass the same instance to anything that re-fetches details. */
+    elementDetailsLoader: loader,
+    reloadElementDetails,
+    reloadSelectedElementDetails,
     storeys,
     focusTrigger,
     setFocusTrigger,

@@ -125,6 +125,65 @@ self.onmessage = async (event: MessageEvent<WorkerParseRequest>) => {
   }
 };
 
+/**
+ * Metres per project unit for the model's length unit (`0.001` for a millimetre file, `1` for a
+ * metre file). Read from `IfcProject.UnitsInContext` -> `IfcUnitAssignment.Units` -> the
+ * `LENGTHUNIT` whose name is `METRE`, then from its SI prefix.
+ *
+ * `IfcConversionBasedUnit` (feet/inches) is out of scope: anything that is not a prefixed metre
+ * falls back to `1` with a warning, so drawings still render.
+ */
+function readLengthUnitScale(modelID: number): number {
+  try {
+    const projects = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
+    if (projects.size() === 0) return 1;
+
+    const project = ifcApi.GetLine(modelID, projects.get(0));
+    const unitAssignmentId = project?.UnitsInContext?.value;
+    if (!unitAssignmentId) return 1;
+
+    const unitAssignment = ifcApi.GetLine(modelID, unitAssignmentId);
+    const units = unitAssignment?.Units;
+    if (!Array.isArray(units)) return 1;
+
+    for (const unitRef of units) {
+      const unitId = unitRef?.value;
+      if (!unitId) continue;
+
+      const unit = ifcApi.GetLine(modelID, unitId);
+      // web-ifc returns enum attributes as `{ type: 3, value: 'LENGTHUNIT' }`.
+      if (unit?.UnitType?.value !== 'LENGTHUNIT') continue;
+
+      const name = unit?.Name?.value;
+      if (name !== 'METRE') {
+        console.warn(`Unsupported IFC length unit "${name}" - falling back to metres.`);
+        return 1;
+      }
+
+      switch (unit?.Prefix?.value) {
+        case 'MILLI':
+          return 0.001;
+        case 'CENTI':
+          return 0.01;
+        case 'DECI':
+          return 0.1;
+        case 'KILO':
+          return 1000;
+        case undefined:
+        case null:
+        case '':
+          return 1;
+        default:
+          console.warn(`Unsupported SI prefix "${unit?.Prefix?.value}" - falling back to metres.`);
+          return 1;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read the IFC length unit; assuming metres:', err);
+  }
+  return 1;
+}
+
 function buildSpatialTree(modelID: number, fallbackName: string): SpatialNode {
   try {
     const projects = ifcApi.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
@@ -185,7 +244,10 @@ function buildSpatialTree(modelID: number, fallbackName: string): SpatialNode {
     }
 
     const projectID = projects.get(0);
-    return parseNodeRecursive(modelID, projectID, childrenMap, new Set());
+    const unitScale = readLengthUnitScale(modelID);
+    const root = parseNodeRecursive(modelID, projectID, childrenMap, new Set());
+    // Metres per project unit, on the root node only - consumers read it once for the whole tree.
+    return { ...root, unit_scale: unitScale };
   } catch {
     return {
       express_id: 0,
@@ -217,6 +279,7 @@ function parseNodeRecursive(
   let name = `Entity #${expressID}`;
   let type = 'IfcProduct';
   let globalId = `id-${expressID}`;
+  let elevation: number | undefined;
 
   try {
     const line = ifcApi.GetLine(modelID, expressID);
@@ -225,6 +288,14 @@ function parseNodeRecursive(
       if (line.GlobalId?.value) globalId = line.GlobalId.value;
       const typeCode = ifcApi.GetLineType(modelID, expressID);
       type = ifcApi.GetNameFromTypeCode(typeCode) || type;
+
+      // Storey elevation is in PROJECT UNITS (mm for a typical export), never in metres.
+      if (type === 'IfcBuildingStorey') {
+        const rawElevation = line.Elevation?.value;
+        elevation = typeof rawElevation === 'number' && Number.isFinite(rawElevation)
+          ? rawElevation
+          : 0;
+      }
     }
   } catch {
     // fallback
@@ -241,6 +312,7 @@ function parseNodeRecursive(
     global_id: globalId,
     name,
     type,
+    ...(elevation !== undefined ? { elevation } : {}),
     children
   };
 }

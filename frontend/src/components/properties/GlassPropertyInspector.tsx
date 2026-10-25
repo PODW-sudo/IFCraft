@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SlidersHorizontal,
   X,
@@ -16,13 +16,50 @@ import {
 import type { ElementDetails, PropertySingle } from '../../types/ifc';
 import { useResizable } from '../../hooks/useResizable';
 import { ResizeHandle } from '../common/ResizeHandle';
+import { ElementDetailsLoader } from '../../services/elementDetailsLoader';
+import { buildPropertyUpdateRequest, isPropertyValueUnchanged } from '../../services/propertyUpdate';
+import * as api from '../../services/api';
+
+/**
+ * Returns a copy of `base` with one property value replaced. Pure so the optimistic
+ * update and its revert cannot mutate the object owned by the caller.
+ */
+function withPropertyValue(
+  base: ElementDetails | null,
+  psetName: string,
+  propName: string,
+  value: unknown
+): ElementDetails | null {
+  if (!base) return null;
+  return {
+    ...base,
+    psets: base.psets.map((pset) =>
+      pset.name !== psetName
+        ? pset
+        : {
+            ...pset,
+            properties: pset.properties.map((p) => (p.name !== propName ? p : { ...p, value }))
+          }
+    )
+  };
+}
 
 interface GlassPropertyInspectorProps {
   projectId: string | null;
   expressId: number | null;
   isOpen: boolean;
   onClose: () => void;
-  onPropertyUpdated?: () => void;
+  /** Called after a property write lands, so the owner can re-fetch and refresh the audit view. */
+  onPropertyUpdated?: (expressId: number) => void;
+  /**
+   * Element details owned by the caller (App). When this prop is provided - even as
+   * `null` while loading - the inspector issues no GET of its own, so one selection
+   * produces exactly one details request.
+   */
+  details?: ElementDetails | null;
+  detailsLoading?: boolean;
+  /** Surfaces a failed write for hosts that show their own toast/status line. */
+  onSaveError?: (message: string) => void;
   transformInfo?: { position: [number, number, number]; rotation: [number, number, number] } | null;
   onWidthChange?: (width: number, isCollapsed: boolean) => void;
 }
@@ -33,11 +70,20 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
   isOpen,
   onClose,
   onPropertyUpdated,
+  details: detailsProp,
+  detailsLoading,
+  onSaveError,
   transformInfo,
   onWidthChange
 }) => {
-  const [details, setDetails] = useState<ElementDetails | null>(null);
+  // Standalone mode keeps its own copy; controlled mode reads the `details` prop.
+  const [fetchedDetails, setFetchedDetails] = useState<ElementDetails | null>(null);
+  // Optimistic value for the current edit; cleared whenever the owner hands us new data.
+  const [localDetails, setLocalDetails] = useState<ElementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ key: string; message: string } | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
@@ -49,6 +95,24 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
   const [newPropType, setNewPropType] = useState('IfcLabel');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [psetSearch, setPsetSearch] = useState('');
+
+  // Standalone details loader. Same sequence guard as the selection hook, so an
+  // out-of-order response can never overwrite a newer selection (STEP-14).
+  // STEP-05 / F-003: the request goes through `services/api`, which attaches the API token —
+  // a raw `fetch('/api/...')` now answers 401.
+  const loaderRef = useRef<ElementDetailsLoader | null>(null);
+  if (loaderRef.current === null) {
+    loaderRef.current = new ElementDetailsLoader((pid, id) => api.getElementDetails(pid, id));
+  }
+
+  const detailsProvided = detailsProp !== undefined;
+  const resolvedDetails = detailsProvided ? (detailsProp ?? null) : fetchedDetails;
+  const visibleDetails = localDetails ?? resolvedDetails;
+  // Never render another element's metadata, not even for one frame.
+  const mismatched = visibleDetails !== null && expressId !== null && visibleDetails.express_id !== expressId;
+  const details = mismatched ? null : visibleDetails;
+  const loading = detailsProvided ? Boolean(detailsLoading) || mismatched : isLoading || mismatched;
+
 
   const handleCopyValue = (fieldKey: string, value: string | number) => {
     const text = String(value);
@@ -87,36 +151,67 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
     }
   }, [width, isPanelCollapsed, isOpen, onWidthChange]);
 
+  // Owner-supplied data is the source of truth: drop the optimistic overlay when it changes.
   useEffect(() => {
+    setLocalDetails(null);
+  }, [detailsProp, expressId]);
+
+  useEffect(() => {
+    setRowError(null);
+    setAddError(null);
+  }, [expressId]);
+
+  useEffect(() => {
+    if (detailsProvided) {
+      // Controlled mode: App already fetched these; issue zero requests (STEP-14 spec 7).
+      setFetchedDetails(null);
+      setFetchError(null);
+      setIsLoading(false);
+      void loaderRef.current?.select(null, null);
+      return;
+    }
+
     if (!projectId || expressId === null || !isOpen) {
-      setDetails(null);
+      setFetchedDetails(null);
+      setFetchError(null);
+      setIsLoading(false);
+      void loaderRef.current?.select(null, null);
       return;
     }
 
     let isMounted = true;
-    async function loadElement() {
-      setIsLoading(true);
-      try {
-        const res = await fetch(`/api/projects/${projectId}/elements/${expressId}`);
-        if (!res.ok) throw new Error('Failed to load element details');
-        const data = await res.json();
-        if (isMounted) setDetails(data);
-      } catch (err) {
-        console.error('Failed to load element details:', err);
-      } finally {
-        if (isMounted) setIsLoading(false);
+    setIsLoading(true);
+    setFetchError(null);
+    void loaderRef.current!.select(projectId, expressId).then((result) => {
+      // `isMounted` guards unmount; `superseded` guards ordering. Both are needed.
+      if (!isMounted || result.superseded) return;
+      setIsLoading(false);
+      if (result.error || !result.details) {
+        setFetchedDetails(null);
+        setFetchError(result.error ?? 'Failed to load element details');
+        return;
       }
-    }
+      setFetchedDetails(result.details);
+    });
 
-    loadElement();
     return () => {
       isMounted = false;
     };
-  }, [projectId, expressId, isOpen]);
+  }, [projectId, expressId, isOpen, detailsProvided]);
+
+  const reloadDetails = async () => {
+    if (detailsProvided || !projectId || expressId === null) return;
+    const result = await loaderRef.current!.select(projectId, expressId);
+    if (result.superseded) return;
+    setFetchedDetails(result.details);
+    setFetchError(result.error);
+  };
 
   if (!isOpen) return null;
 
   const handleStartEdit = (psetName: string, prop: PropertySingle) => {
+    // A row error stays until the next edit attempt.
+    setRowError(null);
     setEditingKey(`${psetName}:${prop.name}`);
     setEditValue(prop.value !== null && prop.value !== undefined ? String(prop.value) : '');
   };
@@ -128,52 +223,42 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
 
   const handleSaveEdit = async (psetName: string, prop: PropertySingle) => {
     if (!projectId || expressId === null) return;
-    setIsSaving(true);
+    const key = `${psetName}:${prop.name}`;
+    setRowError(null);
+
+    let request;
     try {
-      let parsedValue: any = editValue;
-      const valType = prop.value_type || '';
-      if (valType === 'IfcReal' || valType === 'IfcLengthMeasure' || valType === 'IfcPositiveLengthMeasure') {
-        parsedValue = parseFloat(editValue);
-      } else if (valType === 'IfcInteger') {
-        parsedValue = parseInt(editValue, 10);
-      } else if (valType === 'IfcBoolean') {
-        parsedValue = editValue.toLowerCase() === 'true';
-      }
-
-      const res = await fetch(`/api/projects/${projectId}/elements/${expressId}/properties`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pset_name: psetName,
-          name: prop.name,
-          value: parsedValue
-        })
-      });
-
-      if (!res.ok) throw new Error('Failed to save property edit');
-
-      // Update local state
-      setDetails((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          psets: prev.psets.map((pset) => {
-            if (pset.name !== psetName) return pset;
-            return {
-              ...pset,
-              properties: pset.properties.map((p) => {
-                if (p.name !== prop.name) return p;
-                return { ...p, value: parsedValue };
-              })
-            };
-          })
-        };
-      });
-
-      setEditingKey(null);
-      onPropertyUpdated?.();
+      request = buildPropertyUpdateRequest(projectId, expressId, psetName, prop, editValue);
     } catch (err) {
-      console.error('Failed to save property:', err);
+      // Bad input: show it against the row and send nothing.
+      const message = err instanceof Error ? err.message : 'Could not read the new value.';
+      setRowError({ key, message });
+      onSaveError?.(message);
+      return;
+    }
+
+    if (isPropertyValueUnchanged(prop.value, request.body.value)) {
+      // Nothing to persist - avoid a pointless write and audit entry.
+      setEditingKey(null);
+      setEditValue('');
+      return;
+    }
+
+    const previousDetails = details;
+    setIsSaving(true);
+    setLocalDetails(withPropertyValue(details, psetName, prop.name, request.body.value));
+
+    try {
+      await api.updateElementProperty(projectId, expressId, request.body);
+      setEditingKey(null);
+      setEditValue('');
+      onPropertyUpdated?.(expressId);
+    } catch (err) {
+      // Revert the optimistic value and keep the editor open with the typed text intact.
+      setLocalDetails(previousDetails);
+      const message = err instanceof Error ? err.message : 'Could not save the property.';
+      setRowError({ key, message });
+      onSaveError?.(message);
     } finally {
       setIsSaving(false);
     }
@@ -184,40 +269,32 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
     if (!projectId || expressId === null || !newPsetName.trim() || !newPropName.trim()) return;
 
     setIsSaving(true);
+    setAddError(null);
     let parsedVal: unknown = newPropVal.trim();
     if (newPropType === 'IfcReal' || newPropType === 'IfcLengthMeasure' || newPropType === 'IfcInteger') {
       const num = Number(newPropVal);
-      if (!isNaN(num)) parsedVal = num;
+      if (!isNaN(num) && newPropVal.trim() !== '') parsedVal = num;
     } else if (newPropType === 'IfcBoolean') {
       parsedVal = newPropVal.toLowerCase() === 'true';
     }
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/elements/${expressId}/properties`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pset_name: newPsetName.trim(),
-          property_name: newPropName.trim(),
-          value: parsedVal,
-          value_type: newPropType
-        })
+      await api.updateElementProperty(projectId, expressId, {
+        pset_name: newPsetName.trim(),
+        property_name: newPropName.trim(),
+        value: parsedVal,
+        value_type: newPropType
       });
-
-      if (!res.ok) throw new Error('Failed to add property');
-
-      const detailRes = await fetch(`/api/projects/${projectId}/elements/${expressId}`);
-      if (detailRes.ok) {
-        const updated = await detailRes.json();
-        setDetails(updated);
-      }
 
       setShowAddProp(false);
       setNewPropName('');
       setNewPropVal('');
-      onPropertyUpdated?.();
+      onPropertyUpdated?.(expressId);
+      await reloadDetails();
     } catch (err) {
-      console.error('Failed to add property:', err);
+      const message = err instanceof Error ? err.message : 'Could not add the property.';
+      setAddError(message);
+      onSaveError?.(message);
     } finally {
       setIsSaving(false);
     }
@@ -322,7 +399,7 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
 
       {!isPanelCollapsed && (
         <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-          {isLoading ? (
+          {loading ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
               <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
               <span className="text-xs">Loading metadata...</span>
@@ -495,6 +572,15 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                         <option value="IfcBoolean">Boolean</option>
                       </select>
                     </div>
+                    {addError && (
+                      <div
+                        role="alert"
+                        data-qa="property-add-error"
+                        className="text-[10px] leading-tight text-rose-600 dark:text-rose-400"
+                      >
+                        {addError}
+                      </div>
+                    )}
                     <div className="flex justify-end gap-1.5 pt-1">
                       <button
                         type="button"
@@ -537,53 +623,73 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
 
                     <div className="space-y-1.5">
                       {pset.properties.map((prop) => {
-                        const isEditing = editingKey === `${pset.name}:${prop.name}`;
+                        const rowKey = `${pset.name}:${prop.name}`;
+                        const isEditing = editingKey === rowKey;
+                        const error = rowError?.key === rowKey ? rowError.message : null;
 
                         return (
-                          <div
-                            key={prop.name}
-                            className="flex items-center justify-between text-xs py-0.5 group"
-                          >
-                            <span className="text-slate-500 dark:text-slate-400 max-w-[120px] truncate select-text" title={prop.name}>
-                              {prop.name}
-                            </span>
+                          <div key={prop.name} className="text-xs py-0.5 group">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 dark:text-slate-400 max-w-[120px] truncate select-text" title={prop.name}>
+                                {prop.name}
+                              </span>
 
-                            {isEditing ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={editValue}
-                                  onChange={(e) => setEditValue(e.target.value)}
-                                  className="w-20 px-1 py-0.5 text-xs bg-white/70 dark:bg-slate-700 rounded border border-blue-500 outline-none"
-                                />
-                                <button
-                                  onClick={() => handleSaveEdit(pset.name, prop)}
-                                  disabled={isSaving}
-                                  className="p-1 rounded text-emerald-600 hover:bg-emerald-50 cursor-pointer"
-                                >
-                                  <Check className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={handleCancelEdit}
-                                  className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono text-slate-800 dark:text-slate-200 text-right max-w-[140px] truncate select-text cursor-text" title={String(prop.value ?? '')}>
-                                  {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
-                                </span>
-                                <button
-                                  data-qa="property-edit-btn"
-                                  onClick={() => handleStartEdit(pset.name, prop)}
-                                  className="p-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
-                                  title="Edit value"
-                                >
-                                  <Edit2 className="w-3 h-3" />
-                                </button>
+                              {isEditing ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    data-qa="property-edit-input"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    className="w-20 px-1 py-0.5 text-xs bg-white/70 dark:bg-slate-700 rounded border border-blue-500 outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    data-qa="property-save-btn"
+                                    onClick={() => handleSaveEdit(pset.name, prop)}
+                                    disabled={isSaving}
+                                    className="p-1 rounded text-emerald-600 hover:bg-emerald-50 cursor-pointer"
+                                    title="Save value"
+                                    aria-label={`Save ${prop.name}`}
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    data-qa="property-cancel-btn"
+                                    onClick={handleCancelEdit}
+                                    className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
+                                    title="Cancel edit"
+                                    aria-label={`Cancel editing ${prop.name}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-slate-800 dark:text-slate-200 text-right max-w-[140px] truncate select-text cursor-text" title={String(prop.value ?? '')}>
+                                    {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
+                                  </span>
+                                  <button
+                                    data-qa="property-edit-btn"
+                                    onClick={() => handleStartEdit(pset.name, prop)}
+                                    className="p-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                                    title="Edit value"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {error && (
+                              <div
+                                role="alert"
+                                data-qa="property-row-error"
+                                className="mt-1 text-[10px] leading-tight text-rose-600 dark:text-rose-400"
+                              >
+                                {error}
                               </div>
                             )}
                           </div>
@@ -594,9 +700,17 @@ export const GlassPropertyInspector: React.FC<GlassPropertyInspectorProps> = ({
                 ))}
               </div>
             </>
+          ) : fetchError ? (
+            <div
+              role="alert"
+              data-qa="property-load-error"
+              className="text-xs text-rose-600 dark:text-rose-400 text-center py-8 px-3"
+            >
+              {fetchError}
+            </div>
           ) : (
             <div className="text-xs text-slate-400 text-center py-8">
-              Select an element to view properties
+              {expressId === null ? 'Select an element to view properties' : 'No property data for this element'}
             </div>
           )}
         </div>

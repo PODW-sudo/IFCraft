@@ -17,13 +17,16 @@ import {
   Crosshair,
   Sparkles,
   Building2,
-  MapPin
+  MapPin,
+  Keyboard
 } from 'lucide-react';
 import type { ProjectMetadata } from '../../types/ifc';
 import type { Collaborator } from '../../services/collaboration';
 import type { UiProfile, CustomProfileSettings } from '../../types/profiles';
 import { type UiStyleMode, UI_STYLE_OPTIONS } from '../../types/settings';
 import type { ViewportEngine } from '../../types/viewport';
+import { SaveStatusIndicator } from './SaveStatusIndicator';
+import { withTouchTarget } from '../../utils/touchTargets';
 
 const CUSTOM_TOOL_OPTIONS: Array<{
   key: keyof CustomProfileSettings;
@@ -53,6 +56,10 @@ interface GlassHeaderProps {
   onUpdateCustomSettings?: (settings: Partial<CustomProfileSettings>) => void;
   onOpenOmnibar: () => void;
   onOpenSettingsModal?: () => void;
+  /** STEP-28: opens the keyboard shortcut legend (`?`). */
+  onOpenShortcuts?: () => void;
+  /** STEP-28: renders the save-state pill. Defaults to `true`. */
+  showSaveStatus?: boolean;
   collaborators?: Collaborator[];
   isTreeOpen?: boolean;
   onToggleTree?: () => void;
@@ -89,6 +96,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   onUpdateCustomSettings,
   onOpenOmnibar,
   onOpenSettingsModal,
+  onOpenShortcuts,
+  showSaveStatus = true,
   collaborators = [],
   isTreeOpen = false,
   onToggleTree,
@@ -662,13 +671,39 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
           </div>
         )}
 
+        {/* STEP-28: Keyboard shortcut legend + save-state pill */}
+        {onOpenShortcuts && (
+          <button
+            type="button"
+            data-qa="pill-shortcuts-help"
+            data-touch-target="true"
+            onClick={onOpenShortcuts}
+            className={withTouchTarget(
+              'p-2 flex items-center justify-center rounded-full text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-all cursor-pointer ml-1'
+            )}
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+        )}
+
+        {showSaveStatus && (
+          <div className="ml-1 shrink-0">
+            <SaveStatusIndicator />
+          </div>
+        )}
+
         {/* Settings Button */}
         {onOpenSettingsModal && (
           <button
             type="button"
             data-qa="pill-settings-toggle"
+            data-touch-target="true"
             onClick={onOpenSettingsModal}
-            className="p-2 rounded-full text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-all cursor-pointer ml-1"
+            className={withTouchTarget(
+              'p-2 flex items-center justify-center rounded-full text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-all cursor-pointer ml-1'
+            )}
             title="Editor Settings"
             aria-label="Settings"
           >

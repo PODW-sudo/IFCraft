@@ -40,8 +40,13 @@ const BcfManagerModal = React.lazy(() => import('./components/collaboration/BcfM
 const TimelineScrubber = React.lazy(() => import('./components/collaboration/TimelineScrubber').then(m => ({ default: m.TimelineScrubber })));
 const SettingsModal = React.lazy(() => import('./components/modals/SettingsModal').then(m => ({ default: m.SettingsModal })));
 const MoveCopySpecialModal = React.lazy(() => import('./components/cad/MoveCopySpecialModal').then(m => ({ default: m.MoveCopySpecialModal })));
+const DrawingSheetsModal = React.lazy(() => import('./components/drawings/DrawingSheetsModal').then(m => ({ default: m.DrawingSheetsModal })));
 
 import { loadEditorSettings, saveEditorSettings } from './services/settings';
+import { findShortcut, isEditableTarget } from './services/shortcuts';
+import { hasCompletedOnboarding, resolveInitialProfile } from './services/onboarding';
+import { ShortcutLegend } from './components/nav/ShortcutLegend';
+import { OnboardingCard } from './components/onboarding/OnboardingCard';
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings, type UiStyleMode } from './types/settings';
 import {
   type UiProfile,
@@ -65,9 +70,10 @@ import {
 } from './services/collaboration';
 import { Lock, X } from 'lucide-react';
 
-// QA and Diagnostics Error Trap Ring Buffer
+// QA and Diagnostics Error Trap Ring Buffer.
+// F-039: diagnostics-only. Never monkey-patch globals in a shipped bundle.
 const consoleErrorsRing: string[] = [];
-if (typeof window !== 'undefined' && !(window as any).__IFC_ERROR_TRAP_INSTALLED__) {
+if (import.meta.env.DEV && typeof window !== 'undefined' && !(window as any).__IFC_ERROR_TRAP_INSTALLED__) {
   (window as any).__IFC_ERROR_TRAP_INSTALLED__ = true;
   const origConsoleError = console.error;
   console.error = (...args: any[]) => {
@@ -92,6 +98,29 @@ if (typeof window !== 'undefined' && !(window as any).__IFC_ERROR_TRAP_INSTALLED
 
 export const App: React.FC = () => {
   // Modal Manager: Centralized visibility and focus state
+  const [isDrawingSheetsOpen, setIsDrawingSheetsOpen] = useState(false);
+  const [isShortcutLegendOpen, setIsShortcutLegendOpen] = useState(false);
+
+  // Two-key sequence buffer for Revit standard shortcuts (RO, MM, DM, AR, AL, PN, UP, MV, CO).
+  // Declared before the shortcut effect so the listener can refuse to fire mid-sequence.
+  const revitKeyBufferRef = useRef<string>('');
+  const revitKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleToggleGrid = useCallback(() => {
+    setSettings((prev) => {
+      const nextShowGrid = !prev.viewport.showGrid;
+      const nextSettings = {
+        ...prev,
+        viewport: {
+          ...prev.viewport,
+          showGrid: nextShowGrid
+        }
+      };
+      saveEditorSettings(nextSettings);
+      return nextSettings;
+    });
+  }, []);
+
   const {
     isUploadModalOpen,
     setIsUploadModalOpen,
@@ -211,6 +240,8 @@ export const App: React.FC = () => {
     pinnedExpressIdsRef,
     selectedElementDetails,
     setSelectedElementDetails,
+    isDetailsLoading,
+    reloadElementDetails,
     storeys,
     focusTrigger,
     setFocusTrigger,
@@ -371,10 +402,11 @@ export const App: React.FC = () => {
     try {
       const saved = localStorage.getItem('ifc_editor_ui_profile');
       if (saved === 'review' || saved === 'modify' || saved === 'query' || saved === 'custom') {
-        return saved as UiProfile;
+        return resolveInitialProfile(saved as UiProfile);
       }
     } catch {}
-    return 'modify';
+    // F-048: a first run must not open in CAD authoring mode with no model loaded.
+    return resolveInitialProfile(null);
   });
 
   const [customSettings, setCustomSettings] = useState<CustomProfileSettings>(() => {
@@ -666,6 +698,22 @@ export const App: React.FC = () => {
       },
       onRemoteTransformCommitted: (expressId, matrix) => {
         setRemoteTransform({ expressID: expressId, matrix });
+      },
+      // STEP-13: the server refused this session's commit (soft lock held elsewhere).
+      // The client already surfaces a user message; here we restore the authoritative
+      // placement so the screen cannot keep showing a move the file never received.
+      onCommitRejected: (expressId, reason) => {
+        console.warn(`Transform commit rejected for #${expressId}: ${reason}`);
+        if (!currentProject) return;
+        void (async () => {
+          try {
+            const details = await api.getElementDetails(currentProject.id, expressId);
+            setSelectedElementDetails(details);
+            await loadProject(currentProject, expressId);
+          } catch (err) {
+            console.warn('Could not reload the rejected element:', err);
+          }
+        })();
       }
     });
 
@@ -748,6 +796,7 @@ export const App: React.FC = () => {
     handleCadUndo,
     handleCadRedo,
     handleDeleteElement,
+    requestDeleteElement,
     handleMoveElement,
     handleRotateElement,
     handleMirrorElement,
@@ -766,6 +815,40 @@ export const App: React.FC = () => {
     onSpatialTreeUpdated: setSpatialTree,
     onElementDetailsUpdated: setSelectedElementDetails
   });
+
+  // STEP-28: one registry drives both dispatch and the shortcut legend (F-040, F-051).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Never fire while the user is typing, including SELECT and contenteditable.
+      if (isEditableTarget(e.target)) return;
+      // Never swallow `g` while a two-letter Revit sequence is in flight (`ro`, `mm`, `ar` ...).
+      if (revitKeyBufferRef.current !== '') return;
+
+      const shortcut = findShortcut(e, { hasSelection: selectedExpressID !== null });
+      if (!shortcut) return;
+
+      switch (shortcut.id) {
+        case 'viewport.toggleGrid':
+          e.preventDefault();
+          handleToggleGrid();
+          break;
+        case 'drawing.sheets':
+          e.preventDefault();
+          setIsDrawingSheetsOpen((prev) => !prev);
+          break;
+        case 'help.shortcuts':
+          e.preventDefault();
+          setIsShortcutLegendOpen((prev) => !prev);
+          break;
+        default:
+          // Ctrl+Z / Ctrl+Y / Delete / Ctrl+D / Ctrl+, / Ctrl+R / Tab / Escape are dispatched by
+          // the dedicated handlers below and by ThreeViewport - never preventDefault here.
+          break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleToggleGrid, selectedExpressID]);
 
   // Reset interactive CAD mode when selection is cleared
   useEffect(() => {
@@ -798,14 +881,16 @@ export const App: React.FC = () => {
         case 'export':
           handleDownloadProject();
           break;
+        case 'grid':
+          handleToggleGrid();
+          break;
+        case 'sheets':
+          setIsDrawingSheetsOpen(true);
+          break;
       }
     },
     [handleDownloadProject]
   );
-
-  // Two-key sequence buffer for Revit standard shortcuts (RO, MM, DM, AR, AL, PN, UP, MV, CO)
-  const revitKeyBufferRef = useRef<string>('');
-  const revitKeyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Global Keyboard Shortcuts for CAD & BIM Editing (Ctrl+Z, Ctrl+Y, Delete, Ctrl+D, Revit RO/MM/AR/AL/PN/UP)
   useEffect(() => {
@@ -827,7 +912,9 @@ export const App: React.FC = () => {
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedExpressID !== null) {
           e.preventDefault();
-          handleDeleteElement(selectedExpressID);
+          // STEP-10: destructive deletes go through the shared confirmation gate.
+          const label = selectedElementDetails?.name || `Element #${selectedExpressID}`;
+          void requestDeleteElement(selectedExpressID, label);
         }
         return;
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
@@ -902,6 +989,8 @@ export const App: React.FC = () => {
     handleCadUndo,
     handleCadRedo,
     handleDeleteElement,
+    requestDeleteElement,
+    selectedElementDetails,
     handleCloneElement,
     handleRotateElement,
     handleMirrorElement,
@@ -917,8 +1006,10 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
         // If modals or command palette are open, let their own handlers manage dismissal
-        if (isOmnibarOpen || isUploadModalOpen || isNewProjectModalOpen || isBcfOpen || isFederationOpen || isSettingsOpen) {
+        if (isOmnibarOpen || isUploadModalOpen || isNewProjectModalOpen || isBcfOpen || isFederationOpen || isSettingsOpen || isDrawingSheetsOpen || isShortcutLegendOpen) {
           if (isSettingsOpen) setIsSettingsOpen(false);
+          if (isDrawingSheetsOpen) setIsDrawingSheetsOpen(false);
+          if (isShortcutLegendOpen) setIsShortcutLegendOpen(false);
           return;
         }
 
@@ -955,6 +1046,8 @@ export const App: React.FC = () => {
     isNewProjectModalOpen,
     isBcfOpen,
     isFederationOpen,
+    isDrawingSheetsOpen,
+    isShortcutLegendOpen,
     selectedExpressID,
     handleSelectElement,
     activeDimension,
@@ -1542,6 +1635,7 @@ export const App: React.FC = () => {
           customSettings={customSettings}
           onUpdateCustomSettings={handleUpdateCustomSettings}
           onOpenOmnibar={() => setIsOmnibarOpen(true)}
+          onOpenShortcuts={() => setIsShortcutLegendOpen(true)}
           onOpenSettingsModal={() => setIsSettingsOpen(true)}
           collaborators={collaborators}
           isTreeOpen={isTreeOpen}
@@ -1624,6 +1718,12 @@ export const App: React.FC = () => {
                 onClose={() => setIsPropertyOpen(false)}
                 transformInfo={transformInfo}
                 onWidthChange={handlePropertyWidthChange}
+                details={selectedElementDetails}
+                detailsLoading={isDetailsLoading}
+                onPropertyUpdated={(id) => {
+                  void reloadElementDetails(id);
+                  refreshAuditData();
+                }}
               />
             )}
 
@@ -1681,11 +1781,13 @@ export const App: React.FC = () => {
           onClose={() => setIsAnnotationsOpen(false)}
         />
 
-        {/* 5. Headless QA Coordinate HUD (visually hidden, preserves automated harness contracts) */}
+        {/* 5. Coordinate HUD (live X/Y/Z readout) */}
         <CoordinateHud
           selectedExpressID={selectedExpressID}
           transformInfo={transformInfo}
           elementCount={geometries.length}
+          isTreeOpen={isTreeOpen}
+          treeWidth={isTreeCollapsed ? 56 : treeWidth}
         />
 
         {/* 7. Floating Frosted Bottom Tool Dock (role-adaptive CAD & inspection controls) */}
@@ -1730,6 +1832,9 @@ export const App: React.FC = () => {
             isCadOpen={isCadOpen}
             cadHistory={cadHistory}
             onRefreshCadHistory={refreshCadHistory}
+            showGrid={settings.viewport.showGrid}
+            onToggleGrid={handleToggleGrid}
+            onOpenDrawingSheets={() => setIsDrawingSheetsOpen(true)}
           />
         )}
 
@@ -1746,6 +1851,7 @@ export const App: React.FC = () => {
       <SpatialOmnibar
         isOpen={isOmnibarOpen}
         onClose={() => setIsOmnibarOpen(false)}
+        onOpen={() => setIsOmnibarOpen(true)}
         geometries={geometries}
         spatialTree={spatialTree}
         onSelectElement={handleSelectElement}
@@ -1753,9 +1859,19 @@ export const App: React.FC = () => {
         onUpdateUiStyleMode={handleUpdateUiStyleMode}
       />
 
+      <ShortcutLegend isOpen={isShortcutLegendOpen} onClose={() => setIsShortcutLegendOpen(false)} />
+
       {/* Empty State Overlay */}
       {geometries.length === 0 && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none z-10">
+          {/* STEP-28 F-051: first-run card (once, dismissible). The panel below is the
+              "no geometry in this project" state and stays. */}
+          {!hasCompletedOnboarding() && (
+            <OnboardingCard
+              onUpload={() => setIsUploadModalOpen(true)}
+              onOpenSample={() => setIsNewProjectModalOpen(true)}
+            />
+          )}
           <div className="p-6 rounded-2xl bg-[var(--dock-translucent)] border border-[var(--border-subtle)] text-center max-w-sm pointer-events-auto backdrop-blur-2xl shadow-[var(--shadow-hud)]">
             <p className="text-sm font-semibold text-slate-200 mb-1">Spatial Canvas Ready</p>
             <p className="text-xs text-slate-400 mb-4">
@@ -1861,7 +1977,12 @@ export const App: React.FC = () => {
           clashCount={clashResult?.total_clashes ?? 0}
           onSelectTopic={handleSelectBcfTopic}
           selectedExpressID={selectedExpressID}
-          exportUrl={api.getBcfExportUrl(currentProject.id)}
+          onExport={() =>
+            api.downloadBcfArchive(
+              currentProject.id,
+              `${currentProject.name.replace(/\s+/g, '_')}_issues.bcfzip`
+            )
+          }
         />
       )}
 
@@ -1887,6 +2008,16 @@ export const App: React.FC = () => {
       />
 
       {/* Tekla Structures 2025 Move/Copy Special Precision Engineering Modal */}
+      <DrawingSheetsModal
+        isOpen={isDrawingSheetsOpen}
+        onClose={() => setIsDrawingSheetsOpen(false)}
+        geometries={geometries}
+        storeys={storeys}
+        projectName={currentProject?.name}
+        unitScale={spatialTree?.unit_scale ?? 1}
+        activeSectionCut={sectionConfig.enabled ? { axis: sectionConfig.axis, position: sectionConfig.position } : undefined}
+      />
+
       {selectedExpressID !== null && (
         <MoveCopySpecialModal
           isOpen={isMoveCopySpecialOpen}

@@ -81,15 +81,15 @@ Key elements the QA agent should look for by selector, title, label, or accessib
 
 ## Testing Strategy & Tiers
 
-The test suite consists of **366 comprehensive test specifications** categorized into two execution tiers across 22 feature categories:
+The test suite consists of **372 comprehensive test specifications** categorized into two execution tiers across 22 feature categories:
 
 1. **Key Functionalities Tier (`--tier key`):**
-   - 118 critical end-to-end paths executed on **every test suite run**.
+   - 123 critical end-to-end paths executed on **every test suite run**.
    - Covers canvas mount, sample model parsing, camera orbit/pan/zoom, spatial tree selection, transform gizmo, property editing, sectioning, point-to-point measurement, Omnibar, AI Copilot, CAD drafting tools (walls, slabs, columns, openings), in-situ context overlays, and IFC export.
    - Command: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --tier key --browser`
 
 2. **Milestone Suite Tier (`--tier full` / `--milestone`):**
-   - All 359 test specifications executed in live Google Chrome via CDP on **each major milestone**.
+   - All 246 milestone-tier checks executed in live Google Chrome via CDP on **each major milestone**.
    - Covers every single function, parameter, slider, modal validation, schema, camera preset, category filter, edge case, and all 112 UI controls under granular A/B scenarios.
    - Command: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --milestone --browser` (or full suite: `.\backend\venv\Scripts\python.exe scripts/qa_runner.py run --browser`)
 

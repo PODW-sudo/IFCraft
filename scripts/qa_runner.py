@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 scripts/qa_runner.py
 Autonomous Live Agent QA Test Runner for IFC Editor.
@@ -10,8 +10,13 @@ Supports:
   - Commands:
       * check: Validates project.config.md and test_cases.jsonl syntax and coverage
       * list: Lists all test cases with category and tier breakdowns
-      * run: Executes tests in live browser or smoke mode, writing to test_results_YYYY-MM-DD.jsonl
-      * report: Compiles dated markdown test report
+      * run: Executes tests in live browser or smoke mode, writing to
+             qa_runs/YYYY-MM-DD/test_results_YYYY-MM-DD.jsonl
+      * report: Compiles dated markdown test report into qa_runs/YYYY-MM-DD/
+
+  Artefact policy (STEP-26): no results or reports are ever written to the repository root.
+  Projects a run creates are named AutoTest-<run-id>-<slug> and are deleted again in a
+  `finally:` block, so `AGENTS.md` B7 cleanup is enforced by the runner, not by memory.
 """
 
 import sys
@@ -59,16 +64,122 @@ def find_browser_executable() -> tuple[str, str]:
             return "edge", p
     return "none", ""
 
+API_URL = "http://localhost:8000/api/projects"
+AUTOTEST_PREFIX = "AutoTest-"
+
+# STEP-05 / F-003: every /api route requires the installation token. The backend persists it
+# to storage/.api_token on first start; the runner reads that file directly (no bootstrap call,
+# which would need an Origin header and is what a browser does instead).
+API_TOKEN_FILE = ROOT_DIR / "storage" / ".api_token"
+_API_TOKEN_CACHE: str | None = None
+
+
+def read_api_token() -> str:
+    """Return the API token from storage/.api_token (empty string when not created yet)."""
+    global _API_TOKEN_CACHE
+    if _API_TOKEN_CACHE:
+        return _API_TOKEN_CACHE
+    try:
+        token = API_TOKEN_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if token:
+        _API_TOKEN_CACHE = token
+    return token
+
+
+def auth_headers(headers: dict = None) -> dict:
+    """Merge the `X-API-Token` header into a request's headers."""
+    merged = dict(headers or {})
+    token = read_api_token()
+    if token:
+        merged["X-API-Token"] = token
+    return merged
+
 def get_today_str() -> str:
     return date.today().isoformat()
 
+def get_results_dir(date_str: str = None) -> Path:
+    """qa_runs/<YYYY-MM-DD>/ â€” never the repository root (STEP-26, F-059)."""
+    d = date_str or get_today_str()
+    directory = ROOT_DIR / "qa_runs" / d
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
 def get_results_file(date_str: str = None) -> Path:
     d = date_str or get_today_str()
-    return ROOT_DIR / f"test_results_{d}.jsonl"
+    path = get_results_dir(d) / f"test_results_{d}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 def get_report_file(date_str: str = None) -> Path:
     d = date_str or get_today_str()
-    return ROOT_DIR / f"test_report_{d}.md"
+    path = get_results_dir(d) / f"test_report_{d}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+def is_autotest_project_name(name: str) -> bool:
+    """True for machine-created projects only (`AGENTS.md` B7 data-safety rule, F-053)."""
+    return name.startswith(AUTOTEST_PREFIX)
+
+def autotest_project_name(run_id: str, slug: str) -> str:
+    """Canonical name for a project a QA run creates: AutoTest-<run-id>-<slug>."""
+    return f"{AUTOTEST_PREFIX}{run_id}-{slug}"
+
+def list_projects(api_url: str = API_URL) -> list:
+    req = urllib.request.Request(api_url, headers=auth_headers({"Accept": "application/json"}))
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+def delete_project(api_url: str, project_id: str) -> bool:
+    url = f"{api_url.rstrip('/')}/{project_id}"
+    req = urllib.request.Request(url, headers=auth_headers(), method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in (200, 204)
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        print(f"[WARN] Could not delete project {project_id}: {exc}")
+        return False
+
+def create_autotest_project(api_url: str, run_id: str, slug: str, schema_version: str = "IFC4") -> dict:
+    """Create a scratch project for a run, named so that cleanup can find it again."""
+    payload = json.dumps({
+        "name": autotest_project_name(run_id, slug),
+        "description": f"Automated QA run {run_id} (safe to delete).",
+        "schema_version": schema_version,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        api_url,
+        data=payload,
+        headers=auth_headers({"Content-Type": "application/json", "Accept": "application/json"}),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+def cleanup_autotest_projects(api_url: str = API_URL, run_id: str = None) -> int:
+    """Delete AutoTest-* projects created by QA runs.
+
+    `run_id` given  -> only AutoTest-<run_id>* (what this run created).
+    `run_id` omitted -> every AutoTest-* project (the --cleanup-autotest purge).
+    Legacy/manual projects never match the prefix and are therefore never touched.
+    """
+    prefix = AUTOTEST_PREFIX if run_id is None else f"{AUTOTEST_PREFIX}{run_id}"
+    try:
+        projects = list_projects(api_url)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"[WARN] AutoTest cleanup skipped, cannot list projects: {exc}")
+        return 0
+
+    removed = 0
+    for project in projects:
+        name = str(project.get("name", ""))
+        if not name.startswith(prefix):
+            continue
+        if delete_project(api_url, str(project.get("id", ""))):
+            removed += 1
+            print(f"[CLEANUP] Deleted {name} ({project.get('id')})")
+    return removed
 
 def load_test_cases():
     if not TEST_CASES_FILE.exists():
@@ -95,9 +206,12 @@ def load_test_cases():
             cases.append(data)
     return cases
 
-def check_target_reachability(url: str, timeout: float = 2.0) -> bool:
+def check_target_reachability(url: str, timeout: float = 2.0, headers: dict | None = None) -> bool:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "AgentQA-Probe/1.0"})
+        probe_headers = {"User-Agent": "AgentQA-Probe/1.0"}
+        if headers:
+            probe_headers.update(headers)
+        req = urllib.request.Request(url, headers=probe_headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status in (200, 304)
     except Exception:
@@ -2273,7 +2387,7 @@ async def validate_ifc_export(cdp: CDPClient, project_id: str = None) -> tuple[b
         if not project_id:
             project_id = await cdp.eval("window.__IFC_QA_BRIDGE__ ? (window.__IFC_QA_BRIDGE__.getState().currentProject ? window.__IFC_QA_BRIDGE__.getState().currentProject.id : null) : null")
         if not project_id:
-            req = urllib.request.Request("http://localhost:8000/api/projects")
+            req = urllib.request.Request("http://localhost:8000/api/projects", headers=auth_headers())
             with urllib.request.urlopen(req, timeout=5) as r:
                 projs = json.loads(r.read().decode())
                 if projs:
@@ -2282,7 +2396,7 @@ async def validate_ifc_export(cdp: CDPClient, project_id: str = None) -> tuple[b
             return False, "No active project ID found for IFC export."
 
         export_url = f"http://localhost:8000/api/projects/{project_id}/download"
-        req = urllib.request.Request(export_url)
+        req = urllib.request.Request(export_url, headers=auth_headers())
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
 
@@ -2312,7 +2426,7 @@ async def validate_bcf_export(cdp: CDPClient, project_id: str = None) -> tuple[b
         if not project_id:
             project_id = await cdp.eval("window.__IFC_QA_BRIDGE__ ? (window.__IFC_QA_BRIDGE__.getState().currentProject ? window.__IFC_QA_BRIDGE__.getState().currentProject.id : null) : null")
         if not project_id:
-            req = urllib.request.Request("http://localhost:8000/api/projects")
+            req = urllib.request.Request("http://localhost:8000/api/projects", headers=auth_headers())
             with urllib.request.urlopen(req, timeout=5) as r:
                 projs = json.loads(r.read().decode())
                 if projs:
@@ -2321,7 +2435,7 @@ async def validate_bcf_export(cdp: CDPClient, project_id: str = None) -> tuple[b
             return False, "No active project ID found for BCF export."
 
         export_url = f"http://localhost:8000/api/projects/{project_id}/bcf/export"
-        req = urllib.request.Request(export_url)
+        req = urllib.request.Request(export_url, headers=auth_headers())
         with urllib.request.urlopen(req, timeout=12) as resp:
             data = resp.read()
 
@@ -2362,7 +2476,7 @@ async def validate_ifc_upload(cdp: CDPClient) -> tuple[bool, str]:
         req = urllib.request.Request(
             "http://localhost:8000/api/projects/upload",
             data=body,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+            headers=auth_headers({"Content-Type": f"multipart/form-data; boundary={boundary}"})
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             proj = json.loads(resp.read().decode())
@@ -3430,7 +3544,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
             await asyncio.sleep(0.2)
             f = await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.getState().sectionConfig.flipped")
             await cdp.eval("window.__IFC_QA_BRIDGE__ && window.__IFC_QA_BRIDGE__.setSectionConfig({ flipped: false, enabled: false })")
-            return ("pass", "Section clipping plane normal flipped 180°.") if f is True else ("fail", f"Section flip failed: {f}")
+            return ("pass", "Section clipping plane normal flipped 180Â°.") if f is True else ("fail", f"Section flip failed: {f}")
 
         # TC-053: Measurement Tool Activation
         elif tid == "TC-053":
@@ -3508,7 +3622,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
 
         # TC-063: Copilot Model Query
         elif tid == "TC-063":
-            req = urllib.request.Request("http://localhost:8000/api/copilot/providers")
+            req = urllib.request.Request("http://localhost:8000/api/copilot/providers", headers=auth_headers())
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
             return ("pass", f"Copilot query_model tool calling verified ({len(data)} providers registered).")
@@ -3928,7 +4042,7 @@ async def evaluate_test_in_browser(cdp: CDPClient, tc: dict) -> tuple[str, str]:
 
 def cmd_check(args):
     print("=" * 65)
-    print("        IFC EDITOR — AGENT QA HARNESS VALIDATOR")
+    print("        IFC EDITOR â€” AGENT QA HARNESS VALIDATOR")
     print("=" * 65)
     
     if not CONFIG_FILE.exists():
@@ -3993,6 +4107,8 @@ def cmd_list(args):
 async def run_suite_async(args):
     cases = load_test_cases()
     today_str = get_today_str()
+    run_id = getattr(args, "run_id", None) or datetime.now().strftime("%Y%m%dT%H%M%S")
+    args.run_id = run_id
     results_path = get_results_file(today_str)
     
     # Tier filter
@@ -4021,11 +4137,11 @@ async def run_suite_async(args):
             cases = filtered
 
     target_url = "http://localhost:5173"
-    api_url = "http://localhost:8000/api/projects"
+    api_url = API_URL
     frontend_online = check_target_reachability(target_url)
-    backend_online = check_target_reachability(api_url)
+    backend_online = check_target_reachability(api_url, headers=auth_headers())
 
-    print(f"Executing Agent QA Run ({len(cases)} cases) -> {results_path.name}")
+    print(f"Executing Agent QA Run {run_id} ({len(cases)} cases) -> {results_path}")
     print(f"Target Frontend ({target_url}): {'ONLINE' if frontend_online else 'OFFLINE'}")
     print(f"Target Backend  ({api_url}): {'ONLINE' if backend_online else 'OFFLINE'}")
 
@@ -4052,43 +4168,57 @@ async def run_suite_async(args):
         with open(results_path, "r", encoding="utf-8") as f:
             existing_count = sum(1 for line in f if line.strip())
 
-    with open(results_path, "a", encoding="utf-8") as f_out:
-        for idx, tc in enumerate(cases, start=existing_count + 1):
-            tr_id = f"TR-{idx:03d}"
-            now_iso = datetime.now().isoformat()
-            platform = tc["platforms"][0] if tc["platforms"] else target_url
+    try:
+        with open(results_path, "a", encoding="utf-8") as f_out:
+            for idx, tc in enumerate(cases, start=existing_count + 1):
+                tr_id = f"TR-{idx:03d}"
+                now_iso = datetime.now().isoformat()
+                platform = tc["platforms"][0] if tc["platforms"] else target_url
 
-            if args.dry_run:
-                status, notes = "skip", "Dry-run execution simulation."
-            elif not frontend_online:
-                status, notes = "unable_to_test", f"Target frontend {target_url} unreachable."
-            elif cdp:
-                status, notes = await evaluate_test_in_browser(cdp, tc)
-            elif args.smoke:
-                status, notes = "pass", "Smoke reachability check verified."
-            else:
-                status, notes = "pass", f"Verified: {tc['expected'][:80]}"
+                if args.dry_run:
+                    status, notes = "skip", "Dry-run execution simulation."
+                elif not frontend_online:
+                    status, notes = "unable_to_test", f"Target frontend {target_url} unreachable."
+                elif cdp:
+                    status, notes = await evaluate_test_in_browser(cdp, tc)
+                elif args.smoke:
+                    status, notes = "pass", "Smoke reachability check verified."
+                else:
+                    status, notes = "pass", f"Verified: {tc['expected'][:80]}"
 
-            result_obj = {
-                "id": tr_id,
-                "test_id": tc["id"],
-                "tier": tc.get("tier", "full"),
-                "platform": platform,
-                "status": status,
-                "timestamp": now_iso,
-                "notes": notes
-            }
-            f_out.write(json.dumps(result_obj) + "\n")
-            f_out.flush()
-            print(f"[{status.upper():<14}] {tc['id']} [{tc.get('tier','full'):<4}] - {tc['name']} -> {tr_id}")
+                result_obj = {
+                    "id": tr_id,
+                    "test_id": tc["id"],
+                    "tier": tc.get("tier", "full"),
+                    "platform": platform,
+                    "status": status,
+                    "timestamp": now_iso,
+                    "notes": notes
+                }
+                f_out.write(json.dumps(result_obj) + "\n")
+                f_out.flush()
+                print(f"[{status.upper():<14}] {tc['id']} [{tc.get('tier','full'):<4}] - {tc['name']} -> {tr_id}")
+    finally:
+        # AGENTS.md B7: a run must never leave AutoTest- projects behind, even if it raises.
+        if cdp:
+            await cdp.stop()
+        if not args.dry_run and backend_online:
+            removed = cleanup_autotest_projects(api_url, run_id)
+            if removed:
+                print(f"[CLEANUP] Removed {removed} AutoTest-{run_id}* project(s).")
 
-    if cdp:
-        await cdp.stop()
-
-    print(f"\nRun complete. Results written to {results_path.name}")
+    print(f"\nRun complete. Results written to {results_path}")
     cmd_report(args)
 
 def cmd_run(args):
+    args.run_id = getattr(args, "run_id", None) or datetime.now().strftime("%Y%m%dT%H%M%S")
+
+    if getattr(args, "cleanup_autotest", False):
+        print(f"Purging every {AUTOTEST_PREFIX}* project from {API_URL} ...")
+        removed = cleanup_autotest_projects(API_URL, run_id=None)
+        print(f"Deleted {removed} AutoTest-* project(s). Legacy projects are never matched.")
+        return
+
     asyncio.run(run_suite_async(args))
 
 def cmd_report(args):
@@ -4115,7 +4245,7 @@ def cmd_report(args):
     total = len(results)
 
     report_lines = [
-        f"# IFC Editor Test Report — {today_str}",
+        f"# IFC Editor Test Report â€” {today_str}",
         "",
         "## Summary",
         "",
@@ -4148,7 +4278,7 @@ def cmd_report(args):
     if failures:
         for r, tc in failures:
             report_lines.extend([
-                f"### [{r['test_id']}] {tc['name']} — {r['platform']}",
+                f"### [{r['test_id']}] {tc['name']} â€” {r['platform']}",
                 f"- **Expected:** {tc.get('expected', 'N/A')}",
                 f"- **Actual:** {r.get('notes', 'Failed')}",
                 f"- **Result ID:** {r['id']}",
@@ -4171,7 +4301,7 @@ def cmd_report(args):
     ])
 
     report_path.write_text("\n".join(report_lines), encoding="utf-8")
-    print(f"Report written to {report_path.name}")
+    print(f"Report written to {report_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="IFC Editor Autonomous Agent QA Runner")
@@ -4195,6 +4325,8 @@ def main():
     p_run.add_argument("--category", help="Filter by category")
     p_run.add_argument("--dry-run", action="store_true", help="Simulate run without writing results")
     p_run.add_argument("--smoke", action="store_true", help="Run smoke test assertions")
+    p_run.add_argument("--run-id", help="Run identifier used for results and AutoTest-<run-id>-* project names (default: timestamp)")
+    p_run.add_argument("--cleanup-autotest", action="store_true", help="Delete every AutoTest-* project, then exit (legacy projects untouched)")
 
     # report
     subparsers.add_parser("report", help="Generate dated test report")

@@ -5,7 +5,7 @@
 #   .\scripts\ui_pipeline.ps1                 # Standard run
 #   .\scripts\ui_pipeline.ps1 -Tier quick     # Fast static & gates check
 #   .\scripts\ui_pipeline.ps1 -Browser        # Live browser E2E test run
-#   .\scripts\ui_pipeline.ps1 -Milestone      # Full 359 tests milestone audit
+#   .\scripts\ui_pipeline.ps1 -Milestone      # full 372 tests milestone audit
 # =====================================================================
 
 param (

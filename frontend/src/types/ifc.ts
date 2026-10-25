@@ -3,6 +3,16 @@ export interface SpatialNode {
   global_id: string;
   name: string;
   type: string;
+  /**
+   * Storey elevation in **project units** (millimetres in a typical Revit export).
+   * Present on `IfcBuildingStorey` nodes only; `0` when the entity has no `Elevation`.
+   */
+  elevation?: number | null;
+  /**
+   * Metres per project unit (`0.001` for a millimetre file, `1.0` for a metre file).
+   * Present on the root node only.
+   */
+  unit_scale?: number | null;
   children: SpatialNode[];
 }
 
@@ -82,6 +92,13 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   toolCalls?: ToolCall[];
+  /** Set when the server withheld a model-writing tool call pending confirmation. */
+  requiresConfirmation?: boolean;
+  pendingToolCalls?: PendingToolCall[];
+  /** Tool failures the server reported instead of swallowing them. */
+  errors?: CopilotToolError[];
+  /** The prompt that produced this turn, replayed verbatim when the user confirms. */
+  sourcePrompt?: string;
 }
 
 export interface ToolCall {
@@ -89,6 +106,18 @@ export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
   result?: Record<string, unknown>;
+}
+
+/** A write tool the server refused to execute without `confirm_writes`. */
+export interface PendingToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+/** A tool that ran and failed. */
+export interface CopilotToolError {
+  tool: string;
+  message: string;
 }
 
 export interface CopilotChatRequest {
@@ -99,12 +128,17 @@ export interface CopilotChatRequest {
   api_key?: string;
   base_url?: string;
   selected_express_id?: number | null;
+  /** Must be true before the server executes any model-writing tool. */
+  confirm_writes?: boolean;
 }
 
 export interface CopilotChatResponse {
   message: { role: string; content: string };
   tool_calls: ToolCall[];
   project_updated: boolean;
+  requires_confirmation?: boolean;
+  pending_tool_calls?: PendingToolCall[];
+  errors?: CopilotToolError[];
 }
 
 export interface AIProvider {

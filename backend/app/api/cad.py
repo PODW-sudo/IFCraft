@@ -19,9 +19,14 @@ from ..models.schemas import (
     CadAssignStoreyRequest,
     CadMaterialRequest,
 )
-from ..services.cad_service import CADService
+from ..services.cad_service import CADService, GeometryNotEditable
+from ..services.atomic_store import project_write_lock
 
 logger = logging.getLogger("ifc_editor.api.cad")
+
+#: STEP-20 / F-045: an unhandled CAD/ifcopenshell fault quotes the absolute model path in
+#: its message. The client gets this fixed text; the exception goes to the server log.
+_CAD_FAILURE_DETAIL = "CAD operation failed. See the server log for details."
 
 cad_router = APIRouter(prefix="/projects/{id}/cad", tags=["cad"])
 
@@ -34,10 +39,12 @@ async def create_wall(
     try:
         return await CADService.create_wall(id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except Exception as e:
         logger.exception("Failed to create wall: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/slab", response_model=CadElementResponse)
 async def create_slab(
@@ -48,10 +55,12 @@ async def create_slab(
     try:
         return await CADService.create_slab(id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except Exception as e:
         logger.exception("Failed to create slab: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/column", response_model=CadElementResponse)
 async def create_column(
@@ -62,10 +71,12 @@ async def create_column(
     try:
         return await CADService.create_column(id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except Exception as e:
         logger.exception("Failed to create column: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/opening", response_model=CadElementResponse)
 async def create_opening(
@@ -76,30 +87,39 @@ async def create_opening(
     try:
         return await CADService.create_opening(id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create opening: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/undo", response_model=CadUndoRedoResponse)
 async def undo_cad(id: str = Path(..., description="Project ID")):
     """Undo the last active CAD transaction."""
     try:
-        return await CADService.undo(id)
+        # STEP-03: the lock spans the whole undo (read the row -> swap the snapshot in ->
+        # mark it UNDONE), so a concurrent write cannot land between our snapshot copy and
+        # its bookkeeping. STEP-04: the copy/digest work is offloaded inside the service.
+        async with project_write_lock(id):
+            return await CADService.undo(id)
     except Exception as e:
         logger.exception("Failed to undo transaction: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/redo", response_model=CadUndoRedoResponse)
 async def redo_cad(id: str = Path(..., description="Project ID")):
     """Redo the most recently undone CAD transaction."""
     try:
-        return await CADService.redo(id)
+        # Same single-writer scope as undo. The legacy redo path re-enters the create_*
+        # primitives, which is safe: the lock is re-entrant for the same task.
+        async with project_write_lock(id):
+            return await CADService.redo(id)
     except Exception as e:
         logger.exception("Failed to redo transaction: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.get("/history", response_model=CadHistoryResponse)
 async def get_history(id: str = Path(..., description="Project ID")):
@@ -108,7 +128,7 @@ async def get_history(id: str = Path(..., description="Project ID")):
         return await CADService.get_history(id)
     except Exception as e:
         logger.exception("Failed to fetch CAD history: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.delete("/elements/{express_id}")
 async def delete_element(
@@ -119,12 +139,14 @@ async def delete_element(
     try:
         return await CADService.delete_element(id, express_id)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception("Failed to delete element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/clone", response_model=CadElementResponse)
 async def clone_element(
@@ -136,12 +158,14 @@ async def clone_element(
     try:
         return await CADService.clone_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception("Failed to clone element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.patch("/elements/{express_id}/geometry")
 async def update_element_geometry(
@@ -152,13 +176,20 @@ async def update_element_geometry(
     """Update parametric dimensions of an element."""
     try:
         return await CADService.update_geometry(id, express_id, req)
+    except GeometryNotEditable as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "unsupported_geometry", "message": str(e)},
+        )
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception("Failed to update geometry of #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/assign-storey")
 async def assign_element_storey(
@@ -170,12 +201,14 @@ async def assign_element_storey(
     try:
         return await CADService.assign_storey(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to assign storey for #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/material")
 async def assign_element_material(
@@ -187,12 +220,14 @@ async def assign_element_material(
     try:
         return await CADService.assign_material(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception("Failed to assign material for #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/move", response_model=CadElementResponse)
 async def move_element(
@@ -204,12 +239,14 @@ async def move_element(
     try:
         return await CADService.move_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to move element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/rotate", response_model=CadElementResponse)
 async def rotate_element(
@@ -221,12 +258,14 @@ async def rotate_element(
     try:
         return await CADService.rotate_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to rotate element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/mirror", response_model=CadElementResponse)
 async def mirror_element(
@@ -238,12 +277,14 @@ async def mirror_element(
     try:
         return await CADService.mirror_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to mirror element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/array", response_model=list[CadElementResponse])
 async def array_element(
@@ -255,12 +296,14 @@ async def array_element(
     try:
         return await CADService.array_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to array element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/align", response_model=CadElementResponse)
 async def align_element(
@@ -272,12 +315,14 @@ async def align_element(
     try:
         return await CADService.align_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Failed to align element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.post("/elements/{express_id}/pin")
 async def pin_element(
@@ -289,10 +334,12 @@ async def pin_element(
     try:
         return await CADService.pin_element(id, express_id, req)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # STEP-20 / F-045: fixed message; the path stays in the log.
+        logger.warning("Project model file missing: %s", e)
+        raise HTTPException(status_code=404, detail="Project model file not found.")
     except Exception as e:
         logger.exception("Failed to pin element #%d: %s", express_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_CAD_FAILURE_DETAIL)
 
 @cad_router.get("/elements/{express_id}/pinned")
 async def is_element_pinned(

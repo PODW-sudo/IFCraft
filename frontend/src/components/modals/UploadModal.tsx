@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, FileText, Loader2 } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -20,6 +21,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // STEP-28 (spec 8.x): dialog semantics + focus trap + focus restore.
+  const { ref: dialogRef, onKeyDown: handleDialogKeyDown } = useFocusTrap<HTMLDivElement>(isOpen);
 
   if (!isOpen) return null;
 
@@ -52,6 +55,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upload-modal-title"
+        onKeyDown={handleDialogKeyDown}
         data-qa="upload-modal"
         className="w-full max-w-md bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
       >
@@ -59,13 +67,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/80 dark:border-white/10">
           <div className="flex items-center gap-2">
             <Upload className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Upload IFC Model</h3>
+            <h3 id="upload-modal-title" className="text-sm font-semibold text-slate-900 dark:text-slate-100">Upload IFC Model</h3>
           </div>
           {!isLoading && (
             <button
               data-qa="upload-close-btn"
               onClick={onClose}
-              className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Close upload dialog"
+              className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 min-h-11 min-w-11 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>

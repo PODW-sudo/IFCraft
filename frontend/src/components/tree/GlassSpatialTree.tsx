@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -15,6 +15,18 @@ import {
 import type { SpatialNode } from '../../types/ifc';
 import { useResizable } from '../../hooks/useResizable';
 import { ResizeHandle } from '../common/ResizeHandle';
+import {
+  buildAncestorSet,
+  collectMatchingIds,
+  computeWindow,
+  flattenVisibleTree,
+  initialExpandedIds,
+  keepRowInView,
+  TREE_OVERSCAN,
+  TREE_ROW_BUDGET,
+  TREE_ROW_HEIGHT,
+  type FlatTreeRow
+} from '../../utils/spatialTreeIndex';
 
 interface GlassSpatialTreeProps {
   tree: SpatialNode | null;
@@ -40,20 +52,16 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
   fileName: _fileName = 'Project Model'
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set([0]));
+  const [expandedNodes, setExpandedNodes] = useState<Set<number>>(() => new Set<number>());
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(320);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // Bounded initial expansion: root + the first-child path down to the first storey.
+  // Expanding to depth 3 unconditionally made a large model start with thousands of rows.
   useEffect(() => {
-    if (!tree) return;
-    const initialExpanded = new Set<number>();
-    const collectStoreys = (node: SpatialNode, depth: number) => {
-      initialExpanded.add(node.express_id);
-      if (depth < 3 && node.children) {
-        node.children.forEach((child) => collectStoreys(child, depth + 1));
-      }
-    };
-    collectStoreys(tree, 0);
-    setExpandedNodes(initialExpanded);
+    setExpandedNodes(initialExpandedIds(tree));
   }, [tree]);
 
   const { width, isDragging, startResizing, resetWidth } = useResizable({
@@ -70,19 +78,75 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
     }
   }, [width, isPanelCollapsed, isOpen, onWidthChange]);
 
+  // Measure the scroll body so the window can be derived from its real height.
+  // `ResizeObserver` is feature-detected: the node test environment does not always have it.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportHeight(el.clientHeight || 320);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isOpen, isPanelCollapsed]);
+
+  // Two O(n) passes per keystroke (not one per rendered node), both memoised.
+  const matchedIds = useMemo(() => collectMatchingIds(tree, searchTerm), [tree, searchTerm]);
+  const ancestorsOfMatches = useMemo(
+    () => (matchedIds && matchedIds.size ? buildAncestorSet(tree, matchedIds) : null),
+    [tree, matchedIds]
+  );
+  const rows = useMemo(
+    () =>
+      flattenVisibleTree(tree, {
+        expanded: expandedNodes,
+        matchedIds,
+        ancestorsOfMatches,
+        maxRows: TREE_ROW_BUDGET
+      }),
+    [tree, expandedNodes, matchedIds, ancestorsOfMatches]
+  );
+  const treeWindow = computeWindow({
+    scrollTop,
+    viewportHeight,
+    rowHeight: TREE_ROW_HEIGHT,
+    totalRows: rows.length,
+    overscan: TREE_OVERSCAN
+  });
+
+  // A new filter describes a different row set; reset the scroll position from the event
+  // that caused it (an effect here would cascade an extra render per keystroke).
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(event.target.value);
+    setScrollTop(0);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
+
   if (!isOpen) return null;
 
   const toggleExpand = (expressID: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    setExpandedNodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(expressID)) {
-        next.delete(expressID);
-      } else {
-        next.add(expressID);
-      }
-      return next;
-    });
+
+    const next = new Set(expandedNodes);
+    if (next.has(expressID)) {
+      next.delete(expressID);
+    } else {
+      next.add(expressID);
+    }
+    setExpandedNodes(next);
+
+    // Expanding/collapsing must not scroll the toggled node out of view. Its row index is
+    // stable across its own toggle, but a collapse above the viewport is not, so re-derive
+    // the index from the next row set and nudge `scrollTop` only when it left the window.
+    const nextRows = flattenVisibleTree(tree, { expanded: next, matchedIds, ancestorsOfMatches });
+    const index = nextRows.findIndex((row) => row.express_id === expressID);
+    if (index < 0) return;
+    const nextScrollTop = keepRowInView(scrollTop, index, viewportHeight, TREE_ROW_HEIGHT);
+    if (nextScrollTop !== scrollTop) {
+      setScrollTop(nextScrollTop);
+      if (scrollRef.current) scrollRef.current.scrollTop = nextScrollTop;
+    }
   };
 
   const getNodeIcon = (type: string) => {
@@ -100,94 +164,80 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
     }
   };
 
-  const matchesSearch = (node: SpatialNode, term: string): boolean => {
-    if (!term) return true;
-    const lower = term.toLowerCase();
-    if (node.name.toLowerCase().includes(lower) || node.type.toLowerCase().includes(lower) || node.express_id.toString().includes(lower)) {
-      return true;
-    }
-    return Boolean(node.children && node.children.some((child) => matchesSearch(child, term)));
-  };
-
-  const renderNode = (node: SpatialNode, depth: number = 0) => {
-    if (searchTerm.trim() && !matchesSearch(node, searchTerm.trim())) {
-      return null;
-    }
-
-    const hasChildren = node.children && node.children.length > 0;
-    const isExpanded = expandedNodes.has(node.express_id);
-    const isSelected = selectedExpressID === node.express_id;
-    const isIsolated = isolatedExpressID === node.express_id;
+  // One windowed row. No recursion: the visible row set is pre-flattened by
+  // `flattenVisibleTree`, so the DOM never holds more than the window's rows.
+  const renderRow = (row: FlatTreeRow) => {
+    const isExpanded = expandedNodes.has(row.express_id);
+    const isSelected = selectedExpressID === row.express_id;
+    const isIsolated = isolatedExpressID === row.express_id;
 
     return (
-      <div key={`${node.type}-${node.express_id}`} className="flex flex-col select-none">
-        <div
-          onClick={() => onSelectElement(isSelected ? null : node.express_id)}
-          className={`flex items-center justify-between py-1 px-2 rounded-xl text-xs transition-colors cursor-pointer group ${
-            isSelected
-              ? 'bg-blue-600 text-white font-medium shadow-xs'
-              : 'hover:bg-white/60 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-200'
-          }`}
-          style={{ paddingLeft: `${Math.max(8, depth * 12)}px` }}
-        >
-          <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
-            {hasChildren ? (
-              <button
-                type="button"
-                data-qa="tree-node-chevron"
-                onClick={(e) => toggleExpand(node.express_id, e)}
-                className={`p-0.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 ${
-                  isSelected ? 'text-white' : 'text-slate-400'
-                }`}
-              >
-                {isExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5" />
-                )}
-              </button>
-            ) : (
-              <span className="w-4 shrink-0" />
-            )}
+      <div
+        key={`${row.type}-${row.express_id}`}
+        onClick={() => onSelectElement(isSelected ? null : row.express_id)}
+        className={`flex items-center justify-between px-2 rounded-xl text-xs transition-colors cursor-pointer group ${
+          isSelected
+            ? 'bg-blue-600 text-white font-medium shadow-xs'
+            : 'hover:bg-white/60 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-200'
+        }`}
+        style={{
+          paddingLeft: `${Math.max(8, row.depth * 12)}px`,
+          // Row height is a layout invariant: `computeWindow` assumes it exactly.
+          height: TREE_ROW_HEIGHT,
+          overflow: 'hidden'
+        }}
+      >
+        <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+          {row.hasChildren ? (
+            <button
+              type="button"
+              data-qa="tree-node-chevron"
+              onClick={(e) => toggleExpand(row.express_id, e)}
+              className={`p-0.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 ${
+                isSelected ? 'text-white' : 'text-slate-400'
+              }`}
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
 
-            {getNodeIcon(node.type)}
+          {getNodeIcon(row.type)}
 
-            <span className="truncate" title={`${node.name} (${node.type})`}>
-              {node.name || node.type}
+          <span className="truncate" title={`${row.name} (${row.type})`}>
+            {row.name || row.type}
+          </span>
+
+          {row.childCount > 0 && (
+            <span className="text-[10px] opacity-60 font-mono ml-1">
+              ({row.childCount})
             </span>
-
-            {node.children && node.children.length > 0 && (
-              <span className="text-[10px] opacity-60 font-mono ml-1">
-                ({node.children.length})
-              </span>
-            )}
-          </div>
-
-          {/* Visibility / Isolate Toggle */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleIsolate(node.express_id);
-            }}
-            className={`p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${
-              isIsolated
-                ? 'opacity-100 text-amber-500'
-                : isSelected
-                ? 'text-white hover:bg-white/20'
-                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}
-            title={isIsolated ? 'Clear Isolation' : 'Isolate Element'}
-          >
-            {isIsolated ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          </button>
+          )}
         </div>
 
-        {hasChildren && isExpanded && (
-          <div className="flex flex-col">
-            {node.children!.map((child) => renderNode(child, depth + 1))}
-          </div>
-        )}
+        {/* Visibility / Isolate Toggle */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleIsolate(row.express_id);
+          }}
+          className={`p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${
+            isIsolated
+              ? 'opacity-100 text-amber-500'
+              : isSelected
+              ? 'text-white hover:bg-white/20'
+              : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+          }`}
+          title={isIsolated ? 'Clear Isolation' : 'Isolate Element'}
+        >
+          {isIsolated ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        </button>
       </div>
     );
   };
@@ -297,16 +347,25 @@ export const GlassSpatialTree: React.FC<GlassSpatialTreeProps> = ({
               type="text"
               data-qa="tree-search-input"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
               placeholder="Filter hierarchy..."
               className="w-full pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 glass-card bg-[var(--glass-surface-card)] rounded-xl border border-[var(--glass-border)] outline-none focus:ring-1 focus:ring-blue-500 transition-all"
             />
           </div>
 
-          {/* Tree Scroll Body */}
-          <div className="flex-1 overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+          {/* Tree Scroll Body - windowed; the spacers keep scrollHeight === rows * TREE_ROW_HEIGHT */}
+          <div
+            ref={scrollRef}
+            data-qa="tree-scroll-body"
+            onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+            className="flex-1 overflow-y-auto pr-1 scrollbar-thin"
+          >
             {tree ? (
-              renderNode(tree)
+              <>
+                <div style={{ height: treeWindow.topPadding }} aria-hidden="true" />
+                {rows.slice(treeWindow.start, treeWindow.end).map(renderRow)}
+                <div style={{ height: treeWindow.bottomPadding }} aria-hidden="true" />
+              </>
             ) : (
               <div className="text-xs text-slate-400 text-center py-8">
                 No model loaded

@@ -1,0 +1,11 @@
+## 2026-10-25 - AI copilot transform now respects project units and rotates about the element origin (STEP-01)
+
+- **Type:** Bug
+- **Platform:** http://localhost:8000 (backend) — surfaced through the copilot drawer at http://localhost:5173
+- **Related tests:** TC-062, TC-040 · `backend/tests/test_step01_ai_transform_units.py`
+- **Severity:** P0
+- **Observed:** The copilot's `transform_element` moved elements by ~1000× the requested distance on millimetre-unit models (a zero-delta transform displaced a wall by ~13.5 km on `modelsfortests/Ifc4_Revit_ARC.ifc`), and any rotation was composed about the world origin, translating the element. Cause: `IFCService.get_element_placement_matrix` returned the **local** matrix in project units, while `ai_service._exec_transform_element` treated the metre deltas as project units and fed the result to an `is_si=True` writer.
+- **Expected:** `dx/dy/dz` are metres; the element moves by exactly that amount; a pure rotation changes orientation only; a zero-delta transform is a no-op. Identical behaviour on metre and millimetre models.
+- **Evidence:** `test_step01_ai_transform_units.py` before the fix: 3 failed / 1 passed (zero-delta delta ≈ 1.23e10 project units, rotation `before=[12345226892.04, -5522328305.79, -303000000.0]` → `after=[11839867400155.20, 6535943589318.21, -303003000000.0]`). After: 4 passed. Full backend suite: 44 passed.
+- **Suggested fix (applied):** `get_element_placement_matrix` now resolves the whole `PlacementRelTo` chain with `ifcopenshell.util.placement.get_local_placement()` and documents "world matrix, project units". `_exec_transform_element` converts metre deltas with `ifcopenshell.util.unit.calculate_unit_scale()`, rotates the orientation block only (`M_new[:3, :3] = R[:3, :3] @ M[:3, :3]`), translates in world space and returns success without writing the file when every delta is zero. `update_element_placement` keeps `is_si=True`; its docstring now states that it expects a world matrix whose translation is in SI metres, and the AI path converts project units → metres for it (option (i) of the step's two options, which keeps the writer's contract intact). Verified additionally by hand on the metre-unit duplex fixture.
+- **Status:** Ready for review

@@ -18,6 +18,7 @@ import type {
   UiStyleMode
 } from '../../types/settings';
 import { COLOR_PRESETS, THEME_OPTIONS, UI_STYLE_OPTIONS } from '../../types/settings';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,6 +36,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetSettings
 }) => {
   const [activeTab, setActiveTab] = useState<'highlight' | 'viewport' | 'navigation' | 'snapping'>('highlight');
+  // STEP-28 (spec 8.x): focus moves in on open, Tab wraps, focus returns to the trigger on close.
+  const { ref: dialogRef, onKeyDown: handleDialogKeyDown } = useFocusTrap<HTMLDivElement>(isOpen);
 
   if (!isOpen) return null;
 
@@ -81,6 +84,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        onKeyDown={handleDialogKeyDown}
         data-qa="editor-settings-modal"
         className="relative w-full max-w-2xl bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
       >
@@ -91,7 +99,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <SlidersHorizontal className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 tracking-tight">Editor Preferences & Viewport Settings</h2>
+              <h2 id="settings-modal-title" className="text-sm font-semibold text-slate-900 dark:text-slate-100 tracking-tight">Editor Preferences & Viewport Settings</h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">Customizable highlight colors, navigation ergonomics, and drafting units</p>
             </div>
           </div>

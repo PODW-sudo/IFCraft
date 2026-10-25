@@ -29,6 +29,12 @@ import {
 } from 'lucide-react';
 import type { ElementDetails } from '../../types/ifc';
 import type { InteractiveEditMode } from '../../types/cadEditing';
+import {
+  buildDeleteElementRequest,
+  runDestructiveAction
+} from '../../services/destructiveActions';
+import { requestDestructiveConfirmation } from '../../services/destructiveConfirmation';
+import { notifyUser } from '../../services/userMessages';
 
 export interface GlassContextualModifyDockProps {
   expressId: number;
@@ -166,6 +172,25 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
     setEditingParam(null);
   };
 
+  /**
+   * STEP-10 Spec 10 — the ribbon bin goes through the destructive gate. Cancelling leaves the model
+   * byte-identical because `onDelete` is only called after the dialog resolves `true`.
+   */
+  const requestDelete = (id: number) => {
+    const label = elementDetails?.name && elementDetails.name.trim()
+      ? elementDetails.name.trim()
+      : `Element #${id}`;
+    void runDestructiveAction(
+      buildDeleteElementRequest(id, label),
+      requestDestructiveConfirmation,
+      () => onDelete(id)
+    ).catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error('[modify-dock] delete failed:', err);
+      notifyUser({ text: `Could not delete element #${id}: ${detail}`, tone: 'error' });
+    });
+  };
+
   const getEntityIcon = (type: string) => {
     switch (type) {
       case 'IfcWall':
@@ -238,22 +263,22 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
                 <span>Pet</span>
                 <ChevronRight size={11} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="selection-pin-btn"
                 onClick={() => onTogglePin(expressId)}
-                className={`p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer ${
+                className={`p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer ${
                   isPinned ? 'text-amber-500' : ''
                 }`}
                 title={isPinned ? 'Unpin element (UP)' : 'Pin element (PN)'}
               >
                 {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="selection-focus-btn"
                 onClick={() => onFocus(expressId)}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
                 title="Focus Camera (F)"
               >
                 <Focus size={12} />
@@ -261,71 +286,71 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
             </>
           ) : (
             <>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="selection-collapse-btn"
                 onClick={() => setIsExtended(false)}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer mr-0.5"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer mr-0.5"
                 title="Collapse Palette"
               >
                 <ChevronLeft size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-move-btn"
                 disabled={isPinned}
                 onClick={onStartMove}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Move"
               >
                 <Move size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-rotate-btn"
                 disabled={isPinned}
                 onClick={onStartRotate}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Rotate"
               >
                 <RotateCw size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-mirror-btn"
                 disabled={isPinned}
                 onClick={onStartMirror}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Mirror"
               >
                 <FlipHorizontal size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-elevate-btn"
                 disabled={isPinned}
                 onClick={onStartElevate}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Elevate"
               >
                 <ArrowUpDown size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-multiply-btn"
                 disabled={isPinned}
                 onClick={onStartMultiply}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Pet Multiply"
               >
                 <Grid3x3 size={12} />
               </button>
-              <button
+              <button data-touch-target="true"
                 type="button"
                 data-qa="pet-special-btn"
                 disabled={isPinned}
                 onClick={onOpenSpecialModal}
-                className="p-1.5 rounded-md min-w-[26px] min-h-[26px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                className="p-1.5 min-h-11 min-w-11 rounded-md flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
                 title="Move/Copy Special"
               >
                 <Settings2 size={12} />
@@ -630,14 +655,14 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
         <div className="flex items-center gap-0.5 shrink-0 ml-auto pr-0.5">
           {/* Storey Menu */}
           <div className="relative">
-            <button
+            <button data-touch-target="true"
               data-qa="modify-storey-btn"
               data-qa-alias="selection-storey-btn"
               onClick={() => {
                 setShowStoreyMenu(!showStoreyMenu);
                 setShowMaterialMenu(false);
               }}
-              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1' : 'p-1.5'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
+              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1 min-h-11' : 'p-1.5 min-h-11 min-w-11'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
               title="Assign Storey"
             >
               <Layers size={12} className="text-blue-600 dark:text-cyan-400" />
@@ -663,14 +688,14 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
 
           {/* Material Menu */}
           <div className="relative">
-            <button
+            <button data-touch-target="true"
               data-qa="modify-material-btn"
               data-qa-alias="selection-material-btn"
               onClick={() => {
                 setShowMaterialMenu(!showMaterialMenu);
                 setShowStoreyMenu(false);
               }}
-              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1' : 'p-1.5'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
+              className={`flex items-center justify-center ${showLabels ? 'gap-1 px-2 py-1 min-h-11' : 'p-1.5 min-h-11 min-w-11'} rounded-md text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer`}
               title="Assign Material"
             >
               <Palette size={12} className="text-blue-600 dark:text-cyan-400" />
@@ -696,24 +721,24 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
           </div>
 
           {/* Focus */}
-          <button
+          <button data-touch-target="true"
             data-qa="modify-focus-btn"
             data-qa-alias="selection-focus-btn"
             data-qa-ribbon="ribbon-focus-btn"
             onClick={() => onFocus(expressId)}
-            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+            className="p-1.5 min-h-11 min-w-11 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
             title="Focus Camera (F)"
           >
             <Focus size={13} />
           </button>
 
           {/* Pin / Unpin */}
-          <button
+          <button data-touch-target="true"
             data-qa="modify-pin-btn"
             data-qa-alias="selection-pin-btn"
             data-qa-ribbon="ribbon-pin-btn"
             onClick={() => onTogglePin(expressId)}
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+            className={`p-1.5 min-h-11 min-w-11 rounded-md transition-colors cursor-pointer ${
               isPinned
                 ? 'text-amber-700 dark:text-amber-300 bg-amber-500/20 border border-amber-500/40'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
@@ -724,25 +749,25 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
           </button>
 
           {/* Clone in place */}
-          <button
+          <button data-touch-target="true"
             data-qa="selection-clone-btn"
             data-qa-modify="modify-copy-btn"
             data-qa-ribbon="ribbon-clone-btn"
             onClick={() => onClone(expressId)}
-            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+            className="p-1.5 min-h-11 min-w-11 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
             title="Duplicate in place (CO)"
           >
             <Copy size={13} />
           </button>
 
           {/* Delete */}
-          <button
+          <button data-touch-target="true"
             data-qa="modify-delete-btn"
             data-qa-alias="selection-delete-btn"
             data-qa-ribbon="ribbon-delete-btn"
             disabled={isPinned}
-            onClick={() => onDelete(expressId)}
-            className={`p-1.5 rounded-md transition-colors cursor-pointer shrink-0 ${
+            onClick={() => requestDelete(expressId)}
+            className={`p-1.5 min-h-11 min-w-11 rounded-md transition-colors cursor-pointer shrink-0 ${
               isPinned
                 ? 'opacity-40 cursor-not-allowed text-slate-400'
                 : 'text-rose-500 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 hover:bg-rose-500/10'
@@ -753,20 +778,20 @@ export const GlassContextualModifyDock: React.FC<GlassContextualModifyDockProps>
           </button>
 
           {/* Inspector */}
-          <button
+          <button data-touch-target="true"
             data-qa="modify-inspector-btn"
             onClick={onOpenInspector}
-            className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-cyan-400 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer shrink-0"
+            className="p-1.5 min-h-11 min-w-11 rounded-md text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-cyan-400 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer shrink-0"
             title="Open Property Inspector"
           >
             <SlidersHorizontal size={13} />
           </button>
 
           {/* Deselect (X) */}
-          <button
+          <button data-touch-target="true"
             data-qa="modify-close-btn"
             onClick={onDeselect}
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors ml-0.5 cursor-pointer shrink-0"
+            className="p-1.5 min-h-11 min-w-11 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors ml-0.5 cursor-pointer shrink-0"
             title="Deselect element (Esc)"
           >
             <X size={13} />

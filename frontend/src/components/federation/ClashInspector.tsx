@@ -22,6 +22,17 @@ interface ClashInspectorProps {
   leftOffset?: number;
 }
 
+/**
+ * Completeness signal added in STEP-06 (finding F-005).
+ * Declared locally so this component does not depend on a shared type file owned elsewhere;
+ * the fields are additive and optional, so older payloads keep working.
+ */
+interface ClashCompleteness {
+  elements_checked?: number;
+  geometry_failures?: number;
+  sampled?: boolean;
+}
+
 export const ClashInspector: React.FC<ClashInspectorProps> = ({
   isOpen,
   onClose,
@@ -36,6 +47,15 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'hard' | 'clearance'>('all');
 
   if (!isOpen) return null;
+
+  const completeness = clashResult as (ClashCheckResponse & ClashCompleteness) | null;
+  const geometryFailures = completeness?.geometry_failures ?? 0;
+  const sampled = completeness?.sampled ?? false;
+  const elementsChecked = completeness?.elements_checked ?? 0;
+  // Older payloads lack the completeness fields entirely; do not claim "0 checked".
+  const hasCompleteness = typeof completeness?.elements_checked === 'number';
+  // A partial scan must never be presented as a coordination result.
+  const isIncomplete = sampled || geometryFailures > 0;
 
   const clashes = clashResult?.clashes || [];
   const filteredClashes = clashes.filter((c) => {
@@ -125,6 +145,35 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
         </button>
       </div>
 
+      {/* Completeness warning — a partial scan is not a coordination result */}
+      {clashResult && isIncomplete && (
+        <div
+          data-qa="clash-completeness-warning"
+          role="status"
+          className="flex items-start gap-2 p-2.5 rounded-2xl bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-200"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold">Incomplete clash check</span>
+            <span className="text-[10px] leading-snug">
+              {geometryFailures > 0 && (
+                <>
+                  {geometryFailures} element{geometryFailures === 1 ? '' : 's'} could not be
+                  checked (no usable geometry).{' '}
+                </>
+              )}
+              {sampled && (
+                <>
+                  Only a sample of the model was examined ({elementsChecked} element
+                  {elementsChecked === 1 ? '' : 's'}).{' '}
+                </>
+              )}
+              A zero-clash result here is unverified, not a clearance.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Summary Filter Tabs */}
       {clashResult && (
         <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
@@ -168,12 +217,22 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
       <div className="flex flex-col gap-1.5 overflow-y-auto max-h-56 pr-1">
         {clashes.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-slate-400 dark:text-slate-500">
-            <CheckCircle2 className="w-8 h-8 text-emerald-500/70 mb-2" />
+            {isIncomplete ? (
+              <AlertTriangle className="w-8 h-8 text-amber-500/80 mb-2" />
+            ) : (
+              <CheckCircle2 className="w-8 h-8 text-emerald-500/70 mb-2" />
+            )}
             <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              {clashResult ? 'Zero spatial clashes detected!' : 'No clash check run yet'}
+              {clashResult
+                ? isIncomplete
+                  ? `No clashes among the ${elementsChecked} element${elementsChecked === 1 ? '' : 's'} that could be checked`
+                  : 'Zero spatial clashes detected!'
+                : 'No clash check run yet'}
             </span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-              Click &quot;Run Clash Detection&quot; above to inspect geometric intersections.
+              {clashResult && isIncomplete
+                ? 'This scan was partial — resolve the warning above before reporting clearance.'
+                : 'Click "Run Clash Detection" above to inspect geometric intersections.'}
             </span>
           </div>
         ) : filteredClashes.length === 0 ? (
@@ -247,8 +306,13 @@ export const ClashInspector: React.FC<ClashInspectorProps> = ({
       </div>
 
       {clashResult && (
-        <div className="text-[9px] font-mono text-slate-500 text-right pt-1">
-          Inspection completed in {clashResult.duration_ms} ms
+        <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-slate-500 pt-1">
+          <span data-qa="clash-elements-checked">
+            {hasCompleteness ? `${elementsChecked} checked` : 'Checked'}
+            {geometryFailures > 0 ? ` • ${geometryFailures} failed` : ''}
+            {sampled ? ' • sampled' : ''}
+          </span>
+          <span>Inspection completed in {clashResult.duration_ms} ms</span>
         </div>
       )}
     </div>

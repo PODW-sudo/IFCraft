@@ -22,7 +22,7 @@ function Print-Banner([string]$title) {
     Write-Host ""
 }
 
-function Print-Step([int]$num, [string]$title) {
+function Print-Step([string]$num, [string]$title) {
     Write-Host "[Step $num] $title..." -ForegroundColor Yellow
 }
 
@@ -38,6 +38,24 @@ $PyExe = ".\backend\venv\Scripts\python.exe"
 if (-not (Test-Path $PyExe)) {
     $PyExe = "python"
 }
+
+# =====================================================================
+# STEP-05 / F-003: API token plumbing
+# =====================================================================
+# Every /api route requires the installation token; /health stays public. The backend writes
+# the token to storage/.api_token on first start. The QA runner reads that file itself; this
+# script reads it once and uses it for its own authenticated probes below.
+$ApiTokenFile = Join-Path (Split-Path -Parent $PSScriptRoot) "storage\.api_token"
+$ApiToken = ""
+if (Test-Path $ApiTokenFile) {
+    $ApiToken = (Get-Content $ApiTokenFile -Raw).Trim()
+}
+if ($ApiToken) {
+    $env:IFC_API_TOKEN = $ApiToken
+}
+$ApiBase = "http://127.0.0.1:8000"
+$AuthHeaders = @{}
+if ($ApiToken) { $AuthHeaders["X-API-Token"] = $ApiToken }
 
 Print-Banner "IFC EDITOR - MASTER QUALITY GATES AND CI VERIFIER"
 
@@ -63,6 +81,25 @@ try {
 } catch {
     Pop-Location
     Print-Fail "Frontend TypeScript errors detected."
+    $overallPassed = $false
+}
+
+# 2.5 Frontend Unit & Component Tests (Vitest)
+try {
+    Print-Step "2.5" "Frontend Unit & Component Tests (Vitest)"
+    $pushedFrontend = $false
+    Push-Location frontend
+    $pushedFrontend = $true
+    pnpm exec vitest run
+    if ($LASTEXITCODE -ne 0) {
+        throw "vitest exited with code $LASTEXITCODE"
+    }
+    Pop-Location
+    $pushedFrontend = $false
+    Print-Pass "Frontend test suite passed."
+} catch {
+    if ($pushedFrontend) { Pop-Location }
+    Print-Fail "Frontend test suite failed."
     $overallPassed = $false
 }
 
@@ -96,6 +133,41 @@ try {
     Print-Pass "Harness configuration and test_cases.jsonl syntax valid."
 } catch {
     Print-Fail "QA harness validation failed."
+    $overallPassed = $false
+}
+
+# 5.5 API Authentication Plumbing (STEP-05 / F-003)
+# Proves the two halves of the contract against a running backend: /health is public and
+# unauthenticated /api is refused (401), while the token from storage/.api_token is accepted.
+# Skipped (not failed) when no backend is listening, so -SkipBrowser runs still work.
+try {
+    Print-Step "5.5" "API Authentication Plumbing (public health / 401 / token accepted)"
+    $backendUp = $false
+    try {
+        $healthResp = Invoke-WebRequest -Uri "$ApiBase/health" -UseBasicParsing -TimeoutSec 5
+        $backendUp = ($healthResp.StatusCode -eq 200)
+    } catch {
+        $backendUp = $false
+    }
+
+    if (-not $backendUp) {
+        Write-Host "  [SKIP] No backend on $ApiBase - token plumbing not probed." -ForegroundColor DarkGray
+    } elseif (-not $ApiToken) {
+        throw "storage\.api_token is missing; the backend did not persist an API token."
+    } else {
+        try {
+            Invoke-RestMethod -Uri "$ApiBase/api/projects" -TimeoutSec 10 | Out-Null
+            throw "GET /api/projects succeeded without a token"
+        } catch {
+            $status = $null
+            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            if ($status -ne 401) { throw "GET /api/projects without a token returned $status, expected 401" }
+        }
+        $projects = Invoke-RestMethod -Uri "$ApiBase/api/projects" -Headers $AuthHeaders -TimeoutSec 10
+        Print-Pass "Health is public, /api rejects a missing token (401), and the stored token is accepted ($($projects.Count) projects)."
+    }
+} catch {
+    Print-Fail "API authentication plumbing check failed: $_"
     $overallPassed = $false
 }
 

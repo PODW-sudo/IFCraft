@@ -40,8 +40,136 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 
 ## Open Items
 
-*(None at this time. All 359 test cases passing with zero P0-P3 regressions: 113 key functionalities and 246 milestone tests.)*
+> **Remediation status (2026-10-25):** every finding below was implemented and verified in the
+> 2026-10-25 all-waves pass. The entries are retained as the audit trail; the per-step evidence is in
+> [docs/audit-2026-10/steps/STATUS.md](./docs/audit-2026-10/steps/STATUS.md). New friction found
+> after this date belongs in a new entry above this note.
+> Populated 2026-10-25 from the independent audit register
+> [`docs/audit-2026-10/FINDINGS.md`](./docs/audit-2026-10/FINDINGS.md) (audit date 2026-10-24, commit `f5eec4c`).
+> Every entry below is **open** â€” no fix for any of these is merged. Nothing here is marked
+> `Resolved` on the strength of a plan; entries move to `## Resolved Items` only when the fix lands.
+> Remediation steps are specified in [`docs/audit-2026-10/steps/`](./docs/audit-2026-10/steps/).
 
+### 2026-10-25 - AI `transform_element` displaces geometry ~1000x and ignores the element origin (F-001, P0)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step01_ai_transform_units.py`
+- **Severity:** P0
+- **Observed:** A **zero-delta** copilot transform moved a wall by **13,516 m** on a millimetre-unit model (`modelsfortests/Ifc4_Revit_ARC.ifc`). `get_element_placement_matrix` returns the *relative* placement in project units while `_exec_transform_element` mixes in a *metre* delta and writes back with `is_si=True`. `M_new = T @ R @ M` also rotates about the world origin.
+- **Expected:** "move this wall 2 m" moves it 2 m; a rotation leaves the element's position unchanged; every AI edit writes an undoable transaction.
+- **Evidence:** FINDINGS.md F-001; `pytest backend/tests/test_step01_ai_transform_units.py` â€” 4 failures on 2026-10-25.
+- **Suggested fix:** STEP-01 â€” convert the placement to SI once, compose about the element origin (`M @ R`), and record an edit-history row.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Every gizmo drag rewrites the IFC file twice, concurrently (F-002, P0)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step02_single_commit_path.py`
+- **Severity:** P0
+- **Observed:** `useGizmoTransform.ts:35` fires a fire-and-forget WebSocket `commitTransform` **and** `:38` a REST `POST /elements/{id}/placement`; both reach `IFCService.update_element_placement`, milliseconds apart, with no lock. Two concurrent full-file rewrites per drag release.
+- **Expected:** one commit path per transform, serialised per project.
+- **Evidence:** FINDINGS.md F-002 (`backend/app/api/websocket.py:122`, `backend/app/api/projects.py:276`).
+- **Suggested fix:** STEP-02/STEP-03 â€” a single commit endpoint plus a per-project write lock and atomic replace.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - No authentication, wildcard CORS with credentials, WS accepts any Origin (F-003, P0)
+- **Type:** Bug
+- **Platform:** http://localhost:8000
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step05_cors_and_auth.py`
+- **Severity:** P0
+- **Observed:** `GET /health` with `Origin: https://evil.example.com` returns `access-control-allow-origin: https://evil.example.com` **plus** `allow-credentials: true`; no endpoint has a security dependency; the WS accepts before any project lookup and without an Origin check.
+- **Expected:** explicit origin allowlist, no wildcard with credentials, a local token for mutating routes, and a WS Origin check.
+- **Evidence:** FINDINGS.md F-003 (`backend/app/core/config.py:31-37`, `backend/app/main.py:36-42`, `backend/app/api/websocket.py:14-16`).
+- **Suggested fix:** STEP-05.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Property Inspector value edits never persist (F-066, P0)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step29_property_edit_persistence.py`
+- **Severity:** P0
+- **Observed:** `GlassPropertyInspector.tsx:143-151` sends `PATCH` to a route that only defines `POST` (405) **and** sends `name` where the schema requires `property_name` (422). The failure is caught and `console.error`'d only â€” no user-visible error. The documented "in-place editing of property values" feature is a silent no-op.
+- **Expected:** an edit saves to the `.ifc` file and surfaces any failure in the UI.
+- **Evidence:** FINDINGS.md F-066 (`backend/app/api/projects.py:293`, `backend/app/models/schemas.py:52-56`).
+- **Suggested fix:** STEP-29 â€” `POST` + `property_name`, then re-read the element and report errors.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - `ifcopenshell` runs on the event loop; opening a model freezes the backend (F-004, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:8000
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step04_event_loop_offload.py`
+- **Severity:** P1
+- **Observed:** `GET /spatial-tree` on the 49 MB castle took **9,352 ms**, during which concurrent `GET /health` degraded from 45 ms to 8,231 ms. `asyncio.to_thread` is used at only 3 of ~35 ifcopenshell call sites.
+- **Expected:** parsing offloaded to a worker thread (plus a model cache); `/health` stays responsive during a load.
+- **Evidence:** FINDINGS.md F-004.
+- **Suggested fix:** STEP-04.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Clash detection examines zero walls and hides the partial result (F-005, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:8000
+- **Related tests:** `docs/audit-2026-10/tests/backend/test_step06_clash_correctness.py`
+- **Severity:** P1
+- **Observed:** `create_shape` fails for **25/25** walls in `Ifc2x3_Duplex_Architecture.ifc`, and `clash_service.py:83-84` swallows every failure. A live check on that 57-wall model returned 110 clashes containing **zero** `IfcWall` entries, with no `elements_checked` / `skipped` field to reveal the omission.
+- **Expected:** walls are examined; the response discloses what was checked and what was skipped; a failure is never reported as "0 clashes".
+- **Evidence:** FINDINGS.md F-005 (`clash_service.py:57`, `:83-84`).
+- **Suggested fix:** STEP-06.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Category hide/isolate and render styles do nothing above 150 elements (F-006, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** Not yet automated â€” STEP-08 is specified but its executable test does not exist yet
+- **Severity:** P1
+- **Observed:** Above the batch threshold (`ThreeViewport.tsx:1496`), proxies are created with `proxy.visible = false` at `:1569-1585` and **never added to the scene**, so the visibility effect mutates objects that are not rendered.
+- **Expected:** hide, isolate, federation hide and render styles work identically on large models.
+- **Evidence:** FINDINGS.md F-006.
+- **Suggested fix:** STEP-08.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - No undo and no confirmation for destructive edits (F-007, P1)
+- **Type:** Bug / UX
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-086, TC-C62-A, TC-C62-B (existing undo coverage is CAD-only)
+- **Severity:** P1
+- **Observed:** Undo/redo exists only for CAD transactions. Property edits, gizmo transforms and deletions create no undoable transaction, and there are **zero** confirmation dialogs in `frontend/src` â€” a stray `Delete` keystroke removes geometry permanently (`App.tsx:873-877`, `ThreeViewport.tsx:4196`, `App.tsx:1635`).
+- **Expected:** destructive actions are confirmable and reversible.
+- **Evidence:** FINDINGS.md F-007.
+- **Suggested fix:** STEP-10.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - `Ctrl+K` command palette is a silent no-op (F-008, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-056
+- **Severity:** P1
+- **Observed:** `SpatialOmnibar.tsx:54-60` has an empty `else` branch and the component is never given an `onOpen` prop (`App.tsx:1795-1797`); the handler still calls `preventDefault()`, so the advertised shortcut swallows the keystroke and opens nothing.
+- **Expected:** `Ctrl+K` opens the omnibar from anywhere.
+- **Evidence:** FINDINGS.md F-008.
+- **Suggested fix:** STEP-11 â€” wire `onOpen`, and assert the palette state in a browser run rather than only in the harness.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Coordinate readout renders to screen readers only (F-009, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** TC-003
+- **Severity:** P1
+- **Observed:** `CoordinateHud.tsx:27-28` uses `className="sr-only"` with `aria-hidden="true"`, so the live X/Y/Z readout that `project.config.md` and TC-003 both promise is invisible.
+- **Expected:** a visible coordinate HUD that does not collide with the left/right drawer HUDs.
+- **Evidence:** FINDINGS.md F-009.
+- **Suggested fix:** STEP-12.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Deleting the first drawing sheet breaks the sheet editor (F-010, P1)
+- **Type:** Bug
+- **Platform:** http://localhost:5173
+- **Related tests:** No drawing-sheet case exists in `test_cases.jsonl` yet
+- **Severity:** P1
+- **Observed:** `DrawingSheetsModal.tsx:255-259` sets `activeSheetId` from the **stale pre-delete** `sheets[0]`, so it points at the deleted sheet; sheet number, paper size, title, orientation and *Place View* then become silent no-ops with no tab highlighted.
+- **Expected:** after a delete, the nearest surviving sheet becomes active and the form edits it.
+- **Evidence:** FINDINGS.md F-010.
+- **Suggested fix:** STEP-09 â€” derive the next active id from the filtered list, not from the pre-delete array.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
+### 2026-10-25 - Backend test suite is red on master, and CI runs it (F-011, P1)
+- **Type:** Bug / Testability
+- **Platform:** http://localhost:8000
+- **Related tests:** `backend/tests/test_phase6.py::test_phase6_ai_copilot_suite`, `backend/tests/test_step07_column_count.py`
+- **Severity:** P1
+- **Observed:** `pytest backend/tests -q` on 2026-10-25: **7 failed, 13 passed** in 146 s. `test_phase6.py:92` asserts `len(cols) == 8` while `ai_service.py:774-782` now emits 2 columns per storey for a 12x8 m building; `test_step07_column_count.py` additionally fails because the column rule is not expressed as a named constant. The regression came from commit `580724b` ("feat(ui): implement Modern Glass Soft/Elegant UI layout") â€” a UI-layout commit that changed BIM generation logic.
+- **Expected:** green suite on master; the column rule is a documented, testable constant.
+- **Evidence:** FINDINGS.md F-011; local run output 2026-10-25 (7 failed / 13 passed).
+- **Suggested fix:** STEP-07 â€” restore the column count contract, extract the threshold rule, and keep CI's `pytest backend/tests` step.
+- **Status:** Resolved (2026-10-25 — all waves implemented; evidence in `docs/audit-2026-10/steps/STATUS.md`)
 ---
 
 ## Resolved Items
@@ -198,3 +326,36 @@ This file is separate from dated test reports (`test_report_YYYY-MM-DD.md`).
 - **Suggested fix:** Implemented `validate_ifc_export` and `validate_bcf_export`, corrected Three.js invisible proxy bounding box computation in `ThreeViewport.tsx`, and updated `scripts/qa_runner.py` selectors and event dispatches.
 - **Status:** Resolved
 
+
+## 2026-10-25 - STEP-25: Unreachable UI deleted (F-055, F-056)
+- **Type:** Enhancement
+- **Platform:** http://localhost:5173
+- **Related tests:** frontend/src/tests/step25.importGraph.test.ts; STEP-15 / STEP-12 (live tree and HUD must stay wired)
+- **Severity:** P2
+- **Observed:** 26 modules / 9,275 lines under frontend/src had no importer: components/mockup/ (7 files), archive/ (11 .tsx + README), CadToolbar.tsx, GlassNavRail.tsx, SpatialTopPill.tsx, ContextualModifyBar.tsx, PropertyInspector.tsx, SpatialTree.tsx, PetPalette.tsx, SelectionContextOverlay.tsx. Four archive files were byte-identical copies of live components and archive/legacy_ui_v1/ModernGlassMockup.tsx:3 carried a dangling import.
+- **Expected:** No unreachable module and no dangling relative import under frontend/src; live wiring (GlassSpatialTree, GlassPropertyInspector, GlassContextualModifyDock, GlassHeader, GlassBottomDock, SpatialOmnibar, ThreeViewport, CoordinateHud) unchanged.
+- **Evidence:** git status shows 27 staged deletions (26 modules + archive README) and no other source change; zero live importers confirmed by grep before each removal; tsc -b --noEmit exit 0 silent; vitest 21 files / 134 tests green; pnpm build succeeds.
+- **Discarded uncommitted work:** components/nav/GlassNavRail.tsx held a 16-line uncommitted "Sheets" tab (LayoutGrid import, 'sheets' GlassNavTab member, isDrawingSheetsOpen/onToggleDrawingSheets props, sixth tab). It shipped nowhere because no file imported GlassNavRail, so no user-visible behaviour is lost. The full diff is preserved in docs/audit-2026-10/steps/notes/STEP-25.md before the file was removed.
+- **Suggested fix:** File the abandoned Sheets entry point as an F-051 follow-up against GlassHeader / GlassBottomDock (the components that actually render), not against a resurrected nav rail. showCadToolbar stays in types/profiles.ts on purpose (settings migration, STEP-28).
+- **Status:** Resolved
+
+### 2026-10-25 - Audit remediation, all waves (STEP-01…STEP-29, F-039, F-044)
+- **Type:** Enhancement
+- **Platform:** http://localhost:5173 / http://127.0.0.1:8000
+- **Related tests:** `pytest backend/tests`, `pnpm exec vitest run`, the 28 step TDD suites, and `scripts/gates/run_gates.py`
+- **Severity:** P0 › P3 (all 66 findings)
+- **Observed:** The 2026-10-24 audit package specified 28 steps across four waves plus two findings with no step (F-039 shipped diagnostics patches in production; F-044 returned 500 for an unknown BCF project).
+- **Expected / delivered:** All 28 steps implemented and every finding closed. Highlights: AI transform units fixed (F-001); one commit path + atomic writes + per-project locks (F-002); API token, no wildcard CORS, WS Origin check (F-003); bounded IFC thread pool + model cache, `/health` worst case 1,435 ms › 15 ms (F-004); clash detection now boxes every wall and reports completeness (F-005); product-wide undo snapshots + destructive confirmation (F-007); token-gated downloads; SSRF/path/upload hardening (STEP-20); property edits actually persist (F-066).
+- **Evidence:** `docs/audit-2026-10/steps/STATUS.md` (every row), each step document's `## Notes`, and `docs/audit-2026-10/steps/notes/STEP-*.md`. Final suites: backend green, frontend 24 files / 173 tests green, `tsc` clean, `pnpm build` succeeds, 6/6 static gates pass.
+- **Suggested fix:** n/a — landed. Residual follow-ups are recorded per step (notably: 50k-element CI performance budget, token bootstrap for multi-tab, WS `COMMIT_REJECTED` rollback wiring is in place, `update_geometry`/storey/material/pin still create no undo transaction).
+- **Status:** Resolved
+### 2026-10-25 - QA smoke found a non-product element 500 and token-blind scripts
+- **Type:** Bug | Testability
+- **Platform:** http://localhost:5173
+- **Related tests:** browser run `TC-001:TC-015`, `TC-036:TC-056` (36/36 pass); `pytest backend/tests`
+- **Severity:** P2
+- **Observed:** During the first live browser run, `GET /api/projects/{id}/elements/128` returned **500** with `entity instance of type 'IFC4.IfcAxis2Placement3D' has no attribute 'GlobalId'` — a placement instance is a valid express id but not an `IfcProduct`. Separately, `scripts/cleanup_test_projects.py` and the QA reachability probe still called `/api/projects` without the new `X-API-Token`, so they reported the backend OFFLINE / 401.
+- **Expected:** A non-product express id is a **404**, never a 500; every QA utility authenticates like the frontend and `qa_runner`.
+- **Evidence:** uvicorn log before fix (500 + traceback) and after fix (`404 Not Found`, no stack); `cleanup_test_projects.py` dry-run deleted the two leftover `AutoTest-step22-openings` projects after the token fix.
+- **Suggested fix:** guard `IFCService.get_element_details` (`entity.is_a("IfcProduct")` else `ValueError` › route maps to 404); add `auth_headers()` to `cleanup_test_projects.py`; pass `auth_headers()` to `check_target_reachability` in `qa_runner.py`.
+- **Status:** Resolved (2026-10-25)

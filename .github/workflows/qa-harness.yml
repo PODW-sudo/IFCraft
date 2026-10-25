@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ master, main ]
   schedule:
-    # Nightly audit at 02:00 UTC running the full 323 test cases milestone suite
+    # Nightly audit at 02:00 UTC running the full 372 test cases milestone suite
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
@@ -155,7 +155,7 @@ jobs:
       - name: Publish Test Report to GitHub Step Summary
         if: always()
         run: |
-          latest_report=$(ls -t test_report_*.md 2>/dev/null | head -n 1)
+          latest_report=$(ls -t qa_runs/**/test_report_*.md qa_runs/*/test_report_*.md 2>/dev/null | head -n 1)
           if [ -n "$latest_report" ] && [ -f "$latest_report" ]; then
             echo "## 📊 Agent QA Harness Live Verification Summary" >> $GITHUB_STEP_SUMMARY
             cat "$latest_report" >> $GITHUB_STEP_SUMMARY
@@ -169,6 +169,6 @@ jobs:
         with:
           name: qa-harness-reports
           path: |
-            test_results_*.jsonl
-            test_report_*.md
+            qa_runs/**/test_results_*.jsonl
+            qa_runs/**/test_report_*.md
             DEVELOPMENT_HANDOFF.md

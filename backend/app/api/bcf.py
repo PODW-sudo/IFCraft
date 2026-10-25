@@ -1,6 +1,6 @@
 import io
 import logging
-from fastapi import APIRouter, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from fastapi.responses import StreamingResponse
 
 from ..models.schemas import (
@@ -15,7 +15,19 @@ from ..services.project_service import ProjectService
 
 logger = logging.getLogger("ifc_editor.api.bcf")
 
-bcf_router = APIRouter(prefix="/projects/{id}", tags=["bcf", "audit"])
+async def _require_project(id: str = Path(..., description="Project ID")):
+    """F-044: an unknown/invalid project id must be 404, never a foreign-key 500."""
+    project = await ProjectService.get_project(id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+bcf_router = APIRouter(
+    prefix="/projects/{id}",
+    tags=["bcf", "audit"],
+    dependencies=[Depends(_require_project)],
+)
 
 @bcf_router.post("/bcf/topics", response_model=BcfTopicResponse)
 async def create_bcf_topic(

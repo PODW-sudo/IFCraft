@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -30,6 +30,13 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['web-ifc']
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/tests/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
+    restoreMocks: true,
+    clearMocks: true,
   },
   build: {
     chunkSizeWarningLimit: 1000,

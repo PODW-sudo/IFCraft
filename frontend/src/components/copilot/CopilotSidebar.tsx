@@ -317,19 +317,16 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   };
 
 
-  const handleSend = async (textToSend?: string) => {
-    const messageContent = (textToSend || input).trim();
-    if (!messageContent || isLoading) return;
-
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: messageContent,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
+  /**
+   * One chat round-trip. `history` is the conversation as the provider should see it and
+   * `confirmWrites` decides whether the server may execute model-writing tools - the client
+   * never assumes a write happened unless the server says so.
+   */
+  const requestChat = async (
+    history: ChatMessage[],
+    confirmWrites: boolean,
+    resolveMessageId?: string
+  ) => {
     setIsLoading(true);
 
     // Determine API key / base url
@@ -347,15 +344,18 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       baseUrl = config.ollamaBaseUrl.trim() || undefined;
     }
 
+    const lastUserMessage = [...history].reverse().find((m) => m.role === 'user');
+
     try {
       const response = await sendCopilotChat({
         project_id: projectId,
-        messages: [...messages, userMsg].map((m) => ({ role: m.role, content: m.content })),
+        messages: history.map((m) => ({ role: m.role, content: m.content })),
         provider: selectedProviderId,
         model: selectedModel,
         api_key: apiKey.trim() || undefined,
         base_url: baseUrl,
-        selected_express_id: selectedExpressId
+        selected_express_id: selectedExpressId,
+        confirm_writes: confirmWrites
       });
 
       // Update connection status to connected on success
@@ -369,10 +369,25 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         role: 'assistant',
         content: response.message.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        toolCalls: response.tool_calls
+        toolCalls: response.tool_calls,
+        requiresConfirmation: response.requires_confirmation === true,
+        pendingToolCalls: response.pending_tool_calls ?? [],
+        errors: response.errors ?? [],
+        sourcePrompt: lastUserMessage?.content
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) => {
+        // A confirmed re-send resolves the proposal it came from, so the stale
+        // confirm/cancel pair cannot be clicked twice.
+        const base = resolveMessageId
+          ? prev.map((m) =>
+              m.id === resolveMessageId
+                ? { ...m, requiresConfirmation: false, pendingToolCalls: [] }
+                : m
+            )
+          : prev;
+        return [...base, assistantMsg];
+      });
 
       if (response.project_updated) {
         onModelModified();
@@ -394,6 +409,40 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSend = async (textToSend?: string) => {
+    const messageContent = (textToSend || input).trim();
+    if (!messageContent || isLoading) return;
+
+    const userMsg: ChatMessage = {
+      id: `user_${Date.now()}`,
+      role: 'user',
+      content: messageContent,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const history = [...messages, userMsg];
+    setMessages(history);
+    setInput('');
+
+    // First send is always a dry run: the server withholds writes and proposes them.
+    await requestChat(history, false);
+  };
+
+  /** Replay the same prompt with writes enabled - the user has now seen what will change. */
+  const handleConfirmWrites = async (message: ChatMessage) => {
+    if (isLoading || !message.sourcePrompt) return;
+    const history = messages.filter((m) => m.id !== message.id);
+    await requestChat(history, true, message.id);
+  };
+
+  const handleCancelWrites = (message: ChatMessage) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === message.id ? { ...m, requiresConfirmation: false, pendingToolCalls: [] } : m
+      )
+    );
   };
 
   const handleClearHistory = () => {
@@ -771,9 +820,9 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                             className="bg-[var(--dock-bg)] border border-[var(--border-subtle)] rounded-lg p-2.5 space-y-1.5 select-text"
                           >
                             <div className="flex items-center justify-between select-none">
-                              <div className="flex items-center space-x-1.5 font-mono text-[10px] text-slate-300">
+                              <div className="flex items-center space-x-1.5 font-mono text-[10px] text-[var(--text-secondary)]">
                                 {getToolIcon(tc.name)}
-                                <span className="font-semibold text-white">{tc.name}</span>
+                                <span className="font-semibold text-[var(--text-primary)]">{tc.name}</span>
                               </div>
                               <div className="flex items-center space-x-1">
                                 {isSuccess ? (
@@ -797,13 +846,64 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
                             {/* Result Summary */}
                             {tc.result && typeof tc.result.summary === 'string' && (
-                              <p className="text-[11px] text-slate-300 italic pt-0.5 select-text cursor-text">
+                              <p className="text-[11px] text-[var(--text-secondary)] italic pt-0.5 select-text cursor-text">
                                 {tc.result.summary}
                               </p>
                             )}
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {/* Confirmation gate: the server withheld a model write, so nothing has
+                      changed yet. This pair is the only path to applying it. */}
+                  {m.requiresConfirmation && (
+                    <div className="mt-3 pt-2.5 border-t border-[var(--border-subtle)] select-none">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          data-qa="copilot-confirm-writes"
+                          onClick={() => handleConfirmWrites(m)}
+                          disabled={isLoading}
+                          className="px-2.5 py-1 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 text-[10px] font-semibold transition-colors"
+                        >
+                          Confirm write
+                        </button>
+                        <button
+                          type="button"
+                          data-qa="copilot-cancel-writes"
+                          onClick={() => handleCancelWrites(m)}
+                          disabled={isLoading}
+                          className="px-2.5 py-1 rounded-md bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-[10px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        {m.pendingToolCalls && m.pendingToolCalls.length > 0 && (
+                          <span className="text-[10px] text-[var(--text-secondary)] font-mono truncate">
+                            {m.pendingToolCalls.map((p) => p.name).join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tool failures are reported inline: a failed write must never look
+                      like a successful one. */}
+                  {m.errors && m.errors.length > 0 && (
+                    <div
+                      data-qa="copilot-tool-errors"
+                      className="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 space-y-1"
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-rose-700 dark:text-rose-300 select-none">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Tool error{m.errors.length > 1 ? 's' : ''}</span>
+                      </div>
+                      {m.errors.map((err, idx) => (
+                        <p key={`${err.tool}-${idx}`} className="text-[11px] text-rose-600 dark:text-rose-200 leading-snug">
+                          <span className="font-mono">{err.tool}</span>: {err.message}
+                        </p>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -830,7 +930,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                 data-qa="copilot-quick-prompt"
                 onClick={() => handleSend(prompt)}
                 disabled={isLoading}
-                className="shrink-0 px-2.5 py-1 rounded-full bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] text-[10px] text-slate-300 hover:text-white transition-colors"
+                className="shrink-0 px-2.5 py-1 rounded-full bg-[var(--control-bg)] hover:bg-[var(--control-hover)] border border-[var(--border-subtle)] text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
               >
                 {prompt}
               </button>

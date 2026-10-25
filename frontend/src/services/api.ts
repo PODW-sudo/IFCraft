@@ -1,9 +1,83 @@
-import type { ProjectMetadata, SpatialNode } from '../types/ifc';
+﻿import type { ProjectMetadata, SpatialNode } from '../types/ifc';
+import { withSaveStatus } from './saveStatus';
 
 const BASE_URL = '/api';
 
+/** STEP-05 / F-003 — the header every protected route expects (`core/security.py`). */
+const API_TOKEN_HEADER = 'X-API-Token';
+
+/**
+ * STEP-05 / F-003 — the one place that talks to the API.
+ *
+ * The backend now requires `X-API-Token` on every `/api` route except `/api/bootstrap/token`.
+ * The token is fetched once per page load from that bootstrap endpoint (Origin-gated there, so
+ * a foreign page cannot read it) and cached for the lifetime of the tab.
+ *
+ * Every request in this module — and every raw call site outside it (gizmo placement, element
+ * details, model download) — goes through `apiFetch`. Do not call `fetch` with an `/api` URL
+ * directly: it will 401.
+ */
+let cachedToken: string | null = null;
+let tokenRequest: Promise<string> | null = null;
+
+async function requestToken(): Promise<string> {
+  // The bootstrap route itself is public; `apiFetch` would recurse (and has no token yet).
+  const res = await fetch(`${BASE_URL}/bootstrap/token`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(`Failed to obtain the API token (HTTP ${res.status} ${res.statusText})`);
+  }
+  const body = (await res.json()) as { token?: string };
+  if (!body || typeof body.token !== 'string' || !body.token) {
+    throw new Error('The API token bootstrap endpoint returned no token');
+  }
+  return body.token;
+}
+
+/** Resolve the API token, de-duplicating concurrent callers into a single bootstrap request. */
+export async function getApiToken(): Promise<string> {
+  if (cachedToken) return cachedToken;
+  if (!tokenRequest) {
+    tokenRequest = requestToken()
+      .then((token) => {
+        cachedToken = token;
+        return token;
+      })
+      .finally(() => {
+        tokenRequest = null;
+      });
+  }
+  return tokenRequest;
+}
+
+/** Test seam / logout: prime or clear the cached token. */
+export function setApiToken(token: string | null): void {
+  cachedToken = token;
+  tokenRequest = null;
+}
+
+/** `fetch` with the API token attached. All `/api` traffic must go through this. */
+export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const token = await getApiToken();
+  const headers = new Headers(init.headers);
+  headers.set(API_TOKEN_HEADER, token);
+  return fetch(url, { ...init, headers });
+}
+
+/** Saves a fetched blob through an object URL — the only way to download with a header. */
+function saveBlob(blob: Blob, fileName: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // The download starts asynchronously; revoking too early cancels it.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 export async function fetchProjects(): Promise<ProjectMetadata[]> {
-  const res = await fetch(`${BASE_URL}/projects`);
+  const res = await apiFetch(`${BASE_URL}/projects`);
   if (!res.ok) throw new Error(`Failed to fetch projects: ${res.statusText}`);
   return res.json();
 }
@@ -13,7 +87,7 @@ export async function createProject(
   description?: string,
   schema_version: string = 'IFC4'
 ): Promise<ProjectMetadata> {
-  const res = await fetch(`${BASE_URL}/projects`, {
+  const res = await apiFetch(`${BASE_URL}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description, schema_version })
@@ -32,7 +106,7 @@ export async function uploadIFCFile(
   if (name) formData.append('name', name);
   if (description) formData.append('description', description);
 
-  const res = await fetch(`${BASE_URL}/projects/upload`, {
+  const res = await apiFetch(`${BASE_URL}/projects/upload`, {
     method: 'POST',
     body: formData
   });
@@ -44,7 +118,7 @@ export async function uploadIFCFile(
 }
 
 export async function fetchSpatialTree(projectId: string): Promise<SpatialNode> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/spatial-tree`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/spatial-tree`);
   if (!res.ok) throw new Error(`Failed to load spatial tree: ${res.statusText}`);
   return res.json();
 }
@@ -53,8 +127,20 @@ export function getDownloadUrl(projectId: string): string {
   return `${BASE_URL}/projects/${projectId}/download`;
 }
 
+/**
+ * STEP-05 / F-003 — downloads the project IFC *with* the API token.
+ *
+ * A bare `<a href>` (or `window.open`) cannot attach a request header, so the route would
+ * answer 401. The file is fetched through `apiFetch` and saved from a blob instead.
+ */
+export async function downloadProjectFile(projectId: string, fileName: string): Promise<void> {
+  const res = await apiFetch(getDownloadUrl(projectId));
+  if (!res.ok) throw new Error(`Failed to download project: ${res.statusText}`);
+  saveBlob(await res.blob(), fileName);
+}
+
 export async function fetchCopilotProviders(): Promise<import('../types/ifc').AIProvider[]> {
-  const res = await fetch(`${BASE_URL}/copilot/providers`);
+  const res = await apiFetch(`${BASE_URL}/copilot/providers`);
   if (!res.ok) throw new Error(`Failed to fetch AI providers: ${res.statusText}`);
   return res.json();
 }
@@ -62,7 +148,7 @@ export async function fetchCopilotProviders(): Promise<import('../types/ifc').AI
 export async function fetchCopilotModels(
   request: import('../types/ifc').CopilotModelsRequest
 ): Promise<import('../types/ifc').CopilotModelsResponse> {
-  const res = await fetch(`${BASE_URL}/copilot/models`, {
+  const res = await apiFetch(`${BASE_URL}/copilot/models`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request)
@@ -78,7 +164,7 @@ export async function fetchCopilotModels(
 export async function sendCopilotChat(
   request: import('../types/ifc').CopilotChatRequest
 ): Promise<import('../types/ifc').CopilotChatResponse> {
-  const res = await fetch(`${BASE_URL}/copilot/chat`, {
+  const res = await apiFetch(`${BASE_URL}/copilot/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request)
@@ -97,13 +183,13 @@ export async function fetchSampleModels(): Promise<Array<{
   schema_version: string;
   element_count: number;
 }>> {
-  const res = await fetch(`${BASE_URL}/projects/samples/list`);
+  const res = await apiFetch(`${BASE_URL}/projects/samples/list`);
   if (!res.ok) throw new Error(`Failed to fetch sample models: ${res.statusText}`);
   return res.json();
 }
 
 export async function loadSampleProject(sampleId: string): Promise<ProjectMetadata> {
-  const res = await fetch(`${BASE_URL}/projects/samples/${sampleId}/load`, {
+  const res = await apiFetch(`${BASE_URL}/projects/samples/${sampleId}/load`, {
     method: 'POST'
   });
   if (!res.ok) {
@@ -117,9 +203,43 @@ export async function getElementDetails(
   projectId: string,
   expressId: number
 ): Promise<import('../types/ifc').ElementDetails> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/elements/${expressId}`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/elements/${expressId}`);
   if (!res.ok) throw new Error(`Failed to load element details: ${res.statusText}`);
   return res.json();
+}
+
+/**
+ * Writes one property value to an element (STEP-14/STEP-29).
+ *
+ * `POST` is the only method registered for this route; the payload field is
+ * `property_name` (not `name`). Both are required by
+ * `PropertyUpdatePayload` - getting either wrong returns 405/422 and used to be
+ * swallowed into a console.error.
+ */
+export async function updateElementProperty(
+  projectId: string,
+  expressId: number,
+  payload: { pset_name: string; property_name: string; value: unknown; value_type?: string }
+): Promise<void> {
+  // STEP-28 / F-050: a property edit is the write the save pill is judged on, so it is
+  // reported like the other element mutations even though the doc calls the raw fetch in
+  // GlassPropertyInspector the "write" - that one is a GET (details loader).
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/elements/${expressId}/properties`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value_type: 'IfcLabel', ...payload })
+    });
+    if (res.ok) return;
+
+    const detail = (await res.json().catch(() => null)) as
+      | { detail?: string | Array<{ msg?: string }> }
+      | null;
+    const message = Array.isArray(detail?.detail)
+      ? detail.detail.map((d) => d.msg).filter(Boolean).join('; ')
+      : detail?.detail;
+    throw new Error(`Failed to update property: ${message || res.statusText || `HTTP ${res.status}`}`);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +247,7 @@ export async function getElementDetails(
 // ---------------------------------------------------------------------------
 
 export async function fetchSubModels(projectId: string): Promise<import('../types/ifc').SubModel[]> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/models`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/models`);
   if (!res.ok) throw new Error(`Failed to fetch sub-models: ${res.statusText}`);
   return res.json();
 }
@@ -143,7 +263,7 @@ export async function uploadSubModel(
   formData.append('discipline', discipline);
   if (name) formData.append('name', name);
 
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/models`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/models`, {
     method: 'POST',
     body: formData
   });
@@ -155,7 +275,7 @@ export async function uploadSubModel(
 }
 
 export async function deleteSubModel(projectId: string, modelId: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/models/${modelId}`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/models/${modelId}`, {
     method: 'DELETE'
   });
   if (!res.ok) throw new Error(`Failed to delete sub-model: ${res.statusText}`);
@@ -170,7 +290,7 @@ export async function runClashCheck(
   tolerance: number = 0.01,
   modelIds?: string[]
 ): Promise<import('../types/ifc').ClashCheckResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/clashes/check`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/clashes/check`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tolerance, model_ids: modelIds })
@@ -190,7 +310,7 @@ export async function createCadWall(
   projectId: string,
   req: import('../types/ifc').CadWallRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/wall`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/wall`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req)
@@ -206,7 +326,7 @@ export async function createCadSlab(
   projectId: string,
   req: import('../types/ifc').CadSlabRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/slab`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/slab`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req)
@@ -222,7 +342,7 @@ export async function createCadColumn(
   projectId: string,
   req: import('../types/ifc').CadColumnRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/column`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/column`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req)
@@ -238,7 +358,7 @@ export async function createCadOpening(
   projectId: string,
   req: import('../types/ifc').CadOpeningRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/opening`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/opening`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req)
@@ -253,7 +373,7 @@ export async function createCadOpening(
 export async function undoCad(
   projectId: string
 ): Promise<import('../types/ifc').CadUndoRedoResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/undo`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/undo`, {
     method: 'POST'
   });
   if (!res.ok) {
@@ -266,7 +386,7 @@ export async function undoCad(
 export async function redoCad(
   projectId: string
 ): Promise<import('../types/ifc').CadUndoRedoResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/redo`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/redo`, {
     method: 'POST'
   });
   if (!res.ok) {
@@ -279,7 +399,7 @@ export async function redoCad(
 export async function fetchCadHistory(
   projectId: string
 ): Promise<import('../types/ifc').CadHistoryResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/history`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/history`);
   if (!res.ok) throw new Error(`Failed to fetch CAD history: ${res.statusText}`);
   return res.json();
 }
@@ -288,14 +408,17 @@ export async function deleteElement(
   projectId: string,
   expressId: number
 ): Promise<{ success: boolean; express_id: number; message: string }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}`, {
-    method: 'DELETE'
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to delete element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to delete element');
-  }
-  return res.json();
 }
 
 export async function cloneElement(
@@ -303,16 +426,19 @@ export async function cloneElement(
   expressId: number,
   req: import('../types/ifc').CadCloneRequest = { delta: [1.0, 0.0, 0.0] }
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/clone`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to clone element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to clone element');
-  }
-  return res.json();
 }
 
 export async function moveElement(
@@ -320,16 +446,19 @@ export async function moveElement(
   expressId: number,
   req: import('../types/ifc').CadMoveRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/move`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to move element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to move element');
-  }
-  return res.json();
 }
 
 export async function rotateElement(
@@ -337,16 +466,19 @@ export async function rotateElement(
   expressId: number,
   req: import('../types/ifc').CadRotateRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/rotate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/rotate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to rotate element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to rotate element');
-  }
-  return res.json();
 }
 
 export async function mirrorElement(
@@ -354,16 +486,19 @@ export async function mirrorElement(
   expressId: number,
   req: import('../types/ifc').CadMirrorRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/mirror`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/mirror`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to mirror element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to mirror element');
-  }
-  return res.json();
 }
 
 export async function arrayElement(
@@ -371,16 +506,19 @@ export async function arrayElement(
   expressId: number,
   req: import('../types/ifc').CadArrayRequest
 ): Promise<import('../types/ifc').CadElementResponse[]> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/array`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/array`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to array element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to array element');
-  }
-  return res.json();
 }
 
 export async function alignElement(
@@ -388,16 +526,19 @@ export async function alignElement(
   expressId: number,
   req: import('../types/ifc').CadAlignRequest
 ): Promise<import('../types/ifc').CadElementResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/align`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/align`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to align element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to align element');
-  }
-  return res.json();
 }
 
 export async function pinElement(
@@ -405,22 +546,25 @@ export async function pinElement(
   expressId: number,
   req: import('../types/ifc').CadPinRequest
 ): Promise<{ success: boolean; express_id: number; is_pinned: boolean }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/pin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to pin/unpin element');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to pin/unpin element');
-  }
-  return res.json();
 }
 
 export async function fetchPinnedElements(
   projectId: string
 ): Promise<{ project_id: string; pinned_ids: number[] }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/pinned`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/pinned`);
   if (!res.ok) throw new Error(`Failed to fetch pinned elements: ${res.statusText}`);
   return res.json();
 }
@@ -430,16 +574,19 @@ export async function updateElementGeometry(
   expressId: number,
   req: import('../types/ifc').CadGeometryUpdateRequest
 ): Promise<{ success: boolean; express_id: number; updated: boolean }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/geometry`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/geometry`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to update geometry');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to update geometry');
-  }
-  return res.json();
 }
 
 export async function assignElementStorey(
@@ -447,16 +594,19 @@ export async function assignElementStorey(
   expressId: number,
   req: import('../types/ifc').CadAssignStoreyRequest
 ): Promise<{ success: boolean; express_id: number; storey_id: number }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/assign-storey`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/assign-storey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to assign storey');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to assign storey');
-  }
-  return res.json();
 }
 
 export async function assignElementMaterial(
@@ -464,16 +614,19 @@ export async function assignElementMaterial(
   expressId: number,
   req: import('../types/ifc').CadMaterialRequest
 ): Promise<{ success: boolean; express_id: number; material: string }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/material`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req)
+  // STEP-28 / F-050: surface the write outcome in the header save pill.
+  return withSaveStatus(async () => {
+    const res = await apiFetch(`${BASE_URL}/projects/${projectId}/cad/elements/${expressId}/material`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Failed to assign material');
+    }
+    return res.json();
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Failed to assign material');
-  }
-  return res.json();
 }
 
 
@@ -484,7 +637,7 @@ export async function assignElementMaterial(
 export async function fetchBcfTopics(
   projectId: string
 ): Promise<import('../types/ifc').BcfTopic[]> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/topics`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/bcf/topics`);
   if (!res.ok) throw new Error(`Failed to fetch BCF topics: ${res.statusText}`);
   return res.json();
 }
@@ -493,7 +646,7 @@ export async function createBcfTopic(
   projectId: string,
   req: import('../types/ifc').BcfTopicCreateRequest
 ): Promise<import('../types/ifc').BcfTopic> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/topics`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/bcf/topics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req)
@@ -509,7 +662,7 @@ export async function importClashesToBcf(
   projectId: string,
   clashes: import('../types/ifc').ClashRecord[]
 ): Promise<{ success: boolean; imported_topics_count: number }> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/bcf/from-clashes`, {
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/bcf/from-clashes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ clashes })
@@ -525,10 +678,17 @@ export function getBcfExportUrl(projectId: string): string {
   return `${BASE_URL}/projects/${projectId}/bcf/export`;
 }
 
+/** STEP-05 / F-003 — authenticated BCF 2.1 archive download (see `downloadProjectFile`). */
+export async function downloadBcfArchive(projectId: string, fileName: string): Promise<void> {
+  const res = await apiFetch(getBcfExportUrl(projectId));
+  if (!res.ok) throw new Error(`Failed to export BCF topics: ${res.statusText}`);
+  saveBlob(await res.blob(), fileName);
+}
+
 export async function fetchAuditTimeline(
   projectId: string
 ): Promise<import('../types/ifc').AuditTimelineItem[]> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/audit/timeline`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/audit/timeline`);
   if (!res.ok) throw new Error(`Failed to fetch audit timeline: ${res.statusText}`);
   return res.json();
 }
@@ -536,7 +696,7 @@ export async function fetchAuditTimeline(
 export async function fetchAuditDiff(
   projectId: string
 ): Promise<import('../types/ifc').AuditDiffResponse> {
-  const res = await fetch(`${BASE_URL}/projects/${projectId}/audit/diff`);
+  const res = await apiFetch(`${BASE_URL}/projects/${projectId}/audit/diff`);
   if (!res.ok) throw new Error(`Failed to fetch audit diff: ${res.statusText}`);
   return res.json();
 }

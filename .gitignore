@@ -9,6 +9,8 @@ storage/projects/*
 !storage/projects/.gitkeep
 storage/projects.db
 storage/projects.db-journal
+# STEP-05 / F-003: per-install API token - never commit it
+storage/.api_token
 
 # Node / Frontend
 node_modules/
@@ -18,7 +20,6 @@ frontend/.dist/
 .pnpm-debug.log*
 npm-debug.log*
 yarn-debug.log*
-pnpm-lock.yaml
 
 # Environment
 .env
@@ -38,7 +39,17 @@ core_codebase.*
 codebase_bundle.*
 frontend_core.*
 review_bundle*
+
+# QA run artefacts (dated results/reports live under qa_runs/YYYY-MM-DD/)
 test_report_*.md
 test_results_*.jsonl
+qa_runs/
+
+# Large IFC fixtures (untracked; keep on disk, resolve via IFC_FIXTURES_DIR)
+modelsfortests/
+*.ifc.bak
+
+# Agent skill library (local checkout; installed per-machine, not part of the product)
+.agents/
 
 

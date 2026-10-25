@@ -17,7 +17,8 @@ GATES = [
     ("Hardcode Linter", "lint_hardcodes.py"),
     ("Semantic Intent Linter", "lint_intent.py"),
     ("Token Contrast Verifier", "verify_contrast.py"),
-    ("Spatial Collision & Deduplication", "check_spatial_overlap.py")
+    ("Spatial Collision & Deduplication", "check_spatial_overlap.py"),
+    ("Repository Hygiene", "check_repo_hygiene.py")
 ]
 
 def main():

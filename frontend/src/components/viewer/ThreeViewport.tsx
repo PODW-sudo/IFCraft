@@ -14,6 +14,21 @@ import { DraftingInputHud } from './DraftingInputHud';
 import { CadTrackerHud } from './CadTrackerHud';
 import type { InteractiveEditMode, InteractiveEditState, TrackerReadout } from '../../types/cadEditing';
 import { DEFAULT_EDITOR_SETTINGS, THEME_COLOR_MAP, type EditorSettings } from '../../types/settings';
+import { createGroundGrid } from '../../utils/viewportGrid';
+import { buildOrbitControlConfig } from '../../utils/viewportControls';
+import {
+  applyBatchVisibility,
+  applyInstanceColors,
+  createBatchLike,
+  isInstanceVisible,
+  type BatchLike,
+  type BatchRegistryEntry
+} from '../../utils/instanceVisibility';
+import { disposeHighlightGroup, markSharedGeometry } from './highlightDisposal';
+import { createHoverScheduler, type HoverScheduler } from './hoverScheduler';
+import { disposeSceneGraph } from './sceneTeardown';
+import { createNavigationTuning, type NavigationTuning } from './navigationTuning';
+import { capturePreDragMatrix, registerSceneMatrixHandle } from '../../services/meshMatrixBridge';
 
 export type TransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 
@@ -346,24 +361,6 @@ function findVisibleCandidates(
   candidates.sort((a, b) => a.distance - b.distance);
 
   return candidates;
-}
-
-function disposeHighlightGroup(group: THREE.Group | null, scene: THREE.Scene | null): void {
-  if (!group) return;
-  if (scene) scene.remove(group);
-  group.traverse((obj) => {
-    if ((obj as any).geometry) {
-      (obj as any).geometry.dispose();
-    }
-    if ((obj as any).material) {
-      if (Array.isArray((obj as any).material)) {
-        (obj as any).material.forEach((m: any) => m?.dispose?.());
-      } else {
-        (obj as any).material.dispose();
-      }
-    }
-  });
-  group.clear();
 }
 
 function clearGroupChildren(group: THREE.Group | null): void {
@@ -726,6 +723,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const transformControlsRef = useRef<TransformControls | null>(null);
   const meshesGroupRef = useRef<THREE.Group | null>(null);
   const meshMapRef = useRef<Map<number, THREE.Mesh[]>>(new Map());
+  // STEP-08: registered BatchedMesh handles + their per-instance metadata, so the
+  // visibility/colour effects can drive the batch instead of the invisible proxies.
+  const batchRegistryRef = useRef<BatchRegistryEntry[]>([]);
   const animFrameIdRef = useRef<number | null>(null);
   const isDraggingGizmoRef = useRef(false);
   const pivotDotGroupRef = useRef<THREE.Group | null>(null);
@@ -733,6 +733,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const cadPreviewGroupRef = useRef<THREE.Group | null>(null);
   const editGuidesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+  const groundGridRef = useRef<ReturnType<typeof createGroundGrid> | null>(null);
   const lastFittedProjectIdRef = useRef<string | null>(null);
 
   // Industry-Grade CAD/BIM Interactive Editing State (Archicad 29 & Tekla 2025)
@@ -780,6 +781,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const lastPointerUpSelectTimeRef = useRef<number>(0);
   const lastPointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const updateHoverAtScreenCoordsRef = useRef<((clientX: number, clientY: number) => void) | null>(null);
+  // STEP-23: hover is coalesced to one raycast per animation frame (F-034).
+  const hoverComputeRef = useRef<((payload: { clientX: number; clientY: number }) => number[]) | null>(null);
+  const hoverNotifyRef = useRef<((ids: number[]) => void) | null>(null);
+  const hoverSchedulerRef = useRef<HoverScheduler | null>(null);
 
   // Hover & Selection Highlight Mesh Helper Refs
   const hoverHighlightGroupRef = useRef<THREE.Group | null>(null);
@@ -845,6 +850,69 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const navSettleTimerRef = useRef<number | null>(null);
   const lastScreenMeasureUpdateRef = useRef<MeasurementRecord[]>([]);
 
+  // STEP-23: adaptive damping is derived once per geometry-count change, never from a
+  // value captured by the mount effect (which always saw the empty first render).
+  const navigationTuningRef = useRef<NavigationTuning>(
+    createNavigationTuning(settings.navigation?.dampingFactor ?? 0.18, {
+      adaptive: settings.navigation?.adaptiveLargeModelDamping ?? true,
+      threshold: 150
+    })
+  );
+
+  // STEP-23: contour edges are cached per element so hovering the same element twice
+  // does not rebuild `EdgesGeometry`. The cache owns the geometry (see integration note
+  // in `docs/audit-2026-10/steps/STEP-23-viewport-performance.md`).
+  const edgeGeometryCacheRef = useRef<
+    Map<number, { source: THREE.BufferGeometry; edges: THREE.EdgesGeometry }>
+  >(new Map());
+
+  /**
+   * STEP-23 (F-034): one `EdgesGeometry` per element, reused by the selection and
+   * hover overlays. The cache owns the geometry, so overlays are marked shared and
+   * `disposeHighlightGroup` leaves it alive.
+   */
+  const getCachedEdgesGeometry = useCallback((mesh: THREE.Mesh): THREE.EdgesGeometry | null => {
+    const source = mesh.geometry as THREE.BufferGeometry | undefined;
+    if (!source) return null;
+    const expressID = mesh.userData.expressID as number;
+    const cached = edgeGeometryCacheRef.current.get(expressID);
+    if (cached && cached.source === source) return cached.edges;
+    cached?.edges.dispose();
+    const edges = new THREE.EdgesGeometry(source, 24);
+    edgeGeometryCacheRef.current.set(expressID, { source, edges });
+    return edges;
+  }, []);
+
+  const clearEdgeGeometryCache = useCallback(() => {
+    edgeGeometryCacheRef.current.forEach((entry) => entry.edges.dispose());
+    edgeGeometryCacheRef.current.clear();
+  }, []);
+
+  /**
+   * STEP-23 (F-034): single sink for hover results. The scheduler only calls this
+   * when the candidate set actually changed, so moving inside one element no longer
+   * re-renders the whole viewport.
+   */
+  const applyHoverNotification = useCallback((candidateIds: number[]) => {
+    hoverCandidatesRef.current = candidateIds;
+    setHoverCandidates(candidateIds);
+    setIsHoveringInteractiveMesh(candidateIds.length > 0);
+
+    if (candidateIds.length === 0) {
+      hoveredExpressIdRef.current = null;
+      setHoveredExpressId(null);
+      hoverCandidateIndexRef.current = 0;
+      setHoverCandidateIndex(0);
+    } else {
+      hoverCandidateIndexRef.current = 0;
+      setHoverCandidateIndex(0);
+      hoveredExpressIdRef.current = candidateIds[0];
+      setHoveredExpressId(candidateIds[0]);
+    }
+    needsRenderRef.current = true;
+  }, []);
+  hoverNotifyRef.current = applyHoverNotification;
+
   // 1. Initialize Scene & Renderer
   useEffect(() => {
     const container = containerRef.current;
@@ -890,13 +958,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const controls = new OrbitControls(camera, renderer.domElement);
 
-    const isLargeModel = geometries.length > 150;
-    const baseDamping = settings.navigation?.dampingFactor ?? 0.18;
-    const effectiveDamping = (isLargeModel && (settings.navigation?.adaptiveLargeModelDamping ?? true))
-      ? Math.max(baseDamping, 0.25)
-      : baseDamping;
+    // STEP-23 (F-038): the damping factor comes from `navigationTuningRef`, which is
+    // updated by the `[geometries.length]` effect below. Never derive it here: this
+    // effect captures the empty first render (`geometries === []`), so a local
+    // `isLargeModel` would be permanently `false`.
     controls.enableDamping = settings.navigation?.enableDamping ?? true;
-    controls.dampingFactor = effectiveDamping;
+    controls.dampingFactor = navigationTuningRef.current.current;
     controls.rotateSpeed = settings.navigation?.orbitSensitivity ?? 1.0;
     controls.panSpeed = settings.navigation?.panSensitivity ?? 1.0;
     controls.zoomSpeed = settings.navigation?.zoomSensitivity ?? 1.0;
@@ -908,11 +975,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     // Middle mouse button (MMB) drag: Pan / Drag
     // Middle mouse button + Shift (Shift + MMB) drag: Rotate / Orbit
     // Left click: 100% free for CAD drafting, element selection, and commands
-    controls.mouseButtons = {
-      LEFT: -1 as any,
-      MIDDLE: THREE.MOUSE.PAN,
-      RIGHT: -1 as any
-    };
+    // STEP-28 / F-052: mouse + touch navigation from one tested config. LEFT/RIGHT stay disabled so
+    // a left click remains available to selection and CAD commands; one finger orbits, two dolly+pan.
+    const orbitControlConfig = buildOrbitControlConfig();
+    controls.mouseButtons = orbitControlConfig.mouseButtons;
+    controls.touches = orbitControlConfig.touches;
     controlsRef.current = controls;
 
     const handleDomPointerDown = (e: PointerEvent) => {
@@ -990,6 +1057,33 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(tControls.getHelper());
     transformControlsRef.current = tControls;
 
+    /**
+     * STEP-02 / F-002: the gizmo hook cannot reach the scene, but a rejected placement has to put
+     * the element back (spec 5). Read/write a world matrix by express id - nothing else.
+     */
+    const unregisterSceneMatrixHandle = registerSceneMatrixHandle({
+      read: (expressID: number) => {
+        const mesh = meshMapRef.current.get(expressID)?.[0];
+        if (!mesh) return null;
+        mesh.updateMatrixWorld();
+        return mesh.matrixWorld.toArray();
+      },
+      write: (expressID: number, matrix: number[]) => {
+        const mesh = meshMapRef.current.get(expressID)?.[0];
+        if (!mesh) return false;
+        mesh.matrix.fromArray(matrix);
+        mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+        mesh.updateMatrixWorld(true);
+        if (mesh.userData.batchedMesh && mesh.userData.batchId !== undefined) {
+          mesh.userData.batchedMesh.setMatrixAt(mesh.userData.batchId, mesh.matrixWorld);
+          mesh.userData.batchedMesh.instanceMatrix.needsUpdate = true;
+        }
+        renderer.shadowMap.needsUpdate = true;
+        needsRenderRef.current = true;
+        return true;
+      }
+    });
+
     // Inactive Pivot Dot / Origin Anchor Indicator Group
     const pivotDotGroup = new THREE.Group();
     pivotDotGroup.name = 'pivot-dot-group';
@@ -1002,6 +1096,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       isDraggingGizmoRef.current = isDragging;
       controls.enabled = !isDragging;
       needsRenderRef.current = true;
+
+      if (isDragging && tControls.object) {
+        // STEP-02 spec 5: remember where the element started so a refused write can undo the drag.
+        const startMesh = tControls.object as THREE.Mesh;
+        startMesh.updateMatrixWorld();
+        capturePreDragMatrix(startMesh.userData.expressID as number, startMesh.matrixWorld.toArray());
+      }
 
       if (!isDragging && tControls.object) {
         const mesh = tControls.object as THREE.Mesh;
@@ -1067,18 +1168,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     dirLight2.position.set(-20, -10, -20);
     scene.add(dirLight2);
 
-    // Grid (Uniform subtle dark grid with zero origin axis crosshair)
+    // High-craft procedural anti-aliased ground grid with radial falloff (eliminates moire and z-fighting)
     const gridBaseCol = new THREE.Color(settings.viewport?.gridBaseColor ?? DEFAULT_EDITOR_SETTINGS.viewport.gridBaseColor).getHex();
-    const gridHelper = new THREE.GridHelper(
-      settings.viewport?.gridSize ?? 50,
-      settings.viewport?.gridDivisions ?? 50,
-      gridBaseCol,
-      gridBaseCol
-    );
-    gridHelper.position.y = -0.01;
-    gridHelper.visible = settings.viewport?.showGrid ?? true;
-    scene.add(gridHelper);
-    gridHelperRef.current = gridHelper;
+    const groundGrid = createGroundGrid({
+      size: 240,
+      radius: 90,
+      isLight,
+      baseColorHex: gridBaseCol
+    });
+    groundGrid.mesh.position.y = -0.01;
+    groundGrid.mesh.visible = settings.viewport?.showGrid ?? true;
+    scene.add(groundGrid.mesh);
+    groundGridRef.current = groundGrid;
 
     // Groups
     const meshesGroup = new THREE.Group();
@@ -1361,9 +1462,40 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       delete (window as any).__THREE_VIEWPORT_STATS__;
 
       tControls.dispose();
+      unregisterSceneMatrixHandle();
       controls.dispose();
       renderer.domElement.removeEventListener('pointerdown', handleDomPointerDown);
       window.removeEventListener('pointerup', handleDomPointerUp);
+
+      // STEP-23 (F-034): drop any coalesced hover frame before the renderer goes away.
+      hoverSchedulerRef.current?.cancel();
+
+      // STEP-23: the contour-edge cache owns its geometries; drop them before the
+      // model geometry they were derived from.
+      clearEdgeGeometryCache();
+
+      // STEP-23 (F-037): dispose the model graph, the shared material pools and the
+      // registries, then detach. `renderer.dispose()` runs after this so no live
+      // BufferGeometry outlives the GL context.
+      disposeSceneGraph(meshesGroupRef.current, scene, {
+        materialPools: [
+          categoryMaterialsRef.current as Map<string, THREE.Material>,
+          disciplineMaterialsRef.current as Map<string, THREE.Material>
+        ],
+        registries: [
+          meshMapRef.current as Map<unknown, unknown>,
+          edgeGeometryCacheRef.current as Map<unknown, unknown>
+        ]
+      });
+      meshesGroupRef.current = null;
+      batchRegistryRef.current = [];
+      if (diffMaterialsRef.current) {
+        diffMaterialsRef.current.added.dispose();
+        diffMaterialsRef.current.modified.dispose();
+        diffMaterialsRef.current.unchanged.dispose();
+        diffMaterialsRef.current = null;
+      }
+
       renderer.dispose();
 
       ringGeom.dispose();
@@ -1392,6 +1524,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         (shadowGroundRef.current.material as THREE.Material).dispose();
         shadowGroundRef.current = null;
       }
+      if (groundGridRef.current) {
+        scene.remove(groundGridRef.current.mesh);
+        groundGridRef.current.dispose();
+        groundGridRef.current = null;
+      }
       if (sectionPlaneHelperRef.current) {
         scene.remove(sectionPlaneHelperRef.current);
         sectionPlaneHelperRef.current.geometry.dispose();
@@ -1403,7 +1540,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [onTransformEnd, onTransformChange]);
+  }, [onTransformEnd, onTransformChange, clearEdgeGeometryCache]);
+
+  // 1b. Keep the adaptive damping in sync with the real geometry count (F-038).
+  // One answer to "is this a large model?", recomputed whenever the count changes.
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const damping = navigationTuningRef.current.update(geometries.length);
+    controls.dampingFactor = damping;
+    needsRenderRef.current = true;
+  }, [geometries.length]);
 
   // 2. Update Section Clipping Plane & Visualizer Helper
   useEffect(() => {
@@ -1458,6 +1605,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
     }
     meshMapRef.current.clear();
+    batchRegistryRef.current = [];
 
     if (selectedHighlightGroupRef.current) {
       disposeHighlightGroup(selectedHighlightGroupRef.current, scene);
@@ -1471,6 +1619,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       disposeHighlightGroup(transparentEdgesGroupRef.current, scene);
       transparentEdgesGroupRef.current = null;
     }
+    // STEP-23: contour edges were derived from the geometry disposed above.
+    clearEdgeGeometryCache();
     if (shadowGroundRef.current) {
       if (scene) scene.remove(shadowGroundRef.current);
       shadowGroundRef.current.geometry.dispose();
@@ -1499,6 +1649,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         }
         list.push(g);
       });
+
+      // Reused colour scratch for per-instance paint (see batchHandle below).
+      const scratchColor = new THREE.Color();
 
       categoryMap.forEach((catGeoms, category) => {
         let totalVerts = 0;
@@ -1589,6 +1742,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         };
         batchedMesh.computeBoundingBox();
         batchedMesh.computeBoundingSphere();
+
+        // STEP-08: hand the batch to the visibility/colour effects. `createBatchLike`
+        // is the only place that touches the renderer's setVisibleAt/setColorAt; the
+        // rules themselves stay in `utils/instanceVisibility`.
+        const batchHandle: BatchLike = createBatchLike(batchedMesh, (hex) =>
+          scratchColor.setHex(hex)
+        );
+        batchRegistryRef.current.push({ mesh: batchHandle, instances: instanceDataList });
+
+        // Allocate the per-instance colour texture once, at load time, so the shader
+        // recompile happens here instead of on the first Discipline/Diff switch.
+        applyInstanceColors(
+          [{ mesh: batchHandle, instances: instanceDataList }],
+          new Map<number, number>()
+        );
+
         group.add(batchedMesh);
       });
     } else {
@@ -1661,6 +1830,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     needsRenderRef.current = true;
 
+    if (!box.isEmpty()) {
+      const groundY = box.min.y - 0.02;
+      if (groundGridRef.current) {
+        groundGridRef.current.setElevation(groundY);
+      }
+    }
+
     if (!box.isEmpty() && cameraRef.current && controlsRef.current) {
       const projKey = projectId || (geometries.length > 0 ? 'loaded' : null);
       if (projKey && lastFittedProjectIdRef.current !== projKey) {
@@ -1678,28 +1854,30 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         controlsRef.current.update();
       }
     }
-  }, [geometries, projectId]);
+  }, [geometries, projectId, clearEdgeGeometryCache]);
 
   // Handle visibility filtering (Categories, Isolation, & Model Federation)
   useEffect(() => {
+    const state = { hiddenCategories, isolatedExpressID, hiddenModelIds };
+
+    // STEP-08 (F-006): the batch path draws every instance through one BatchedMesh,
+    // so the proxies in `meshMapRef` are never on screen. Drive the batch's own
+    // per-instance visibility - never `mesh.visible`, which would stop
+    // `onBeforeRender` from re-showing instances later.
+    applyBatchVisibility(batchRegistryRef.current, state);
+
     meshMapRef.current.forEach((meshes) => {
       meshes.forEach((mesh) => {
-        const type = mesh.userData.type as string;
-        const expressID = mesh.userData.expressID as number;
-        const modelId = (mesh.userData.modelId as string) || 'main';
-
-        let visible = true;
-        if (hiddenCategories.has(type)) {
-          visible = false;
-        }
-        if (isolatedExpressID !== null && expressID !== isolatedExpressID) {
-          visible = false;
-        }
-        if (hiddenModelIds && hiddenModelIds.has(modelId)) {
-          visible = false;
-        }
-
-        mesh.visible = visible;
+        // Batch instances are handled above; their proxies only carry transforms.
+        if (mesh.userData.batchedMesh) return;
+        mesh.visible = isInstanceVisible(
+          {
+            expressID: mesh.userData.expressID as number,
+            type: mesh.userData.type as string,
+            modelId: (mesh.userData.modelId as string) || 'main'
+          },
+          state
+        );
       });
     });
     needsRenderRef.current = true;
@@ -1710,6 +1888,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const catMats = categoryMaterialsRef.current;
     const discMats = disciplineMaterialsRef.current;
     const clipPlane = clipPlaneRef.current;
+
+    // STEP-08: a BatchedMesh draws every instance with one material, so per-element
+    // styles must go through the instance colour channel. Reset to white first so a
+    // style switch (Discipline -> Solid) leaves no residue behind.
+    applyInstanceColors(batchRegistryRef.current, new Map<number, number>());
 
     const getDiscMat = (disc: string) => {
       let m = discMats.get(disc);
@@ -1910,6 +2093,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         });
       });
 
+      // STEP-08: the batch has a single material, so discipline is expressed per
+      // instance through the colour channel (white reset already applied above).
+      const disciplineColors = new Map<number, number>();
+      batchRegistryRef.current.forEach((entry) => {
+        entry.instances.forEach((instance) => {
+          const disc = instance.discipline ?? inferDiscipline(instance.type);
+          disciplineColors.set(
+            instance.expressID,
+            (DISCIPLINE_COLORS[disc] || DISCIPLINE_COLORS.ARCH).color
+          );
+        });
+      });
+      applyInstanceColors(batchRegistryRef.current, disciplineColors);
+
     } else if (renderStyle === 'diff') {
       // 6. Spatial Diff Mode
       if (transparentEdgesGroupRef.current) transparentEdgesGroupRef.current.visible = false;
@@ -1937,6 +2134,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           else mesh.material = dm.unchanged;
         });
       });
+
+      // STEP-08: same reasoning as Discipline - Diff is inherently per element.
+      const added = new Set(auditDiff?.added ?? []);
+      const modified = new Set(auditDiff?.modified ?? []);
+      const diffColors = new Map<number, number>();
+      batchRegistryRef.current.forEach((entry) => {
+        entry.instances.forEach((instance) => {
+          const expressId = instance.expressID;
+          if (added.has(expressId)) diffColors.set(expressId, 0x10b981);
+          else if (modified.has(expressId)) diffColors.set(expressId, 0xf59e0b);
+          else diffColors.set(expressId, 0x64748b);
+        });
+      });
+      applyInstanceColors(batchRegistryRef.current, diffColors);
 
     } else {
       // 7. Solid CAD Mode (Default / Shaded)
@@ -2131,6 +2342,28 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       return;
     }
 
+    // STEP-08 (spec 7): a selected element that is currently hidden by category,
+    // isolation or federation produces no highlight overlay and no gizmo - otherwise
+    // "hidden" elements still show a contour.
+    const visibilityState = { hiddenCategories, isolatedExpressID, hiddenModelIds };
+    if (
+      !isInstanceVisible(
+        {
+          expressID: selectedExpressID,
+          type: meshes[0].userData.type as string,
+          modelId: (meshes[0].userData.modelId as string) || 'main'
+        },
+        visibilityState
+      )
+    ) {
+      tControls.detach();
+      if (pivotDotGroupRef.current) {
+        pivotDotGroupRef.current.visible = false;
+      }
+      needsRenderRef.current = true;
+      return;
+    }
+
     const primaryMesh = meshes[0];
     const highlightConfig = settings?.highlighting ?? DEFAULT_EDITOR_SETTINGS.highlighting;
     const selGroup = new THREE.Group();
@@ -2147,7 +2380,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       // High-visibility Architectural Contours or Bounding Box
       if (isContours) {
         try {
-          const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 24);
+          // STEP-23: reused per element; owned by the edge cache, not by this group.
+          const edgesGeom = getCachedEdgesGeometry(mesh);
+          if (!edgesGeom) throw new Error('missing geometry');
           const edgeMat = new THREE.LineBasicMaterial({
             color: edgeColor,
             transparent: edgeOpacity < 1,
@@ -2158,7 +2393,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
           lineSegs.matrixAutoUpdate = false;
           lineSegs.matrix.copy(mesh.matrixWorld);
-          lineSegs.userData = { sourceMesh: mesh };
+          markSharedGeometry(lineSegs);
+          lineSegs.userData = { ...lineSegs.userData, sourceMesh: mesh };
           selGroup.add(lineSegs);
         } catch {
           const bbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
@@ -2193,7 +2429,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const selMesh = new THREE.Mesh(mesh.geometry, selOverlayMat);
         selMesh.matrixAutoUpdate = false;
         selMesh.matrix.copy(mesh.matrixWorld);
-        selMesh.userData = { sourceMesh: mesh };
+        // STEP-23 (F-033): the wash borrows the model's geometry - never dispose it.
+        markSharedGeometry(selMesh);
+        selMesh.userData = { ...selMesh.userData, sourceMesh: mesh };
         selGroup.add(selMesh);
       }
     });
@@ -2283,7 +2521,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         pivotDotGroupRef.current.visible = false;
       }
     };
-  }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive, sectionConfig.enabled, settings]);
+  }, [selectedExpressID, transformMode, snapEnabled, onTransformChange, isMeasureActive, sectionConfig.enabled, settings, hiddenCategories, isolatedExpressID, hiddenModelIds, getCachedEdgesGeometry]);
 
   // 7b. Handle Hover / Pre-Selection Highlight (Subtle, clearly distinct from active selection)
   useEffect(() => {
@@ -2326,7 +2564,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       // Hover Contours or Bounding Box
       if (isContours) {
         try {
-          const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 24);
+          // STEP-23: cached per element, owned by the edge cache.
+          const edgesGeom = getCachedEdgesGeometry(mesh);
+          if (!edgesGeom) throw new Error('missing geometry');
           const edgeMat = new THREE.LineBasicMaterial({
             color: edgeColor,
             transparent: true,
@@ -2337,6 +2577,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           const lineSegs = new THREE.LineSegments(edgesGeom, edgeMat);
           lineSegs.matrixAutoUpdate = false;
           lineSegs.matrix.copy(mesh.matrixWorld);
+          markSharedGeometry(lineSegs);
           hoverGroup.add(lineSegs);
         } catch {
           const hoverBbox = new THREE.BoxHelper(mesh, edgeColor.getHex());
@@ -2369,6 +2610,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const hoverMesh = new THREE.Mesh(mesh.geometry, hoverOverlayMat);
         hoverMesh.matrixAutoUpdate = false;
         hoverMesh.matrix.copy(mesh.matrixWorld);
+        // STEP-23 (F-033): borrowed model geometry - must survive teardown.
+        markSharedGeometry(hoverMesh);
         hoverGroup.add(hoverMesh);
       }
     });
@@ -2384,7 +2627,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         hoverHighlightGroupRef.current = null;
       }
     };
-  }, [hoveredExpressId, selectedExpressID, isMeasureActive, cadToolMode, sectionConfig.enabled, settings]);
+  }, [hoveredExpressId, selectedExpressID, isMeasureActive, cadToolMode, sectionConfig.enabled, settings, getCachedEdgesGeometry]);
 
   // Focus camera on element (F key)
   const handleFocusElement = useCallback((expressId: number) => {
@@ -2498,11 +2741,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const controls = controlsRef.current;
     if (controls) {
       // Revit / Blender navigation invariant: Left click is 100% free, MMB pans/drags, Shift+MMB rotates
-      controls.mouseButtons = {
-        LEFT: -1 as any,
-        MIDDLE: THREE.MOUSE.PAN,
-        RIGHT: -1 as any
-      };
+      controls.mouseButtons = buildOrbitControlConfig().mouseButtons;
     }
     if (!isMeasureActive) {
       setPendingStartPoint(null);
@@ -2532,24 +2771,27 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     );
 
     if (settings?.navigation) {
-      const isLargeModel = geometries.length > 150;
-      const baseDamping = settings.navigation.dampingFactor ?? 0.18;
-      const effectiveDamping = (isLargeModel && (settings.navigation.adaptiveLargeModelDamping ?? true))
-        ? Math.max(baseDamping, 0.25)
-        : baseDamping;
+      // STEP-23 (F-038): same tuning object as the mount effect - one answer.
+      const tuning = createNavigationTuning(settings.navigation.dampingFactor ?? 0.18, {
+        adaptive: settings.navigation.adaptiveLargeModelDamping ?? true,
+        threshold: 150
+      });
+      tuning.update(geometries.length);
+      navigationTuningRef.current = tuning;
       controls.enableDamping = settings.navigation.enableDamping;
-      controls.dampingFactor = effectiveDamping;
+      controls.dampingFactor = tuning.current;
       controls.rotateSpeed = settings.navigation.orbitSensitivity;
       controls.panSpeed = settings.navigation.panSensitivity;
       controls.zoomSpeed = settings.navigation.zoomSensitivity;
     }
 
+    if (groundGridRef.current) {
+      groundGridRef.current.mesh.visible = settings?.viewport?.showGrid ?? true;
+      const baseCol = settings?.viewport?.gridBaseColor ? new THREE.Color(settings.viewport.gridBaseColor).getHex() : undefined;
+      groundGridRef.current.updateTheme(isLight, baseCol);
+    }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = settings?.viewport?.showGrid ?? true;
-      const gridMat = gridHelperRef.current.material as THREE.LineBasicMaterial;
-      if (gridMat) {
-        gridMat.color.setHex(isLight ? 0x94a3b8 : (settings?.viewport?.gridBaseColor ? new THREE.Color(settings.viewport.gridBaseColor).getHex() : 0x252b36));
-      }
     }
     needsRenderRef.current = true;
   }, [settings, theme, geometries.length]);
@@ -2745,17 +2987,26 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     onCadCancel,
     isMeasureActive,
     pendingStartPoint,
-    onCancelMeasure
+    onCancelMeasure,
+    // STEP-23 (F-035): the handler reads these; without them the closure is stale and
+    // Escape cannot cancel an in-progress move/rotate.
+    interactiveEditState,
+    onActiveInteractiveModeChange,
+    onRotateElement
   ]);
 
-  // Helper: Evaluates visible surface candidates and pre-selection highlight at screen coordinates
+  // Helper: Evaluates visible surface candidates at screen coordinates.
+  // STEP-23: returns the candidate ids instead of setting state - the hover scheduler
+  // owns the state update and the dedupe (F-034).
   const updateHoverAtScreenCoords = useCallback(
-    (clientX: number, clientY: number) => {
-      if (isMeasureActive || cadToolMode !== 'select' || isDraggingGizmoRef.current) return;
+    (clientX: number, clientY: number): number[] => {
+      if (isMeasureActive || cadToolMode !== 'select' || isDraggingGizmoRef.current) {
+        return hoverCandidatesRef.current;
+      }
       const container = containerRef.current;
       const camera = cameraRef.current;
       const group = meshesGroupRef.current;
-      if (!container || !camera || !group) return;
+      if (!container || !camera || !group) return hoverCandidatesRef.current;
 
       const rect = container.getBoundingClientRect();
       const mouse = new THREE.Vector2(
@@ -2777,7 +3028,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             halo.scale.set(1.35, 1.35, 1.35);
           }
           needsRenderRef.current = true;
-          return;
+          return hoverCandidatesRef.current;
         } else {
           const halo = pivotDotGroupRef.current.getObjectByName('pivot-dot-halo') as THREE.Mesh;
           if (halo && halo.material instanceof THREE.MeshBasicMaterial) {
@@ -2798,22 +3049,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       );
 
       const candidateIds = visibleCandidates.map((c) => c.expressID);
-      hoverCandidatesRef.current = candidateIds;
-      setHoverCandidates(candidateIds);
-      setIsHoveringInteractiveMesh(candidateIds.length > 0);
-
-      if (candidateIds.length === 0) {
-        hoveredExpressIdRef.current = null;
-        setHoveredExpressId(null);
-        setHoverCandidateIndex(0);
-        hoverCandidateIndexRef.current = 0;
-      } else {
-        hoverCandidateIndexRef.current = 0;
-        setHoverCandidateIndex(0);
-        hoveredExpressIdRef.current = candidateIds[0];
-        setHoveredExpressId(candidateIds[0]);
-      }
       needsRenderRef.current = true;
+      return candidateIds;
     },
     [
       isMeasureActive,
@@ -2824,6 +3061,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       hiddenModelIds
     ]
   );
+
+  // STEP-23 (F-034): one raycast per animation frame, one notification per real
+  // change. `compute`/`notify` read refs so the scheduler never closes over stale
+  // props (hiddenCategories, isolation, ...).
+  hoverComputeRef.current = (payload) => updateHoverAtScreenCoords(payload.clientX, payload.clientY);
+  const hoverScheduler = React.useMemo(
+    () =>
+      createHoverScheduler({
+        requestFrame: (cb) => window.requestAnimationFrame(cb),
+        cancelFrame: (handle) => window.cancelAnimationFrame(handle),
+        compute: (payload) => hoverComputeRef.current?.(payload) ?? hoverCandidatesRef.current,
+        notify: (ids) => hoverNotifyRef.current?.(ids)
+      }),
+    []
+  );
+  hoverSchedulerRef.current = hoverScheduler;
   // Cancel and cleanup interactive CAD editing
   const handleCancelInteractiveEdit = useCallback(() => {
     setInteractiveEditState({
@@ -3028,6 +3281,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         if (dragDist > 4) {
           isPointerDraggingRef.current = true;
           // While dragging or rotating the camera, clear hover highlight
+          hoverScheduler.cancel();
           if (hoveredExpressIdRef.current !== null) {
             hoveredExpressIdRef.current = null;
             setHoveredExpressId(null);
@@ -3178,7 +3432,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
 
       if (!isMeasureActive && cadToolMode === 'select') {
-        updateHoverAtScreenCoords(event.clientX, event.clientY);
+        // STEP-23 (F-034): coalesce to one raycast per animation frame.
+        hoverScheduler.schedule({ clientX: event.clientX, clientY: event.clientY });
         return;
       }
 
@@ -3384,7 +3639,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       isolatedExpressID,
       hiddenModelIds,
       interactiveEditState,
-      selectedExpressID
+      selectedExpressID,
+      hoverScheduler
     ]
   );
 
@@ -3392,6 +3648,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     lastPointerPosRef.current = null;
     isPointerDraggingRef.current = false;
     pointerDownPosRef.current = null;
+    hoverScheduler.cancel();
     setIsHoveringInteractiveMesh(false);
     setHoveredExpressId(null);
     setHoverCandidates([]);
@@ -3403,7 +3660,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     setActiveSnap(null);
     setPreviewMeasure(null);
     needsRenderRef.current = true;
-  }, []);
+  }, [hoverScheduler]);
 
   const pointerDownPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
 

@@ -3,6 +3,7 @@ import json
 import math
 import uuid
 import zipfile
+import zlib
 import logging
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone
@@ -19,8 +20,80 @@ from ..models.schemas import (
     AuditDiffResponse,
 )
 from .project_service import ProjectService
+from .ifc_service import open_model_for_read
+from .atomic_store import project_read_lock
+from ..core.workers import run_ifc
 
 logger = logging.getLogger("ifc_editor.bcf_service")
+
+
+def _map_express_ids_to_guids(file_path: Path, topics: list[Any]) -> dict[str, str]:
+    """Resolve BCF `selected_elements` express ids to IFC GlobalIds (IFC pool)."""
+    guid_map: dict[str, str] = {}
+    model = open_model_for_read(file_path)
+    for topic in topics:
+        for elem in (topic.selected_elements or []):
+            str_elem = str(elem)
+            if str_elem.isdigit() or isinstance(elem, int):
+                try:
+                    ent = model.by_id(int(elem))
+                    if ent and hasattr(ent, "GlobalId"):
+                        guid_map[str_elem] = ent.GlobalId
+                except Exception:
+                    pass
+    return guid_map
+
+
+def _count_products(file_path: Path) -> int:
+    """Number of IfcProduct instances in the model (IFC pool; STEP-04)."""
+    return len(open_model_for_read(file_path).by_type("IfcProduct"))
+
+
+# ---------------------------------------------------------------------------
+# STEP-19: audit classification and stable IDs.
+#
+# `hash(r["id"]) % 1000000` (the old CAD timeline id) is salted per process, so a
+# bookmark or a cached id pointed at a different event after every restart (F-022).
+# The ids below are derived with crc32, which is identical in every process.
+# ---------------------------------------------------------------------------
+
+ADDED_ACTIONS = frozenset({
+    "create_wall", "create_slab", "create_column", "create_door", "create_window",
+    "create_opening", "clone_element", "array_element", "generate_building",
+})
+MODIFIED_ACTIONS = frozenset({
+    "move_element", "rotate_element", "align_element",
+    "transform", "transform_element", "update_property", "update_placement",
+})
+
+
+def stable_audit_id(namespace: str, key: str) -> int:
+    """Process-independent positive integer id for a derived audit row."""
+    return zlib.crc32(f"{namespace}:{key}".encode("utf-8")) & 0x7FFFFFFF
+
+
+def classify_change(
+    action_type: str,
+    status: str = "ACTIVE",
+    parameters: Optional[dict] = None,
+) -> str:
+    """Map a transaction/edit action onto "added" | "modified" | "deleted".
+
+    An unrecognised action is *modified*, never *added*: an unknown action must not
+    inflate the "new geometry" bucket (spec 6). `status` is accepted for symmetry with
+    the call sites; `UNDONE` rows are filtered before classification.
+    """
+    action = (action_type or "").strip().lower()
+    if action in ADDED_ACTIONS:
+        return "added"
+    if action == "mirror_element":
+        return "added" if (parameters or {}).get("is_copy") else "modified"
+    if action == "delete_element":
+        return "deleted"
+    if action in MODIFIED_ACTIONS:
+        return "modified"
+    return "modified"
+
 
 class BCFService:
     @classmethod
@@ -157,21 +230,13 @@ class BCFService:
         buf = io.BytesIO()
 
         # Map integer express IDs to authentic 22-char IFC Base64 GlobalIds
+        # (STEP-04: the parse and the lookups run on the bounded IFC pool).
         guid_map: dict[str, str] = {}
         try:
             file_path = ProjectService.get_project_file_path(project_id)
             if file_path.exists():
-                model = ifcopenshell.open(str(file_path))
-                for topic in topics:
-                    for elem in (topic.selected_elements or []):
-                        str_elem = str(elem)
-                        if str_elem.isdigit() or isinstance(elem, int):
-                            try:
-                                ent = model.by_id(int(elem))
-                                if ent and hasattr(ent, "GlobalId"):
-                                    guid_map[str_elem] = ent.GlobalId
-                            except Exception:
-                                pass
+                async with project_read_lock(project_id):
+                    guid_map = await run_ifc(_map_express_ids_to_guids, file_path, topics)
         except Exception as e:
             logger.warning("Could not map express IDs to GlobalIds for BCF: %s", e)
 
@@ -277,6 +342,9 @@ class BCFService:
                         entity_type=r["entity_type"],
                         payload=payload,
                         timestamp=r["timestamp"],
+                        # Edit-history rows have no status of their own: they are history.
+                        status="ACTIVE",
+                        change_kind=classify_change(r["action_type"], "ACTIVE", payload),
                     )
                 )
 
@@ -298,7 +366,8 @@ class BCFService:
                     params = {}
                 items.append(
                     AuditTimelineItem(
-                        id=hash(r["id"]) % 1000000,
+                        # crc32 of the transaction id: identical in every process (spec 1-4).
+                        id=stable_audit_id("cad", r["id"]),
                         project_id=r["project_id"],
                         user_id="cad_user",
                         user_name="CAD Operator",
@@ -307,62 +376,83 @@ class BCFService:
                         entity_type=r["entity_type"],
                         payload=params,
                         timestamp=r["created_at"],
+                        # Without the transaction's own status an UNDONE row looked applied.
+                        status=r["status"],
+                        change_kind=classify_change(r["action_type"], r["status"], params),
                     )
                 )
 
-        # Sort combined timeline chronologically
-        items.sort(key=lambda x: x.timestamp)
+        # Sort combined timeline chronologically. `id` breaks timestamp ties, so the
+        # sequence is a total order and two calls over unchanged data agree (spec 9).
+        items.sort(key=lambda x: (x.timestamp, x.id))
         return items
 
     @classmethod
     async def get_audit_diff(cls, project_id: str) -> AuditDiffResponse:
         """
-        Compute visual spatial diff buckets (added, modified, deleted)
-        by aggregating CAD transactions and edit events.
+        Compute visual spatial diff buckets (added, modified, deleted).
+
+        The classification is derived from the *latest* state of each element:
+        CAD transactions ordered oldest-first overwrite the previous verdict, so the
+        newest ACTIVE row wins. UNDONE transactions are skipped entirely - they no
+        longer describe the model, which is the only rule that is right for both an
+        undone create and an undone move (spec 8). Edit-history rows only fill gaps
+        (`setdefault`) so an audit-log line cannot override a CAD state decision.
         """
-        added: set[int] = set()
-        modified: set[int] = set()
-        deleted: set[int] = set()
+        latest: dict[int, str] = {}
 
         async with get_db_connection() as db:
-            # Check CAD transactions
+            # Check CAD transactions, oldest first, so the newest row wins.
             cad_cursor = await db.execute(
-                "SELECT express_id, action_type, status FROM cad_transactions WHERE project_id = ?",
+                """
+                SELECT express_id, action_type, status, parameters
+                FROM cad_transactions
+                WHERE project_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
                 (project_id,),
             )
             for r in await cad_cursor.fetchall():
                 exp_id = r["express_id"]
-                if r["status"] == "ACTIVE":
-                    added.add(exp_id)
-                elif r["status"] == "UNDONE":
-                    deleted.add(exp_id)
+                if exp_id is None or r["status"] == "UNDONE":
+                    continue
+                try:
+                    params = json.loads(r["parameters"]) if r["parameters"] else {}
+                except Exception:
+                    params = {}
+                latest[int(exp_id)] = classify_change(r["action_type"], r["status"], params)
 
-            # Check edit history
+            # Check edit history; it never overrides a CAD verdict.
             hist_cursor = await db.execute(
-                "SELECT express_id, action_type FROM edit_history WHERE project_id = ?",
+                """
+                SELECT express_id, action_type, payload
+                FROM edit_history
+                WHERE project_id = ?
+                ORDER BY id ASC
+                """,
                 (project_id,),
             )
             for r in await hist_cursor.fetchall():
                 exp_id = r["express_id"]
                 if not exp_id:
                     continue
-                act = r["action_type"].lower()
-                if "transform" in act or "property" in act or "update" in act:
-                    if exp_id not in added:
-                        modified.add(exp_id)
-                elif "delete" in act or "remove" in act:
-                    deleted.add(exp_id)
-                    added.discard(exp_id)
-                    modified.discard(exp_id)
+                try:
+                    payload = json.loads(r["payload"]) if r["payload"] else {}
+                except Exception:
+                    payload = {}
+                latest.setdefault(int(exp_id), classify_change(r["action_type"], "ACTIVE", payload))
+
+        added = {exp for exp, kind in latest.items() if kind == "added"}
+        modified = {exp for exp, kind in latest.items() if kind == "modified"}
+        deleted = {exp for exp, kind in latest.items() if kind == "deleted"}
 
         # Total elements in project model
         file_path = ProjectService.get_project_file_path(project_id)
         total_elements = 0
         if file_path.exists():
             try:
-                import ifcopenshell
-                m = ifcopenshell.open(str(file_path))
-                total_elements = len(m.by_type("IfcProduct"))
+                async with project_read_lock(project_id):
+                    total_elements = await run_ifc(_count_products, file_path)
             except Exception:
                 total_elements = len(added)
 

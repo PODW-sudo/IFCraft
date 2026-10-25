@@ -8,6 +8,25 @@ import type {
 } from '../types/ifc';
 import type { InteractiveEditMode } from '../types/cadEditing';
 import * as api from '../services/api';
+import {
+  buildDeleteElementRequest,
+  runDestructiveAction
+} from '../services/destructiveActions';
+import {
+  requestDestructiveConfirmation
+} from '../services/destructiveConfirmation';
+import type {
+  DestructiveConfirm,
+  DestructiveOutcome
+} from '../services/destructiveActions';
+import { notifyUser } from '../services/userMessages';
+import type { UserMessageTone } from '../services/userMessages';
+
+/** Result of the delete *executor* (it never prompts - the caller does, see `requestDeleteElement`). */
+export interface DeleteElementResult {
+  ok: boolean;
+  error?: string;
+}
 
 export interface UseCadDraftingMachineOptions {
   currentProject: ProjectMetadata | null;
@@ -17,6 +36,13 @@ export interface UseCadDraftingMachineOptions {
   onSelectElement: (expressId: number | null) => void;
   onSpatialTreeUpdated?: (tree: SpatialNode) => void;
   onElementDetailsUpdated?: (details: ElementDetails) => void;
+  /**
+   * STEP-10: confirmation transport for destructive actions. Defaults to the app-wide dialog
+   * bridge (`services/destructiveConfirmation.ts`), so no prop plumbing is required.
+   */
+  confirmDestructive?: DestructiveConfirm;
+  /** STEP-10: replace the default `userMessages` channel with the host app's own UI. */
+  onUserMessage?: (message: { text: string; tone: UserMessageTone }) => void;
 }
 
 export function useCadDraftingMachine({
@@ -26,7 +52,9 @@ export function useCadDraftingMachine({
   loadProject,
   onSelectElement,
   onSpatialTreeUpdated,
-  onElementDetailsUpdated
+  onElementDetailsUpdated,
+  confirmDestructive,
+  onUserMessage
 }: UseCadDraftingMachineOptions) {
   const [cadToolMode, setCadToolMode] = useState<CadToolMode>('select');
   const [activeInteractiveMode, setActiveInteractiveMode] = useState<InteractiveEditMode>('none');
@@ -49,6 +77,21 @@ export function useCadDraftingMachine({
       return true;
     }
   });
+
+  /**
+   * STEP-10 Spec 11 — failures the user must see go through here, never a bare `console.error`.
+   * Defaults to the app-wide `userMessages` channel (rendered by `UserMessageHost`).
+   */
+  const pushUserMessage = useCallback(
+    (text: string, tone: UserMessageTone = 'error') => {
+      if (onUserMessage) {
+        onUserMessage({ text, tone });
+        return;
+      }
+      notifyUser({ text, tone });
+    },
+    [onUserMessage]
+  );
 
   const refreshCadHistory = useCallback(async () => {
     if (!currentProject) return;
@@ -147,41 +190,106 @@ export function useCadDraftingMachine({
     if (!currentProject) return;
     try {
       const res = await api.undoCad(currentProject.id);
+      if (res.success === false) {
+        // STEP-10 Spec 11 — a no-op undo is reported to the user, not swallowed.
+        pushUserMessage(
+          res.message ? `Undo failed: ${res.message}` : 'Undo failed: nothing to undo.'
+        );
+        await refreshCadHistory();
+        return;
+      }
       await refreshCadHistory();
       await loadProject(currentProject, res.affected_express_id || selectedExpressID);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       console.error('Failed to undo CAD action:', err);
+      pushUserMessage(`Undo failed: ${detail}`);
+      await refreshCadHistory();
     }
-  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
+  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID, pushUserMessage]);
 
   const handleCadRedo = useCallback(async () => {
     if (!currentProject) return;
     try {
       const res = await api.redoCad(currentProject.id);
+      if (res.success === false) {
+        pushUserMessage(
+          res.message ? `Redo failed: ${res.message}` : 'Redo failed: nothing to redo.'
+        );
+        await refreshCadHistory();
+        return;
+      }
       await refreshCadHistory();
       await loadProject(currentProject, res.affected_express_id || selectedExpressID);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       console.error('Failed to redo CAD action:', err);
+      pushUserMessage(`Redo failed: ${detail}`);
+      await refreshCadHistory();
     }
-  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID]);
+  }, [currentProject, refreshCadHistory, loadProject, selectedExpressID, pushUserMessage]);
 
+  /**
+   * STEP-10 — the *executor* for deletes. It deliberately does not prompt: every trigger gates
+   * through `requestDeleteElement` (or `runDestructiveAction` directly) first. Failures are
+   * returned *and* surfaced, so a caller can react without the user ever seeing a silent no-op.
+   */
   const handleDeleteElement = useCallback(
-    async (expressId: number) => {
-      if (!currentProject) return;
+    async (expressId: number): Promise<DeleteElementResult> => {
+      if (!currentProject) {
+        return { ok: false, error: 'No project is open.' };
+      }
       if (pinnedExpressIdsRef.current.has(expressId)) {
-        console.warn(`Element #${expressId} is pinned. Unpin (UP) to delete.`);
-        return;
+        const error = `Element #${expressId} is pinned. Unpin (UP) to delete.`;
+        console.warn(error);
+        pushUserMessage(error, 'info');
+        return { ok: false, error };
       }
       try {
-        await api.deleteElement(currentProject.id, expressId);
+        const res = await api.deleteElement(currentProject.id, expressId);
+        if (res && res.success === false) {
+          const error = res.message || `Delete of element #${expressId} was rejected.`;
+          console.warn(error);
+          pushUserMessage(`Could not delete element #${expressId}: ${error}`);
+          return { ok: false, error };
+        }
         onSelectElement(null);
         await refreshCadHistory();
         await loadProject(currentProject);
+        return { ok: true };
       } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
         console.error('Failed to delete element:', err);
+        pushUserMessage(`Could not delete element #${expressId}: ${detail}`);
+        return { ok: false, error: detail };
       }
     },
-    [currentProject, pinnedExpressIdsRef, onSelectElement, refreshCadHistory, loadProject]
+    [
+      currentProject,
+      pinnedExpressIdsRef,
+      onSelectElement,
+      refreshCadHistory,
+      loadProject,
+      pushUserMessage
+    ]
+  );
+
+  /**
+   * STEP-10 Spec 8-10 — the *gated* delete every trigger must call. Confirmation defaults to the
+   * app-wide dialog bridge, so cancelling leaves the model untouched.
+   */
+  const requestDeleteElement = useCallback(
+    async (expressId: number, label?: string): Promise<DestructiveOutcome<DeleteElementResult>> => {
+      if (!currentProject) return { applied: false };
+      const subject = label && label.trim() ? label.trim() : `Element #${expressId}`;
+      const request = buildDeleteElementRequest(expressId, subject);
+      return runDestructiveAction(
+        request,
+        confirmDestructive ?? requestDestructiveConfirmation,
+        () => handleDeleteElement(expressId)
+      );
+    },
+    [currentProject, confirmDestructive, handleDeleteElement]
   );
 
   const handleMoveElement = useCallback(
@@ -365,6 +473,7 @@ export function useCadDraftingMachine({
     handleCadUndo,
     handleCadRedo,
     handleDeleteElement,
+    requestDeleteElement,
     handleMoveElement,
     handleRotateElement,
     handleMirrorElement,

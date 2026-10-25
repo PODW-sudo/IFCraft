@@ -1,12 +1,17 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict
+
+# STEP-18: the only schemas `ifcopenshell.file(schema=...)` can be constructed with here.
+# A free-form string let `POST /api/projects {"schema_version": "IFC9"}` create a storage
+# directory before ifcopenshell raised, leaving an orphan (F-043).
+SchemaVersion = Literal["IFC2X3", "IFC4", "IFC4X3"]
 
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=2000)
 
 class ProjectCreate(ProjectBase):
-    schema_version: str = Field("IFC4", description="IFC Schema: IFC2X3, IFC4, or IFC4X3")
+    schema_version: SchemaVersion = Field("IFC4", description="IFC Schema: IFC2X3, IFC4, or IFC4X3")
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -29,13 +34,32 @@ class SpatialNode(BaseModel):
     name: str
     type: str
     children: list["SpatialNode"] = []
+    # STEP-09: storey elevation in PROJECT units (millimetres on a mm file) so drawings can
+    # cut a plan at the right height. `None` for non-storey nodes.
+    elevation: Optional[float] = None
+    # STEP-09: metres per project unit (0.001 for a millimetre file). Root node only.
+    unit_scale: Optional[float] = None
 
 SpatialNode.model_rebuild()
+
+# STEP-18: the IfcValue select members this app may write as an `IfcPropertySingleValue`
+# NominalValue. This is a *value* type allowlist - entity names such as IfcWall are not
+# IfcValue members and must be refused (F-014/F-064).
+IFCValueType = Literal[
+    "IfcLabel", "IfcText", "IfcIdentifier",
+    "IfcReal", "IfcInteger", "IfcBoolean", "IfcLogical",
+    "IfcCountMeasure", "IfcTimeStamp",
+    "IfcLengthMeasure", "IfcPositiveLengthMeasure",
+    "IfcAreaMeasure", "IfcVolumeMeasure", "IfcMassMeasure",
+    "IfcPlaneAngleMeasure", "IfcRatioMeasure", "IfcPositiveRatioMeasure",
+    "IfcNormalisedRatioMeasure", "IfcThermalTransmittanceMeasure",
+    "IfcPowerMeasure", "IfcTimeMeasure",
+]
 
 class PropertySingle(BaseModel):
     name: str
     value: Any
-    value_type: str = "IfcLabel"
+    value_type: IFCValueType = "IfcLabel"
 
 class PropertySetData(BaseModel):
     name: str
@@ -53,7 +77,10 @@ class PropertyUpdatePayload(BaseModel):
     pset_name: str = Field(..., min_length=1)
     property_name: str = Field(..., min_length=1)
     value: Any
-    value_type: str = Field("IfcLabel", description="IfcLabel, IfcText, IfcReal, IfcInteger, IfcBoolean")
+    value_type: IFCValueType = Field(
+        "IfcLabel",
+        description="An IfcValue select member (e.g. IfcLabel, IfcReal, IfcBoolean, IfcLengthMeasure)",
+    )
 
 class TransformPayload(BaseModel):
     # 4x4 Transformation matrix (16 floats in column-major order)
@@ -95,6 +122,16 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
     result: Optional[dict[str, Any]] = None
 
+class PendingToolCall(BaseModel):
+    """A model-writing tool call the service refused to execute without confirmation."""
+    name: str
+    arguments: dict[str, Any]
+
+class CopilotToolError(BaseModel):
+    """A tool that ran and failed, surfaced to the client instead of being swallowed."""
+    tool: str
+    message: str
+
 class CopilotChatRequest(BaseModel):
     project_id: str
     messages: list[ChatMessage]
@@ -103,11 +140,18 @@ class CopilotChatRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     selected_express_id: Optional[int] = None
+    confirm_writes: bool = Field(
+        False,
+        description="Must be true before any model-writing tool (generate/transform/update) is executed."
+    )
 
 class CopilotChatResponse(BaseModel):
     message: ChatMessage
     tool_calls: list[ToolCall] = []
     project_updated: bool = False
+    requires_confirmation: bool = False
+    pending_tool_calls: list[PendingToolCall] = []
+    errors: list[CopilotToolError] = []
 
 class CopilotModelsRequest(BaseModel):
     provider: str = Field("gemini", description="'gemini', 'claude', 'openai', 'openrouter', 'custom', 'ollama', or 'local'")
@@ -172,6 +216,25 @@ class ClashCheckResponse(BaseModel):
     tolerance: float
     clashes: list[ClashItem]
     duration_ms: float
+
+    # --- Completeness signal (STEP-06 / finding F-005) ---
+    # A clash report that does not say what it examined lets a partial scan be read as a
+    # coordination result. These three fields are the disclosure contract.
+    elements_checked: int = Field(
+        0,
+        description=(
+            "Unique target elements considered by the check (deduplicated by express id). "
+            "This includes elements counted in geometry_failures."
+        )
+    )
+    geometry_failures: int = Field(
+        0,
+        description="Number of target elements whose geometry could not be built (never checked)"
+    )
+    sampled: bool = Field(
+        False,
+        description="True when only a subset of the model was examined (a cap was applied)"
+    )
 
 # ===========================================================================
 # CAD Modeling & Parametric Synthesis Schemas (Phase 11)
@@ -330,6 +393,11 @@ class AuditTimelineItem(BaseModel):
     entity_type: Optional[str] = None
     payload: dict[str, Any]
     timestamp: str
+    # STEP-19: CAD rows carry the transaction's own status, edit-history rows are ACTIVE.
+    # Without it an UNDONE transaction is indistinguishable from an applied one (F-022).
+    status: str = "ACTIVE"
+    # STEP-19: derived from the shared classifier - "added" | "modified" | "deleted".
+    change_kind: str = "added"
 
 class AuditDiffResponse(BaseModel):
     total_elements: int

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PlusCircle, X, Loader2, Sparkles, Building2, Landmark } from 'lucide-react';
 import { fetchSampleModels } from '../../services/api';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface SampleModelItem {
   id: string;
@@ -31,6 +32,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [schema, setSchema] = useState('IFC4');
   const [samples, setSamples] = useState<SampleModelItem[]>([]);
   const [selectedSampleId, setSelectedSampleId] = useState<string>('duplex_residential');
+  // STEP-28 (spec 8.x): dialog semantics + focus trap + focus restore.
+  const { ref: dialogRef, onKeyDown: handleDialogKeyDown } = useFocusTrap<HTMLDivElement>(isOpen);
 
   useEffect(() => {
     if (isOpen) {
@@ -57,6 +60,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-project-modal-title"
+        onKeyDown={handleDialogKeyDown}
         data-qa="new-project-modal"
         className="w-full max-w-md bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl"
       >
@@ -64,13 +72,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/80 dark:border-white/10">
           <div className="flex items-center gap-2">
             <PlusCircle className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">New Project & Onboarding</h3>
+            <h3 id="new-project-modal-title" className="text-sm font-semibold text-slate-900 dark:text-slate-100">New Project & Onboarding</h3>
           </div>
           {!isLoading && (
             <button
               data-qa="new-project-close-btn"
               onClick={onClose}
-              className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Close new project dialog"
+              className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 min-h-11 min-w-11 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>

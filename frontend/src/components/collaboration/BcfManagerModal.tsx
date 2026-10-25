@@ -24,7 +24,8 @@ interface BcfManagerModalProps {
     target: [number, number, number];
   };
   selectedExpressID?: number | null;
-  exportUrl: string;
+  /** STEP-05 / F-003: the archive is fetched with the API token, so this is a click handler. */
+  onExport: () => void | Promise<void>;
 }
 
 export const BcfManagerModal: React.FC<BcfManagerModalProps> = ({
@@ -39,7 +40,7 @@ export const BcfManagerModal: React.FC<BcfManagerModalProps> = ({
   onSelectTopic,
   currentCameraView,
   selectedExpressID,
-  exportUrl,
+  onExport,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -122,16 +123,15 @@ export const BcfManagerModal: React.FC<BcfManagerModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <a
+            <button
               data-qa="bcf-export-btn"
-              href={exportUrl}
-              download={`${projectName.replace(/\s+/g, '_')}_issues.bcfzip`}
+              onClick={() => void onExport()}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-action-primary-bg text-action-primary-text font-medium hover:opacity-90 active:scale-95 transition-all shadow-sm"
               title="Download standard .bcfzip issue archive"
             >
               <Download size={14} />
               <span>Export .bcfzip</span>
-            </a>
+            </button>
 
             <button
               onClick={onClose}
