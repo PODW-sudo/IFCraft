@@ -28,7 +28,8 @@ import sys
 
 def _configure_event_loop() -> None:
     if sys.platform == "win32":
-        # Must be set before uvicorn creates its loop.
+        # Belt and braces: uvicorn >= 0.36 ignores the policy and uses its own loop factory,
+        # so `loop="selector_loop:selector_loop_factory"` below is what actually takes effect.
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
@@ -48,7 +49,8 @@ def main() -> int:
         host=args.host,
         port=args.port,
         reload=args.reload,
-        loop="asyncio",
+        # uvicorn's own asyncio factory forces Proactor on Windows; this module returns Selector.
+        loop="selector_loop:selector_loop_factory",
         workers=1,
         log_level="info",
     )
